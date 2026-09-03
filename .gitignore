@@ -23,3 +23,6 @@ outputs/**
 # IDEs
 .vscode/
 .idea/
+
+# Ignore requirements.txt as requested
+requirements.txt
