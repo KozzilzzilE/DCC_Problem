@@ -10,9 +10,11 @@ env/
 # Jupyter Notebook
 .ipynb_checkpoints/
 
-# Deep Learning Data & Models (Do NOT push large files)
-data/
-outputs/
+# Deep Learning Data & Models
+data/**
+!data/**/.gitkeep
+outputs/**
+!outputs/**/.gitkeep
 *.pt
 *.pth
 *.h5
