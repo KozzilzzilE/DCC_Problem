@@ -1,0 +1,27 @@
+﻿# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Deep Learning Data & Models
+data/**
+!data/**/.gitkeep
+outputs/**
+!outputs/**/.gitkeep
+*.pt
+*.pth
+*.h5
+*.weights
+
+# IDEs
+.vscode/
+.idea/
+
+
