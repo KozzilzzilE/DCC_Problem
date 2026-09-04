@@ -165,3 +165,78 @@ def test_cli_end_to_end(dataset, ckpt, tmp_path):
     assert list(df.columns) == ["audio file name", "gender"]
     assert len(df) == 3
     assert set(df["gender"]) <= {"남", "여"}
+
+
+class _FirstSampleModel(torch.nn.Module):
+    """창의 첫 샘플만 보고 logit 을 내는 결정적 스텁.
+
+    패딩(뒤쪽 0)에 영향받지 않으므로, 조각 길이가 달라도 창마다 의도한 확률을
+    정확히 재현할 수 있다.
+    """
+
+    def forward(self, waveform):
+        return waveform[:, 0] * 10.0
+
+
+def test_windows_are_averaged_per_segment_before_per_call(tmp_path, monkeypatch):
+    """긴 조각이 창 개수만큼 가중되면 안 된다.
+
+    창 -> 통화로 한 번에 평균하면 창이 6개 나오는 긴 조각이 창 1개짜리 짧은
+    조각을 압도한다. m1.evaluate 는 창 -> 조각 -> 통화 순으로 두 번 평균하므로,
+    제출 경로도 같아야 보고한 수치와 실제 결과가 일치한다.
+    """
+    from m1 import infer
+
+    cfg = FeatureConfig()
+    audio_dir = tmp_path / "audio"
+    label_dir = tmp_path / "label"
+    audio_dir.mkdir()
+    label_dir.mkdir()
+
+    # 0~10초: 값 +0.46 (여성 쪽 logit +4.6), 11~12초: 값 -0.69 (남성 쪽 logit -6.9)
+    wave = np.zeros(SR * 13, dtype=np.int16)
+    wave[: SR * 10] = int(0.46 * 32768)
+    wave[SR * 11 : SR * 12] = int(-0.69 * 32768)
+    sf.write(audio_dir / "c.wav", wave, SR, subtype="PCM_16")
+    (label_dir / "c.json").write_text(
+        json.dumps({"utterances": [
+            {"startAt": 0, "endAt": 10000, "speaker": 1},
+            {"startAt": 11000, "endAt": 12000, "speaker": 1},
+        ]}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        infer, "load_checkpoint",
+        lambda path, device="cpu": (_FirstSampleModel(), "resnet", cfg, {}),
+    )
+
+    df = infer.predict_directory(audio_dir, label_dir, "unused.pt", device="cpu", verbose=False)
+
+    # 조각별 평균: (0.99 + 0.001) / 2 = 0.4955 -> 남
+    # 창을 한 번에 평균했다면: (6*0.99 + 0.001) / 7 = 0.849 -> 여
+    assert df.iloc[0]["gender"] == "남"
+
+
+def test_call_windows_tags_segments_not_windows(tmp_path):
+    """긴 조각에서 나온 창들은 같은 조각 번호를 공유해야 한다."""
+    from m1.infer import _call_windows
+    from m1.labels import read_call
+
+    cfg = FeatureConfig()
+    label_dir = tmp_path / "label"
+    label_dir.mkdir()
+    (label_dir / "c.json").write_text(
+        json.dumps({"utterances": [
+            {"startAt": 0, "endAt": 10000, "speaker": 1},
+            {"startAt": 11000, "endAt": 12000, "speaker": 1},
+        ]}),
+        encoding="utf-8",
+    )
+
+    audio = np.zeros(SR * 13, dtype=np.int16)
+    tags = [seg_idx for seg_idx, _ in _call_windows(read_call(label_dir / "c.json"), audio, cfg, "resnet")]
+
+    assert set(tags) == {0, 1}
+    assert tags.count(0) > 1, "10초 조각은 창이 여러 개 나와야 한다"
+    assert tags.count(1) == 1, "1초 조각은 패딩되어 창 하나"

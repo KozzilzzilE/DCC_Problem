@@ -49,12 +49,18 @@ def _load_call_audio(wav_path: Path, target_sr: int) -> np.ndarray | None:
 
 def _call_windows(
     record: CallRecord, audio: np.ndarray, cfg: FeatureConfig, branch: str
-) -> Iterator[np.ndarray]:
-    """한 통화의 신고자 조각들을 고정 길이 창으로 펼친다."""
+) -> Iterator[tuple[int, np.ndarray]]:
+    """한 통화의 신고자 조각들을 (조각 번호, 고정 길이 창) 으로 펼친다.
+
+    조각 번호를 함께 내보내는 이유: 창 확률을 먼저 조각 단위로 평균한 뒤 통화
+    단위로 평균해야 한다. 창을 통화 전체에서 한 번에 평균하면 창이 많이 나오는
+    긴 조각에 가중치가 쏠려, m1.evaluate 가 보고하는 수치와 제출 결과가 달라진다.
+    """
     window = cfg.window_samples
     stride = max(1, int(window * STRIDE_RATIO))
     min_samples = max(1, int(MIN_SEGMENT_MS * cfg.sample_rate / 1000))
 
+    seg_idx = 0
     for utt in caller_utterances(record):
         start = max(0, int(utt.start_ms * cfg.sample_rate / 1000))
         end = min(len(audio), int(utt.end_ms * cfg.sample_rate / 1000))
@@ -63,11 +69,11 @@ def _call_windows(
             continue
 
         if len(segment) < window:
-            yield to_waveform(crop_or_pad(segment, window, None), branch)
-            continue
-
-        for win_start, _ in sliding_windows(len(segment), window, stride):
-            yield to_waveform(segment[win_start : win_start + window], branch)
+            yield seg_idx, to_waveform(crop_or_pad(segment, window, None), branch)
+        else:
+            for win_start, _ in sliding_windows(len(segment), window, stride):
+                yield seg_idx, to_waveform(segment[win_start : win_start + window], branch)
+        seg_idx += 1
 
 
 @torch.no_grad()
@@ -94,12 +100,12 @@ def predict_directory(
               + (f" dev_call_acc={trained:.4f}" if trained else ""))
 
     records = list(iter_calls(label_dir))
-    call_probs: dict[str, float | None] = {}
 
     batch: list[np.ndarray] = []
-    batch_ids: list[str] = []
-    sums: dict[str, float] = {}
-    counts: dict[str, int] = {}
+    batch_keys: list[tuple[str, int]] = []
+    # (call_id, seg_idx) -> 창 확률의 합/개수. 조각 단위로 먼저 평균한다.
+    sums: dict[tuple[str, int], float] = {}
+    counts: dict[tuple[str, int], int] = {}
 
     def flush() -> None:
         if not batch:
@@ -108,29 +114,33 @@ def predict_directory(
         with torch.autocast(device_type=device.type, enabled=device.type == "cuda"):
             logits = model(waveform)
         probs = torch.sigmoid(logits.float()).cpu().numpy()
-        for call_id, prob in zip(batch_ids, probs):
-            sums[call_id] = sums.get(call_id, 0.0) + float(prob)
-            counts[call_id] = counts.get(call_id, 0) + 1
+        for key, prob in zip(batch_keys, probs):
+            sums[key] = sums.get(key, 0.0) + float(prob)
+            counts[key] = counts.get(key, 0) + 1
         batch.clear()
-        batch_ids.clear()
+        batch_keys.clear()
 
     for n, record in enumerate(records, start=1):
         audio = _load_call_audio(audio_dir / f"{record.call_id}.wav", cfg.sample_rate)
         if audio is not None:
-            for chunk in _call_windows(record, audio, cfg, branch):
+            for seg_idx, chunk in _call_windows(record, audio, cfg, branch):
                 batch.append(chunk)
-                batch_ids.append(record.call_id)
+                batch_keys.append((record.call_id, seg_idx))
                 if len(batch) >= batch_size:
                     flush()
         if verbose and n % 500 == 0:
             print(f"  {n}/{len(records)} calls", flush=True)
     flush()
 
-    for record in records:
-        n = counts.get(record.call_id, 0)
-        call_probs[record.call_id] = (
-            call_probability(np.array([sums[record.call_id] / n])) if n else None
-        )
+    # 창 -> 조각 평균, 그 다음 조각 -> 통화 평균 (m1.evaluate 와 동일한 순서)
+    segment_probs: dict[str, list[float]] = {}
+    for (call_id, _seg_idx), total in sums.items():
+        segment_probs.setdefault(call_id, []).append(total / counts[(call_id, _seg_idx)])
+
+    call_probs: dict[str, float | None] = {
+        record.call_id: call_probability(np.array(segment_probs.get(record.call_id, [])))
+        for record in records
+    }
 
     rows = [
         {"audio file name": f"{record.call_id}.wav", "gender": call_label(call_probs[record.call_id])}
@@ -143,7 +153,7 @@ def predict_directory(
         if wav.stem not in seen:
             rows.append({"audio file name": wav.name, "gender": call_label(None)})
 
-    missing = sum(1 for r in records if not counts.get(r.call_id))
+    missing = sum(1 for r in records if not segment_probs.get(r.call_id))
     if verbose and missing:
         print(f"  경고: {missing}개 통화에서 신고자 조각을 얻지 못해 다수 클래스로 폴백")
 
