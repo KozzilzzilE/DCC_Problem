@@ -41,6 +41,8 @@ def parse_args(argv=None):
     p.add_argument("--n-mels", type=int, default=64)
     p.add_argument("--window-frames", type=int, default=192)
     p.add_argument("--max-train-calls", type=int, default=0, help="0 이면 전부 사용")
+    p.add_argument("--max-dev-calls", type=int, default=0,
+                   help="0 이면 전부 사용. 스모크 테스트에서 dev 평가 비용을 줄일 때 쓴다")
     p.add_argument("--eval-mode", choices=("center", "sliding"), default="center")
     p.add_argument("--no-amp", action="store_true")
     p.add_argument("--w2v2-model", type=str, default=None)
@@ -48,13 +50,21 @@ def parse_args(argv=None):
     return p.parse_args(argv)
 
 
-def build_splits(index: CacheIndex, dev_fraction: float, seed: int, max_train_calls: int):
+def build_splits(
+    index: CacheIndex,
+    dev_fraction: float,
+    seed: int,
+    max_train_calls: int,
+    max_dev_calls: int = 0,
+):
     groups = index.by_call()
     labelled = [cid for cid, rows in groups.items() if rows[0].gender]
     train_ids, dev_ids = split_calls(labelled, dev_fraction, seed)
 
     if max_train_calls:
         train_ids = set(sorted(train_ids)[:max_train_calls])
+    if max_dev_calls:
+        dev_ids = set(sorted(dev_ids)[:max_dev_calls])
 
     train_rows = [r for cid in sorted(train_ids) for r in groups[cid]]
     dev_rows = [r for cid in sorted(dev_ids) for r in groups[cid]]
@@ -120,7 +130,7 @@ def main(argv=None) -> int:
         raise SystemExit(f"캐시가 비어 있습니다: {args.cache}")
 
     train_samples, dev_samples = build_splits(
-        index, args.dev_fraction, args.seed, args.max_train_calls
+        index, args.dev_fraction, args.seed, args.max_train_calls, args.max_dev_calls
     )
     dev_truth = truth_from_samples(dev_samples)
 
