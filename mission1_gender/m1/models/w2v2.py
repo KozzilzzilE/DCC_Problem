@@ -12,12 +12,16 @@ from transformers import AutoConfig, Wav2Vec2Model
 
 from ..datasets import W2V2_SAMPLE_RATE
 
-# 한국어 base 계열을 우선 시도하고, 받을 수 없으면 원본 base 로 폴백한다.
-# 실제로 어떤 체크포인트가 쓰였는지는 항상 체크포인트 메타에 기록된다.
+# 공개된 한국어 wav2vec2 는 large(24층/hidden 1024) 뿐이고 base 크기는 없다.
+# (kresnik/Bingsu 의 base-korean 은 존재하지 않음을 확인)
+#
+# 성별 판별의 단서는 F0 와 포먼트 같은 음향 특성이라 언어 의존도가 낮고, base 가
+# 8 GB VRAM 에 여유롭게 들어가므로 기본 비교 대상은 base 로 둔다. 한국어 large 는
+# --w2v2-model 로 지정해 추가 실험할 수 있다.
+KOREAN_LARGE = "kresnik/wav2vec2-large-xlsr-korean"
 DEFAULT_CANDIDATES = (
-    "kresnik/wav2vec2-base-korean",
-    "Bingsu/wav2vec2-base-korean",
     "facebook/wav2vec2-base",
+    KOREAN_LARGE,
 )
 
 

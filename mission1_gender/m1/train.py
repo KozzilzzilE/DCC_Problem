@@ -124,15 +124,16 @@ def main(argv=None) -> int:
     )
     dev_truth = truth_from_samples(dev_samples)
 
-    print(f"device={device} branch={args.branch} amp={amp}")
-    print(f"train: {len(train_samples)} segments / {len({s.row.call_id for s in train_samples})} calls")
-    print(f"dev  : {len(dev_samples)} segments / {len(dev_truth)} calls")
-    print(f"dev majority baseline (call-level): {majority_baseline(dev_truth):.4f}")
+    # 첫 epoch 이 끝나기까지 수 분이 걸리므로 설정 요약은 즉시 흘려보낸다.
+    print(f"device={device} branch={args.branch} amp={amp}", flush=True)
+    print(f"train: {len(train_samples)} segments / {len({s.row.call_id for s in train_samples})} calls", flush=True)
+    print(f"dev  : {len(dev_samples)} segments / {len(dev_truth)} calls", flush=True)
+    print(f"dev majority baseline (call-level): {majority_baseline(dev_truth):.4f}", flush=True)
 
     kwargs = {"model_name": args.w2v2_model} if args.branch == "w2v2" else {}
     model = build_model(args.branch, cfg, **kwargs).to(device)
     n_params = sum(p.numel() for p in model.parameters())
-    print(f"parameters: {n_params/1e6:.1f}M")
+    print(f"parameters: {n_params/1e6:.1f}M", flush=True)
 
     train_loader = DataLoader(
         SegmentWindowDataset(index, train_samples, cfg, branch=args.branch, train=True, seed=args.seed),
