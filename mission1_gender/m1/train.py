@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
+from ._console import ensure_utf8_stdout
 from .cache import CacheIndex
 from .config import FeatureConfig, TrainConfig
 from .datasets import SegmentWindowDataset, Sample, samples_from_rows, split_calls
@@ -103,6 +104,7 @@ def run_epoch(model, loader, criterion, optimizer, scaler, device, amp) -> tuple
 
 
 def main(argv=None) -> int:
+    ensure_utf8_stdout()
     args = parse_args(argv)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)

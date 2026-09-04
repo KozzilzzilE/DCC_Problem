@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from ._console import ensure_utf8_stdout
 from .cache import CacheIndex
 from .datasets import samples_from_rows
 from .evaluate import majority_baseline, predict_segment_probs, score, truth_from_samples
@@ -48,11 +49,18 @@ def parse_args(argv=None):
     return p.parse_args(argv)
 
 
-def measure_preprocess_throughput(model, cfg, branch, device, n: int = 512) -> float:
+def _rounded(value: float | None, digits: int) -> float | None:
+    """NaN 은 JSON 에서 유효하지 않으므로 None(null) 으로 눕힌다."""
+    if value is None or value != value:
+        return None
+    return round(value, digits)
+
+
+def measure_preprocess_throughput(model, cfg, branch, device, n: int = 512) -> float | None:
     """피처 프런트엔드만 따로 재 초당 처리 조각 수를 구한다."""
     frontend = getattr(model, "frontend", None)
     if frontend is None:
-        return float("nan")  # w2v2 는 raw waveform 을 그대로 먹는다
+        return None  # w2v2 는 raw waveform 을 그대로 먹어 별도 전처리가 없다
 
     batch = torch.zeros(64, cfg.window_samples, device=device)
     with torch.no_grad():
@@ -114,7 +122,7 @@ def evaluate_checkpoint(path: Path, args, device) -> dict:
     metrics = score(samples, probs, truth)
 
     history_path = path.with_suffix(".history.json")
-    train_seconds = float("nan")
+    train_seconds = None
     if history_path.exists():
         history = json.loads(history_path.read_text(encoding="utf-8"))["history"]
         train_seconds = float(np.median([r["train_seconds"] for r in history]))
@@ -125,17 +133,17 @@ def evaluate_checkpoint(path: Path, args, device) -> dict:
         "feature": cfg.kind,
         "model_name": payload.get("extra", {}).get("model_name"),
         "n_params_m": round(payload.get("extra", {}).get("n_params", 0) / 1e6, 1),
-        "dev_call_accuracy": round(payload.get("metrics", {}).get("dev_call_accuracy", float("nan")), 4),
-        "val_call_accuracy": round(metrics.call_accuracy, 4),
-        "val_segment_accuracy": round(metrics.segment_accuracy, 4),
+        "dev_call_accuracy": _rounded(payload.get("metrics", {}).get("dev_call_accuracy"), 4),
+        "val_call_accuracy": _rounded(metrics.call_accuracy, 4),
+        "val_segment_accuracy": _rounded(metrics.segment_accuracy, 4),
         "val_confusion": metrics.confusion,
-        "val_per_gender_accuracy": {k: round(v, 4) for k, v in metrics.per_gender_accuracy.items()},
-        "val_total_seconds": round(val_seconds, 1),
-        "train_seconds_per_epoch": round(train_seconds, 1),
-        "preprocess_segments_per_second": round(
+        "val_per_gender_accuracy": {k: _rounded(v, 4) for k, v in metrics.per_gender_accuracy.items()},
+        "val_total_seconds": _rounded(val_seconds, 1),
+        "train_seconds_per_epoch": _rounded(train_seconds, 1),
+        "preprocess_segments_per_second": _rounded(
             measure_preprocess_throughput(model, cfg, branch, device), 1
         ),
-        "inference_ms_per_call": round(
+        "inference_ms_per_call": _rounded(
             measure_call_latency(model, index, samples, cfg, branch, device,
                                  args.eval_mode, args.latency_calls), 2
         ),
@@ -157,7 +165,11 @@ def to_markdown(results: list[dict], baseline: float) -> str:
         divider,
     ]
     for row in results:
-        lines.append("| " + " | ".join(str(row.get(key, "")) for key, _ in COLUMNS) + " |")
+        cells = [
+            "해당 없음" if row.get(key) is None else str(row.get(key, ""))
+            for key, _ in COLUMNS
+        ]
+        lines.append("| " + " | ".join(cells) + " |")
 
     lines += ["", "## 통화 단위 혼동행렬 (Validation)", ""]
     for row in results:
@@ -167,6 +179,7 @@ def to_markdown(results: list[dict], baseline: float) -> str:
 
 
 def main(argv=None) -> int:
+    ensure_utf8_stdout()
     args = parse_args(argv)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
