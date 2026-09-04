@@ -1,6 +1,9 @@
 import argparse
 import os
+import sys
 import json
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 import librosa
@@ -8,6 +11,16 @@ import torch
 import torch.nn as nn
 from torchvision import models
 from tqdm.auto import tqdm
+
+# Mission 1 패키지(mission1_gender/m1)를 import 가능하게 한다.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "mission1_gender"))
+
+# 한국어 Windows 콘솔은 기본 인코딩이 cp949 라, 진행 메시지의 이모지/한글이
+# UnicodeEncodeError 로 스크립트 전체를 죽인다. 평가 환경에서 결과 CSV 를 다 쓰고도
+# 종료 코드가 1 이 되는 사고를 막기 위해 출력 스트림을 UTF-8 로 고정한다.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 # ==========================================
 # [공통] Mission 2 모델 아키텍처 정의
@@ -35,12 +48,17 @@ def parse_args():
     return parser.parse_args()
 
 def mission1_inference(audio_dir, label_dir, ckpt_path):
-    print("Mission 1 추론 시작...")
-    results = [
-        {"audio file name": "sample1.wav", "gender": "여"},
-        {"audio file name": "sample2.wav", "gender": "남"}
-    ]
-    return pd.DataFrame(results)
+    """신고자 성별 분류.
+
+    라벨 JSON 에서는 startAt / endAt / speaker 만 읽어 신고자(speaker=1) 발화
+    구간을 잘라내고, 조각별 확률을 통화 단위로 평균(soft voting)해 남/여를
+    정한다. 전처리 설정은 체크포인트에 함께 저장돼 있어 자동 복원된다.
+    """
+    print("Mission 1 추론 시작 (신고자 조각 -> 통화 단위 소프트 보팅)...")
+
+    from m1.infer import predict_directory
+
+    return predict_directory(audio_dir, label_dir, ckpt_path)
 
 def mission2_inference(audio_dir, label_dir, ckpt_path):
     print("Mission 2 추론 시작 (소프트 보팅 / Soft Voting 방식)...")
