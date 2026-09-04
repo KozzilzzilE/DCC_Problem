@@ -1,0 +1,86 @@
+{
+  "baseline": 0.5381868131868132,
+  "results": [
+    {
+      "label": "resnet_full",
+      "branch": "resnet",
+      "feature": "logmel",
+      "model_name": null,
+      "n_params_m": 23.5,
+      "dev_call_accuracy": 0.986,
+      "val_call_accuracy": 0.9791,
+      "val_segment_accuracy": 0.8771,
+      "val_confusion": {
+        "남->남": 1635,
+        "남->여": 46,
+        "여->남": 30,
+        "여->여": 1929
+      },
+      "val_per_gender_accuracy": {
+        "남": 0.9726,
+        "여": 0.9847
+      },
+      "val_total_seconds": 24.4,
+      "train_seconds_per_epoch": 326.2,
+      "preprocess_segments_per_second": 49191.0,
+      "inference_ms_per_call": 11.2,
+      "peak_vram_mb": 489.8,
+      "n_val_calls": 3640,
+      "n_val_segments": 58101
+    },
+    {
+      "label": "w2v2_full",
+      "branch": "w2v2",
+      "feature": "logmel",
+      "model_name": "facebook/wav2vec2-base",
+      "n_params_m": 94.4,
+      "dev_call_accuracy": 0.9897,
+      "val_call_accuracy": 0.9835,
+      "val_segment_accuracy": 0.8965,
+      "val_confusion": {
+        "남->남": 1645,
+        "남->여": 36,
+        "여->남": 24,
+        "여->여": 1935
+      },
+      "val_per_gender_accuracy": {
+        "남": 0.9786,
+        "여": 0.9877
+      },
+      "val_total_seconds": 190.1,
+      "train_seconds_per_epoch": 2708.4,
+      "preprocess_segments_per_second": null,
+      "inference_ms_per_call": 62.83,
+      "peak_vram_mb": 7251.2,
+      "n_val_calls": 3640,
+      "n_val_segments": 58101
+    },
+    {
+      "label": "w2v2_8ep",
+      "branch": "w2v2",
+      "feature": "logmel",
+      "model_name": "facebook/wav2vec2-base",
+      "n_params_m": 94.4,
+      "dev_call_accuracy": 0.9894,
+      "val_call_accuracy": 0.9824,
+      "val_segment_accuracy": 0.8947,
+      "val_confusion": {
+        "남->남": 1638,
+        "남->여": 43,
+        "여->남": 21,
+        "여->여": 1938
+      },
+      "val_per_gender_accuracy": {
+        "남": 0.9744,
+        "여": 0.9893
+      },
+      "val_total_seconds": 190.1,
+      "train_seconds_per_epoch": 3025.4,
+      "preprocess_segments_per_second": null,
+      "inference_ms_per_call": 62.54,
+      "peak_vram_mb": 7251.2,
+      "n_val_calls": 3640,
+      "n_val_segments": 58101
+    }
+  ]
+}
