@@ -1,0 +1,41 @@
+# Mission 1 (신고자 성별 분류) 실행 환경
+#
+# 리포지터리 루트의 requirements.txt 는 torch==2.7.1+cu118 로 고정돼 있는데,
+# RTX 5060 은 Blackwell(sm_120) 이라 CUDA 11.8 이 이 아키텍처를 지원하지 않는다.
+# Mission 1 은 아래 조합으로 학습·검증했다.
+#
+# 설치:
+#   python -m venv venv
+#   venv\Scripts\python -m pip install torch==2.13.0+cu130 torchvision==0.28.0+cu130 \
+#       --index-url https://download.pytorch.org/whl/cu130
+#   venv\Scripts\python -m pip install -r mission1_gender/requirements-mission1.txt
+#
+# 주의: torchaudio 는 쓰지 않는다. torch 2.13 에 맞는 cu130 빌드가 없어
+# (해당 채널 최대 2.11), log-Mel/MFCC 를 torch.stft 로 직접 구현했다.
+# librosa 는 그 구현을 대조 검증하는 테스트에서만 쓰인다.
+
+# --- GPU 스택 (위 index-url 로 별도 설치) ---
+# torch==2.13.0+cu130
+# torchvision==0.28.0+cu130
+
+# --- 핵심 ---
+transformers==5.15.0
+accelerate==1.14.0
+numpy==2.4.6
+scipy==1.18.0
+pandas==3.0.5
+scikit-learn==1.9.0
+
+# --- 오디오 I/O ---
+soundfile==0.14.0
+
+# --- 리포트 / 노트북 ---
+matplotlib==3.11.1
+tqdm==4.70.0
+nbformat==5.11.1
+nbconvert==7.17.1
+ipykernel==7.3.0
+
+# --- 테스트 (librosa 는 피처 수치 대조용) ---
+pytest==9.1.1
+librosa==1.0.0
