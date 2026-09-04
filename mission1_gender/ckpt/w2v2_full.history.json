@@ -1,0 +1,55 @@
+{
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.25925,
+      "train_segment_accuracy": 0.88013,
+      "dev_call_accuracy": 0.9839,
+      "dev_segment_accuracy": 0.89132,
+      "train_seconds": 2781.5,
+      "lr": 2.25e-05
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.2261,
+      "train_segment_accuracy": 0.89529,
+      "dev_call_accuracy": 0.98664,
+      "dev_segment_accuracy": 0.89465,
+      "train_seconds": 2708.1,
+      "lr": 7.500000000000004e-06
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.20571,
+      "train_segment_accuracy": 0.90405,
+      "dev_call_accuracy": 0.98973,
+      "dev_segment_accuracy": 0.89826,
+      "train_seconds": 2708.4,
+      "lr": 0.0
+    }
+  ],
+  "best_dev_call_accuracy": 0.9897260273972602,
+  "dev_majority_baseline": 0.5267123287671233,
+  "feature_config": {
+    "sample_rate": 8000,
+    "n_fft": 1024,
+    "hop_length": 128,
+    "n_mels": 64,
+    "fmin": 20.0,
+    "fmax": 4000.0,
+    "kind": "logmel",
+    "n_mfcc": 40,
+    "window_frames": 192
+  },
+  "train_config": {
+    "branch": "w2v2",
+    "epochs": 3,
+    "batch_size": 32,
+    "lr": 3e-05,
+    "weight_decay": 0.0001,
+    "num_workers": 6,
+    "dev_fraction": 0.1,
+    "seed": 1234,
+    "amp": true
+  }
+}
