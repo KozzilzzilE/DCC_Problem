@@ -16,7 +16,7 @@
 2. **통화 단위 집계** — 한 통화의 조각별 확률을 평균(soft voting)해 남/여 결정
 
 통화당 신고자 조각이 평균 15.8개라 집계 효과가 크다. 실측으로 조각 정확도 0.877 →
-통화 정확도 0.979 (Validation 3,640통화, ResNet50 기준).
+통화 정확도 0.981 (Validation 3,640통화, ResNet50 + 임계값 보정).
 
 ## 데이터 실측
 
@@ -102,7 +102,21 @@ PYTHONPATH=mission1_gender python -m m1.train --branch w2v2 --cache cache/train 
 PYTHONPATH=mission1_gender python -m m1.benchmark --ckpt mission1_gender/ckpt/resnet_full.pt --ckpt mission1_gender/ckpt/w2v2_full.pt
 ```
 
-### 5. 제출 규격 추론
+### 5. 결정 임계값 보정 (선택, 권장)
+
+```bash
+PYTHONPATH=mission1_gender python -m m1.calibrate --ckpt mission1_gender/ckpt/resnet_full.pt
+```
+
+조각 확률을 통화 단위로 평균하면 0.5 가 최적이 아니다. dev 에서 고른 0.515 를
+쓰면 Validation 통화 Accuracy 가 0.9791 -> 0.9808 이 된다 (계산 비용 0).
+보정값은 체크포인트에 저장되어 추론 시 자동 적용된다.
+
+**Validation 으로 임계값을 고르면 안 된다.** Validation 최적값 0.540 을 쓰면
++0.28%p 로 보이지만 평가 데이터에 맞춘 값이라 재현되지 않는다. dev 에서 고른
+값의 실제 이득은 +0.16%p 다.
+
+### 6. 제출 규격 추론
 
 ```bash
 python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --ckpt_path ./mission1_gender/ckpt/resnet_full.pt --output ./outputs/mission1.csv

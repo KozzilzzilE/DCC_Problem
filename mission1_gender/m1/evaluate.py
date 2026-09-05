@@ -35,6 +35,18 @@ class CallMetrics:
         )
 
 
+def suggested_workers(branch: str) -> int:
+    """갈래별 권장 DataLoader 워커 수.
+
+    워커 수는 항목당 CPU 작업량에 맞춰야 한다.
+    - resnet : 캐시에서 메모리 복사만 하므로 CPU 작업이 없다. Windows 의 spawn
+      워커를 쓰면 배치마다 25MB 를 파이프로 넘기느라 오히려 5.6배 느려진다.
+    - w2v2   : 창마다 resample_poly 로 8k -> 16k 업샘플을 한다. 실제 CPU 작업이
+      있어 워커가 필요하다.
+    """
+    return 4 if branch == "w2v2" else 0
+
+
 @torch.no_grad()
 def predict_segment_probs(
     model: torch.nn.Module,

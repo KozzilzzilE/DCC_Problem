@@ -1,0 +1,12 @@
+{
+  "resnet_full": {
+    "dev_threshold": 0.515,
+    "dev_accuracy_at_half": 0.9863,
+    "dev_accuracy_at_threshold": 0.9866,
+    "val_accuracy_at_half": 0.9791,
+    "val_accuracy_at_threshold": 0.9808,
+    "val_gain_pp": 0.165,
+    "val_oracle_threshold": 0.54,
+    "val_oracle_accuracy": 0.9819
+  }
+}
