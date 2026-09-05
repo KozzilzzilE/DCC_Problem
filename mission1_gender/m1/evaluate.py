@@ -58,6 +58,14 @@ def predict_segment_probs(
     else:
         raise ValueError(f"mode must be 'center' or 'sliding', got {mode!r}")
 
+    # 추론에서는 num_workers=0 이 가장 빠르다. Validation 캐시는 1.97GB 라 페이지
+    # 캐시에 들어가고 접근도 순차적이라 I/O 가 사실상 공짜인데(81,379 창 로딩 7.4초),
+    # Windows 의 spawn 워커를 쓰면 배치마다 25MB 를 파이프로 넘기느라 122초가 된다.
+    # 전체 Validation 추론이 23초 vs 130초로 갈린다.
+    #
+    # 학습은 반대다. 462,190 조각을 셔플해 15.67GB 캐시에 랜덤 접근하므로 I/O 가
+    # 병목이고, 워커가 1 epoch 을 2,056초에서 326초로 줄인다. train.py 의 기본값을
+    # 여기에 맞춰 낮추면 안 된다.
     loader = DataLoader(
         dataset,
         batch_size=batch_size,

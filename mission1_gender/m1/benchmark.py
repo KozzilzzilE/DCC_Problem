@@ -43,7 +43,8 @@ def parse_args(argv=None):
     p.add_argument("--val-cache", type=Path, default=Path("cache/val"))
     p.add_argument("--out", type=Path, default=Path("mission1_gender/reports/comparison"))
     p.add_argument("--batch-size", type=int, default=128)
-    p.add_argument("--num-workers", type=int, default=4)
+    p.add_argument("--num-workers", type=int, default=0,
+                   help="Windows 에서는 0 이 가장 빠르다 (spawn IPC 비용)")
     p.add_argument("--eval-mode", choices=("center", "sliding"), default="sliding")
     p.add_argument("--latency-calls", type=int, default=200)
     return p.parse_args(argv)
