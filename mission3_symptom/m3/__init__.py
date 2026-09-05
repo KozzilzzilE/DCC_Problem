@@ -1,4 +1,4 @@
-"""Mission 3 환자 증상 다중 라벨 분류 패키지"""
+﻿"""Mission 3 환자 증상 다중 라벨 분류 패키지"""
 
 from .config import (
     BEST_THRESHOLDS_PATH,
@@ -10,6 +10,7 @@ from .config import (
 )
 from .labels import (
     TranscriptRecord,
+    load_transcripts_dataframe,
     load_transcripts_dir,
     read_transcript,
 )
@@ -37,6 +38,7 @@ __all__ = [
     "TranscriptRecord",
     "read_transcript",
     "load_transcripts_dir",
+    "load_transcripts_dataframe",
     "calculate_binary_f1",
     "eval_macro_f1",
     "apply_thresholds",

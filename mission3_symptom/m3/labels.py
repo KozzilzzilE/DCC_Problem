@@ -1,8 +1,9 @@
-"""라벨 JSON 리더 및 대회 규칙 강제 모듈.
+﻿"""라벨 JSON 리더 및 대회 규칙 강제 모듈.
 
 대회 규칙: Mission 3 은 학습·추론 모두 라벨링 데이터에서 오직 대화 전사 본문
 텍스트(`utterances[].text`)만 모델 입력으로 사용 가능
 (정답 `symptom` 은 학습 타깃으로만 사용).
+-> 멘토링 데이 09.05 질문건에 따라 전체 제외 즉 텍스트만 포함.
 
 이 모듈이 반환하는 자료구조에는 그 외 메타데이터 필드가 **아예 담기지 않음.**
 `gender`, `address`, `urgencyLevel`, `startAt`, `endAt`, `speaker` 등은 파싱
@@ -10,14 +11,16 @@
 
 또한 9개 평가 대상 외 증상(예: `골절`, `찰과상`, `화상` 등)은 정답 벡터에서
 자동 필터링되어 9차원 표준 이진 벡터로 안전하게 변환.
+Windows / macOS / Colab 환경 간의 인코딩 차이 및 한글 자모 분리(NFD)를 자동 방지.
 """
 
 from __future__ import annotations
 
 import json
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
 from .config import NUM_CLASSES, SYMPTOM_TO_IDX, TARGET_SYMPTOMS
@@ -37,20 +40,38 @@ class TranscriptRecord:
     label_vector: Optional[np.ndarray]  # shape: (9,), dtype: int (평가 추론 시에는 None 가능)
 
 
+def _normalize_text(text: str) -> str:
+    """macOS의 NFD(자모 분리) 한글을 표준 NFC(완성형) 한글로 정규화."""
+    return unicodedata.normalize("NFC", text)
+
+
+def _read_json_robust(path: Path) -> Dict[str, Any]:
+    """UTF-8(BOM 포함), CP949 등 어떤 OS/환경의 JSON도 깨짐 없이 안전하게 로드."""
+    for enc in ("utf-8-sig", "utf-8", "cp949"):
+        try:
+            with open(path, "r", encoding=enc) as f:
+                return json.load(f)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+
+    # 최후의 fallback: 디코딩 에러 무시
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        return json.load(f)
+
+
 def _parse_symptoms(raw_symptoms: object) -> Tuple[Tuple[str, ...], np.ndarray]:
     """JSON의 symptom 필드에서 9개 타겟 증상만 필터링하고 이진 벡터로 변환."""
     target_set = set(TARGET_SYMPTOMS)
     filtered: List[str] = []
     vector = np.zeros(NUM_CLASSES, dtype=int)
 
-    if isinstance(raw_symptoms, list):
-        for item in raw_symptoms:
-            if isinstance(item, str) and item in target_set:
-                filtered.append(item)
-                vector[SYMPTOM_TO_IDX[item]] = 1
-    elif isinstance(raw_symptoms, str) and raw_symptoms in target_set:
-        filtered.append(raw_symptoms)
-        vector[SYMPTOM_TO_IDX[raw_symptoms]] = 1
+    items = raw_symptoms if isinstance(raw_symptoms, list) else [raw_symptoms]
+    for item in items:
+        if isinstance(item, str):
+            norm_item = _normalize_text(item.strip())
+            if norm_item in target_set:
+                filtered.append(norm_item)
+                vector[SYMPTOM_TO_IDX[norm_item]] = 1
 
     return tuple(sorted(filtered)), vector
 
@@ -66,20 +87,19 @@ def _parse_dialogue_text(raw_utterances: object) -> str:
             continue
         txt = item.get("text")
         if isinstance(txt, str) and txt.strip():
-            texts.append(txt.strip())
+            texts.append(_normalize_text(txt.strip()))
 
     return " ".join(texts)
 
 
 def read_transcript(json_path: Union[str, Path]) -> TranscriptRecord:
-    """단일 JSON 파일을 읽어 규칙을 강제한 TranscriptRecord로 변환."""
+    """단일 JSON 파일을 읽어 규칙이 강제된 TranscriptRecord로 변환."""
     path = Path(json_path)
     call_id = path.stem
 
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    data = _read_json_robust(path)
 
-    # 허용된 text만 추출 (시간/화자/인적사항 등 제거)
+    # 허용된 text만 추출 (시간/화자/인적사항 등 영구 제거)
     text = _parse_dialogue_text(data.get("utterances"))
 
     # 학습 타깃 9개 증상 필터링 (골절, 찰과상 등 비타겟 제거)
@@ -113,3 +133,30 @@ def load_transcripts_dir(
             continue
 
     return records
+
+
+def load_transcripts_dataframe(
+    label_dir: Union[str, Path],
+    max_samples: Optional[int] = None,
+):
+    """KoBERT 모델 학습에 바로 넘길 수 있도록 pandas DataFrame 형태로 반환.
+    
+    컬럼:
+      - call_id: 통화 식별자
+      - text: 순수 발화 전사 텍스트
+      - symptoms: 필터링된 타겟 증상명 리스트
+      - label_vector: 9차원 이진 리스트 ([0, 1, 0, ...])
+    """
+    import pandas as pd
+
+    records = load_transcripts_dir(label_dir, max_samples=max_samples)
+    data = [
+        {
+            "call_id": r.call_id,
+            "text": r.text,
+            "symptoms": list(r.symptoms),
+            "label_vector": r.label_vector.tolist() if r.label_vector is not None else None,
+        }
+        for r in records
+    ]
+    return pd.DataFrame(data)
