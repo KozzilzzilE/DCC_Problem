@@ -15,6 +15,10 @@ from ..config import FeatureConfig
 
 CHECKPOINT_VERSION = 1
 
+# 조각 확률을 통화 단위로 평균했을 때의 기본 결정 경계.
+# m1.calibrate 로 dev 에서 보정한 값이 체크포인트에 있으면 그쪽이 우선한다.
+DEFAULT_THRESHOLD = 0.5
+
 
 def build_model(branch: str, cfg: FeatureConfig, **kwargs) -> nn.Module:
     if branch == "resnet":
@@ -78,3 +82,28 @@ def load_checkpoint(path: str | Path, device: str | torch.device = "cpu") -> tup
     model.load_state_dict(payload["state_dict"])
     model.to(device).eval()
     return model, branch, cfg, payload
+
+
+def checkpoint_threshold(payload: dict) -> float:
+    """체크포인트에 보정된 임계값이 있으면 그 값, 없으면 0.5."""
+    value = (payload or {}).get("extra", {}).get("decision_threshold")
+    if value is None:
+        return DEFAULT_THRESHOLD
+    value = float(value)
+    if not 0.0 < value < 1.0:
+        raise ValueError(f"decision_threshold 는 (0, 1) 이어야 합니다: {value}")
+    return value
+
+
+def write_threshold(path: str | Path, threshold: float, dev_accuracy: float | None = None) -> Path:
+    """학습을 다시 하지 않고 체크포인트에 보정된 임계값만 기록한다."""
+    if not 0.0 < threshold < 1.0:
+        raise ValueError(f"threshold 는 (0, 1) 이어야 합니다: {threshold}")
+
+    path = Path(path)
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    payload.setdefault("extra", {})["decision_threshold"] = float(threshold)
+    if dev_accuracy is not None:
+        payload["extra"]["decision_threshold_dev_accuracy"] = float(dev_accuracy)
+    torch.save(payload, path)
+    return path
