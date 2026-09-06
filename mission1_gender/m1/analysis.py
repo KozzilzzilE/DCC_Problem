@@ -18,7 +18,7 @@ from ._console import ensure_utf8_stdout
 from .aggregate import GENDER_OUTPUT, call_label, gender_to_target
 from .cache import CacheIndex
 from .datasets import samples_from_rows
-from .evaluate import call_probabilities, predict_segment_probs, truth_from_samples
+from .evaluate import suggested_workers, call_probabilities, predict_segment_probs, truth_from_samples
 from .models import load_checkpoint
 
 # 조각 길이 구간 (초). 관측된 분포가 p50 1.55s / p90 4.71s 라 그 주변을 촘촘히 나눈다.
@@ -31,8 +31,8 @@ def parse_args(argv=None):
     p.add_argument("--val-cache", type=Path, default=Path("cache/val"))
     p.add_argument("--out", type=Path, default=Path("mission1_gender/reports/analysis.json"))
     p.add_argument("--batch-size", type=int, default=256)
-    p.add_argument("--num-workers", type=int, default=0,
-                   help="Windows 에서는 0 이 가장 빠르다 (spawn IPC 비용)")
+    p.add_argument("--num-workers", type=int, default=None,
+                   help="기본값은 갈래에 맞춰 자동 (resnet 0 / 16k 업샘플 갈래 4)")
     return p.parse_args(argv)
 
 
@@ -117,7 +117,7 @@ def main(argv=None) -> int:
 
         probs = predict_segment_probs(
             model, index, samples, cfg, branch, device,
-            batch_size=args.batch_size, mode="sliding", num_workers=args.num_workers,
+            batch_size=args.batch_size, mode="sliding", num_workers=args.num_workers if args.num_workers is not None else suggested_workers(branch),
         )
 
         rows = length_analysis(samples, probs)
