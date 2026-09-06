@@ -105,6 +105,8 @@ def train_one_epoch(
     max_grad_norm: float,
     global_step: int,
     max_steps: Optional[int],
+    epoch: int,
+    total_epochs: int,
 ) -> Tuple[float, int, bool]:
     """한 epoch을 학습하고 optimizer update 기준 global step을 반환."""
     model.train()
@@ -112,7 +114,13 @@ def train_one_epoch(
     total_loss = 0.0
     total_samples = 0
     reached_max_steps = False
-    progress = tqdm(dataloader, desc="Train", leave=False)
+    progress = tqdm(
+        dataloader,
+        desc=f"Train {epoch}/{total_epochs}",
+        unit="batch",
+        dynamic_ncols=True,
+        leave=False,
+    )
 
     for batch_index, batch in enumerate(progress):
         model_inputs, labels = _move_batch_to_device(batch, device)
@@ -128,8 +136,13 @@ def train_one_epoch(
             raise FloatingPointError(f"유한하지 않은 학습 loss가 발생했습니다: {loss.item()}")
 
         batch_size = int(labels.shape[0])
-        total_loss += float(loss.detach().cpu()) * batch_size
+        loss_value = float(loss.detach().cpu())
+        total_loss += loss_value * batch_size
         total_samples += batch_size
+        progress.set_postfix(
+            loss=f"{loss_value:.4f}",
+            avg_loss=f"{total_loss / total_samples:.4f}",
+        )
         scaler.scale(loss / gradient_accumulation_steps).backward()
 
         is_last_batch = batch_index + 1 == len(dataloader)
@@ -147,8 +160,6 @@ def train_one_epoch(
                 reached_max_steps = True
                 break
 
-        progress.set_postfix(loss=f"{float(loss.detach().cpu()):.4f}")
-
     mean_loss = total_loss / max(total_samples, 1)
     return mean_loss, global_step, reached_max_steps
 
@@ -159,6 +170,7 @@ def evaluate(
     loss_fn,
     device: torch.device,
     amp_enabled: bool,
+    description: str = "Validation",
 ) -> Dict[str, object]:
     """Validation 전체를 평가하고 threshold 0.5 성능과 원본 출력을 반환."""
     model.eval()
@@ -171,8 +183,15 @@ def evaluate(
         torch.cuda.synchronize(device)
     started_at = time.perf_counter()
 
+    progress = tqdm(
+        dataloader,
+        desc=description,
+        unit="batch",
+        dynamic_ncols=True,
+        leave=False,
+    )
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Validation", leave=False):
+        for batch in progress:
             model_inputs, labels = _move_batch_to_device(batch, device)
             with torch.autocast(
                 device_type=device.type,
@@ -183,8 +202,10 @@ def evaluate(
                 loss = loss_fn(logits, labels)
 
             batch_size = int(labels.shape[0])
-            total_loss += float(loss.detach().cpu()) * batch_size
+            loss_value = float(loss.detach().cpu())
+            total_loss += loss_value * batch_size
             total_samples += batch_size
+            progress.set_postfix(avg_loss=f"{total_loss / total_samples:.4f}")
             logits_list.append(logits.float().cpu().numpy())
             labels_list.append(labels.float().cpu().numpy())
 
@@ -404,8 +425,17 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             max_grad_norm=config.max_grad_norm,
             global_step=global_step,
             max_steps=config.max_steps,
+            epoch=epoch,
+            total_epochs=config.epochs,
         )
-        validation = evaluate(model, val_loader, loss_fn, device, amp_enabled)
+        validation = evaluate(
+            model,
+            val_loader,
+            loss_fn,
+            device,
+            amp_enabled,
+            description=f"Validation {epoch}/{config.epochs}",
+        )
         epoch_result = {
             "epoch": epoch,
             "global_step": global_step,
@@ -435,7 +465,14 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
     training_seconds = time.perf_counter() - training_started_at
     _, best_model = load_saved_model(best_model_dir)
     best_model.to(device)
-    best_validation = evaluate(best_model, val_loader, loss_fn, device, amp_enabled)
+    best_validation = evaluate(
+        best_model,
+        val_loader,
+        loss_fn,
+        device,
+        amp_enabled,
+        description="Validation best checkpoint",
+    )
 
     np.save(output_dir / "val_logits.npy", best_validation["logits"])
     np.save(output_dir / "val_probs.npy", best_validation["probabilities"])
