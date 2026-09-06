@@ -136,7 +136,7 @@ def evaluate_checkpoint(path: Path, args, device) -> dict:
         "feature": cfg.kind,
         "model_name": payload.get("extra", {}).get("model_name"),
         "n_params_m": round(payload.get("extra", {}).get("n_params", 0) / 1e6, 1),
-        "threshold": threshold,
+        "threshold": round(threshold, 3),
         "dev_call_accuracy": _rounded(payload.get("metrics", {}).get("dev_call_accuracy"), 4),
         "val_call_accuracy": _rounded(metrics.call_accuracy, 4),
         "val_segment_accuracy": _rounded(metrics.segment_accuracy, 4),
@@ -161,7 +161,7 @@ def to_markdown(results: list[dict], baseline: float) -> str:
     header = "| " + " | ".join(title for _, title in COLUMNS) + " |"
     divider = "|" + "|".join(["---"] * len(COLUMNS)) + "|"
     lines = [
-        "# Mission 1 — CNN(ResNet50) vs 음성 특화(Wav2Vec2) 비교",
+        "# Mission 1 — 갈래 비교 (" + " / ".join(r["label"] for r in results) + ")",
         "",
         f"Validation 다수결 기준선(통화 단위): **{baseline:.4f}**",
         "",

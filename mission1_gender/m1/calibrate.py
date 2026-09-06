@@ -51,7 +51,7 @@ def best_threshold(call_probs: dict[str, float], gold: dict[str, int]) -> tuple[
     """dev 정확도가 가장 높은 임계값. 동률이면 0.5 에 가까운 쪽을 고른다."""
     scored = [(accuracy_at(call_probs, gold, t), -abs(t - 0.5), t) for t in GRID]
     acc, _, threshold = max(scored)
-    return float(threshold), float(acc)
+    return round(float(threshold), 3), float(acc)
 
 
 def main(argv=None) -> int:
