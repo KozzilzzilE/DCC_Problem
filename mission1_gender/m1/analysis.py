@@ -19,7 +19,7 @@ from .aggregate import GENDER_OUTPUT, call_label, gender_to_target
 from .cache import CacheIndex
 from .datasets import samples_from_rows
 from .evaluate import suggested_workers, call_probabilities, predict_segment_probs, truth_from_samples
-from .models import load_checkpoint
+from .models import checkpoint_threshold, load_checkpoint
 
 # 조각 길이 구간 (초). 관측된 분포가 p50 1.55s / p90 4.71s 라 그 주변을 촘촘히 나눈다.
 BUCKETS = [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 5.0), (5.0, float("inf"))]
@@ -62,8 +62,8 @@ def length_analysis(samples, probs) -> list[dict]:
     return rows
 
 
-def call_predictions(samples, probs) -> dict[str, str]:
-    return {cid: call_label(p) for cid, p in call_probabilities(samples, probs).items()}
+def call_predictions(samples, probs, threshold: float = 0.5) -> dict[str, str]:
+    return {cid: call_label(p, threshold) for cid, p in call_probabilities(samples, probs).items()}
 
 
 def overlap_analysis(truth_labels, preds_a, preds_b, probs_a, probs_b) -> dict:
@@ -110,10 +110,12 @@ def main(argv=None) -> int:
 
     results = {"length": {}, "per_model": {}}
     call_probs: dict[str, dict[str, float]] = {}
+    thresholds: dict[str, float] = {}
 
     for path in args.ckpt:
-        model, branch, cfg, _ = load_checkpoint(path, device=device)
-        print(f"=== {path.stem} ({branch}) ===", flush=True)
+        model, branch, cfg, payload = load_checkpoint(path, device=device)
+        thresholds[path.stem] = checkpoint_threshold(payload)
+        print(f"=== {path.stem} ({branch}) t={thresholds[path.stem]:.3f} ===", flush=True)
 
         probs = predict_segment_probs(
             model, index, samples, cfg, branch, device,
@@ -136,8 +138,8 @@ def main(argv=None) -> int:
     names = [p.stem for p in args.ckpt]
     if len(names) >= 2:
         a, b = names[0], names[1]
-        preds_a = {c: call_label(v) for c, v in call_probs[a].items()}
-        preds_b = {c: call_label(v) for c, v in call_probs[b].items()}
+        preds_a = {c: call_label(v, thresholds[a]) for c, v in call_probs[a].items()}
+        preds_b = {c: call_label(v, thresholds[b]) for c, v in call_probs[b].items()}
         results["overlap"] = overlap_analysis(
             truth_labels, preds_a, preds_b, call_probs[a], call_probs[b]
         )

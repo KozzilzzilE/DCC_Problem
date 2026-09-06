@@ -122,15 +122,16 @@ def score(
     samples: list[Sample],
     segment_probs: np.ndarray,
     truth: dict[str, str],
+    threshold: float = 0.5,
 ) -> CallMetrics:
-    """truth: call_id -> 'M' | 'F'."""
+    """truth: call_id -> 'M' | 'F'. threshold 는 체크포인트에 보정된 값을 넘긴다."""
     call_probs = call_probabilities(samples, segment_probs)
 
     confusion = {"남->남": 0, "남->여": 0, "여->남": 0, "여->여": 0}
     correct = 0
     for cid, prob in call_probs.items():
         gold = GENDER_OUTPUT[gender_to_target(truth[cid])]
-        pred = call_label(prob)
+        pred = call_label(prob, threshold)
         confusion[f"{gold}->{pred}"] += 1
         correct += gold == pred
 
