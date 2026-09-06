@@ -44,7 +44,7 @@ def suggested_workers(branch: str) -> int:
     - w2v2   : 창마다 resample_poly 로 8k -> 16k 업샘플을 한다. 실제 CPU 작업이
       있어 워커가 필요하다.
     """
-    return 4 if branch == "w2v2" else 0
+    return 4 if branch in ("w2v2", "audeering") else 0
 
 
 @torch.no_grad()

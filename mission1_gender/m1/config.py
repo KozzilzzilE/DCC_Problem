@@ -55,7 +55,7 @@ class FeatureConfig:
 
 @dataclass(frozen=True)
 class TrainConfig:
-    branch: str = "resnet"  # "resnet" | "w2v2"
+    branch: str = "resnet"  # "resnet" | "w2v2" | "audeering"
     epochs: int = 8
     batch_size: int = 64
     lr: float = 1e-4
@@ -66,8 +66,8 @@ class TrainConfig:
     amp: bool = True
 
     def __post_init__(self) -> None:
-        if self.branch not in ("resnet", "w2v2"):
-            raise ValueError(f"branch must be 'resnet' or 'w2v2', got {self.branch!r}")
+        if self.branch not in ("resnet", "w2v2", "audeering"):
+            raise ValueError(f"branch must be resnet/w2v2/audeering, got {self.branch!r}")
         if not 0.0 < self.dev_fraction < 1.0:
             raise ValueError(f"dev_fraction must be in (0, 1), got {self.dev_fraction}")
 
