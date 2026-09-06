@@ -62,9 +62,12 @@ class AudeeringGender(nn.Module):
 
         out = self.backbone(wave, output_hidden_states=self.layer_weighted)
         if self.layer_weighted:
-            states = torch.stack(out.hidden_states, dim=0)              # (L+1, B, T, H)
-            weights = torch.softmax(self.layer_logits, dim=0).view(-1, 1, 1, 1)
-            hidden = (states * weights).sum(dim=0)                      # (B, T, H)
+            # (L+1, B, T, H) 로 stack 하면 배치 32 에서 수백 MB 짜리 임시 텐서가 생겨
+            # 8 GB VRAM 을 압박한다. 같은 가중합을 층별로 누적해 메모리를 1/7 로 줄인다.
+            weights = torch.softmax(self.layer_logits, dim=0)
+            hidden = None
+            for w, state in zip(weights, out.hidden_states):
+                hidden = state * w if hidden is None else hidden + state * w
         else:
             hidden = out.last_hidden_state
 
