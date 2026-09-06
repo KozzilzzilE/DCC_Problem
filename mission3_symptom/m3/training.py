@@ -49,6 +49,7 @@ class TrainingConfig:
     num_workers: int = 0
     device: str = "auto"
     amp: bool = False
+    use_pos_weight: bool = False
     local_files_only: bool = False
     max_train_samples: Optional[int] = None
     max_val_samples: Optional[int] = None
@@ -302,6 +303,38 @@ def _build_optimizer(model, learning_rate: float, weight_decay: float):
     return torch.optim.AdamW(parameter_groups, lr=learning_rate)
 
 
+def _calculate_pos_weights(
+    train_df,
+    device: torch.device,
+) -> Tuple[torch.Tensor, Dict[str, Dict[str, object]]]:
+    positive_counts = train_df[TARGET_SYMPTOMS].sum(axis=0).astype(np.int64)
+    zero_positive = [
+        symptom for symptom in TARGET_SYMPTOMS if int(positive_counts[symptom]) == 0
+    ]
+    if zero_positive:
+        raise ValueError(
+            "pos_weight를 계산할 positive sample이 없는 클래스입니다: "
+            + ", ".join(zero_positive)
+        )
+
+    negative_counts = len(train_df) - positive_counts
+    weight_values = negative_counts / positive_counts
+    statistics = {
+        symptom: {
+            "positive_count": int(positive_counts[symptom]),
+            "negative_count": int(negative_counts[symptom]),
+            "pos_weight": float(weight_values[symptom]),
+        }
+        for symptom in TARGET_SYMPTOMS
+    }
+    weights = torch.tensor(
+        [statistics[symptom]["pos_weight"] for symptom in TARGET_SYMPTOMS],
+        dtype=torch.float32,
+        device=device,
+    )
+    return weights, statistics
+
+
 def run_training(config: TrainingConfig) -> Dict[str, object]:
     """설정에 따라 학습하고 best checkpoint 기준 산출물을 저장."""
     _validate_config(config)
@@ -365,7 +398,20 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
     )
 
     model.to(device)
-    loss_fn = torch.nn.BCEWithLogitsLoss()
+    pos_weight_statistics = None
+    if config.use_pos_weight:
+        pos_weights, pos_weight_statistics = _calculate_pos_weights(train_df, device)
+        print("Training label 기반 pos_weight:")
+        for symptom in TARGET_SYMPTOMS:
+            stats = pos_weight_statistics[symptom]
+            print(
+                f"- {symptom}: positive={stats['positive_count']}, "
+                f"negative={stats['negative_count']}, "
+                f"pos_weight={stats['pos_weight']:.6f}"
+            )
+        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weights)
+    else:
+        loss_fn = torch.nn.BCEWithLogitsLoss()
     optimizer = _build_optimizer(model, config.learning_rate, config.weight_decay)
     updates_per_epoch = math.ceil(len(train_loader) / config.gradient_accumulation_steps)
     planned_steps = updates_per_epoch * config.epochs
@@ -397,13 +443,18 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             "resolved_model_revision": getattr(model.config, "_commit_hash", None),
             "train_token_lengths": train_lengths,
             "val_token_lengths": val_lengths,
+            "train_pos_weight_statistics": pos_weight_statistics,
+            "checkpoint_selection_criterion": {
+                "metric": "val_loss",
+                "mode": "min",
+            },
             "environment": _environment_metadata(device, amp_enabled),
         }
     )
     _write_json(output_dir / "run_config.json", config_data)
 
     history: List[Dict[str, object]] = []
-    best_macro_f1 = -1.0
+    best_val_loss = math.inf
     best_epoch = 0
     global_step = 0
     best_model_dir = output_dir / "best_model"
@@ -454,8 +505,8 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             f"val_loss={validation['loss']:.4f}, "
             f"val_macro_f1@0.5={validation['macro_f1']:.4f}"
         )
-        if float(validation["macro_f1"]) > best_macro_f1:
-            best_macro_f1 = float(validation["macro_f1"])
+        if float(validation["loss"]) < best_val_loss:
+            best_val_loss = float(validation["loss"])
             best_epoch = epoch
             save_model_bundle(model, tokenizer, best_model_dir)
 
@@ -481,6 +532,10 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
     final_metrics: Dict[str, object] = {
         "checkpoint": str(best_model_dir),
         "best_epoch": best_epoch,
+        "checkpoint_selection_criterion": {
+            "metric": "val_loss",
+            "mode": "min",
+        },
         "threshold": 0.5,
         "val_loss": best_validation["loss"],
         "val_macro_f1": best_validation["macro_f1"],

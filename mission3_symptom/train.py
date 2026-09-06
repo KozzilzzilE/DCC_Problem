@@ -29,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--amp", action="store_true")
+    parser.add_argument("--use-pos-weight", action="store_true")
     parser.add_argument("--local-files-only", action="store_true")
     parser.add_argument("--max-train-samples", type=int)
     parser.add_argument("--max-val-samples", type=int)
@@ -76,6 +77,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         num_workers=args.num_workers,
         device=args.device,
         amp=args.amp,
+        use_pos_weight=args.use_pos_weight,
         local_files_only=args.local_files_only,
         max_train_samples=max_train_samples,
         max_val_samples=max_val_samples,

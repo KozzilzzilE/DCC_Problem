@@ -14,7 +14,7 @@ sys.path.insert(0, str(MISSION3_DIR))
 
 from m3.config import NUM_CLASSES, TARGET_SYMPTOMS
 from m3.dataset import MultiLabelCollator, SymptomDataset, load_symptom_csv
-from m3.training import evaluate
+from m3.training import TrainingConfig, _calculate_pos_weights, evaluate
 
 
 class DummyTokenizer:
@@ -56,6 +56,42 @@ def make_dataframe() -> pd.DataFrame:
 
 
 class BaselinePipelineTest(unittest.TestCase):
+    def test_pos_weight_is_disabled_by_default(self) -> None:
+        config = TrainingConfig(
+            train_csv="train.csv",
+            val_csv="val.csv",
+            output_dir="output",
+        )
+
+        self.assertFalse(config.use_pos_weight)
+
+    def test_pos_weight_uses_training_negative_over_positive(self) -> None:
+        dataframe = pd.DataFrame({
+            symptom: [1, 0, 0, 0]
+            for symptom in TARGET_SYMPTOMS
+        })
+
+        weights, statistics = _calculate_pos_weights(
+            dataframe,
+            torch.device("cpu"),
+        )
+
+        self.assertTrue(torch.equal(weights, torch.full((NUM_CLASSES,), 3.0)))
+        for symptom in TARGET_SYMPTOMS:
+            self.assertEqual(statistics[symptom]["positive_count"], 1)
+            self.assertEqual(statistics[symptom]["negative_count"], 3)
+            self.assertEqual(statistics[symptom]["pos_weight"], 3.0)
+
+    def test_pos_weight_rejects_class_without_positive_sample(self) -> None:
+        dataframe = pd.DataFrame({
+            symptom: [1, 0]
+            for symptom in TARGET_SYMPTOMS
+        })
+        dataframe[TARGET_SYMPTOMS[0]] = 0
+
+        with self.assertRaisesRegex(ValueError, "positive sample"):
+            _calculate_pos_weights(dataframe, torch.device("cpu"))
+
     def test_dataset_uses_text_and_fixed_label_order(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             csv_path = Path(directory) / "samples.csv"
