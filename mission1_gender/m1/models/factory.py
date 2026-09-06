@@ -30,6 +30,11 @@ def build_model(branch: str, cfg: FeatureConfig, **kwargs) -> nn.Module:
 
         model_name = kwargs.pop("model_name", None) or resolve_checkpoint()
         return Wav2Vec2Gender(model_name, **kwargs)
+    if branch == "audeering":
+        from .audeering import DEFAULT_NAME, AudeeringGender
+
+        model_name = kwargs.pop("model_name", None) or DEFAULT_NAME
+        return AudeeringGender(model_name, **kwargs)
     raise ValueError(f"unknown branch {branch!r}")
 
 
@@ -52,7 +57,7 @@ def save_checkpoint(
         "metrics": metrics or {},
         "extra": extra or {},
     }
-    if branch == "w2v2":
+    if branch in ("w2v2", "audeering"):
         payload["extra"]["model_name"] = getattr(model, "model_name", None)
 
     torch.save(payload, path)
@@ -75,7 +80,7 @@ def load_checkpoint(path: str | Path, device: str | torch.device = "cpu") -> tup
     if branch == "resnet":
         # 저장된 가중치를 덮어쓸 것이므로 ImageNet 가중치를 새로 받을 필요가 없다.
         kwargs["pretrained"] = False
-    elif branch == "w2v2":
+    elif branch in ("w2v2", "audeering"):
         kwargs["model_name"] = payload.get("extra", {}).get("model_name")
 
     model = build_model(branch, cfg, **kwargs)

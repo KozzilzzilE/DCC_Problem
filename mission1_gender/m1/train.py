@@ -28,7 +28,7 @@ from .models import build_model, save_checkpoint
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Mission 1 성별 분류 학습")
-    p.add_argument("--branch", choices=("resnet", "w2v2"), default="resnet")
+    p.add_argument("--branch", choices=("resnet", "w2v2", "audeering"), default="resnet")
     p.add_argument("--cache", type=Path, default=Path("cache/train"))
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--epochs", type=int, default=8)
@@ -142,7 +142,7 @@ def main(argv=None) -> int:
     print(f"dev  : {len(dev_samples)} segments / {len(dev_truth)} calls", flush=True)
     print(f"dev majority baseline (call-level): {majority_baseline(dev_truth):.4f}", flush=True)
 
-    kwargs = {"model_name": args.w2v2_model} if args.branch == "w2v2" else {}
+    kwargs = {"model_name": args.w2v2_model} if args.branch in ("w2v2", "audeering") else {}
     model = build_model(args.branch, cfg, **kwargs).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"parameters: {n_params/1e6:.1f}M", flush=True)
