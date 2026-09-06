@@ -1,4 +1,4 @@
-﻿# Mission 3 — 환자 증상 다중 라벨 분류 (평가 지표 및 임계값 최적화)
+# Mission 3 — 환자 증상 다중 라벨 분류 (평가 지표 및 임계값 최적화)
 
 담당: 권오현 (데이터 전처리, 평가 지표 구현 및 임계값 최적화)  
 담당: 김완수 (텍스트 데이터 정제 및 KoBERT 모델링)
@@ -51,6 +51,7 @@ mission3_symptom/
 ├── reports/
 │   ├── comparison.md            # 기본 0.5 vs 최적 임계값 전/후 F1 성과 리포트
 │   └── best_thresholds.json     # 최종 추론 시 로드되는 9개 최적 임계값 파일
+├── extract_labels.ipynb         # ★ 구글 드라이브(001~013 zip) 라벨 추출 Colab 노트북 (32,840건 완료)
 ├── model_train.ipynb            # ★ 메인 시각화 노트북 (F1 반응 곡선 차트, 비교표)
 └── README.md                    # 현재 문서
 ```
