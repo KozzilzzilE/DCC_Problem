@@ -21,12 +21,13 @@ from ._console import ensure_utf8_stdout
 from .cache import CacheIndex
 from .datasets import samples_from_rows
 from .evaluate import suggested_workers, majority_baseline, predict_segment_probs, score, truth_from_samples
-from .models import load_checkpoint
+from .models import checkpoint_threshold, load_checkpoint
 
 COLUMNS = [
     ("label", "체크포인트"),
     ("branch", "갈래"),
     ("n_params_m", "파라미터(M)"),
+    ("threshold", "임계값"),
     ("dev_call_accuracy", "dev 통화 Acc"),
     ("val_call_accuracy", "Validation 통화 Acc"),
     ("val_segment_accuracy", "Validation 조각 Acc"),
@@ -120,7 +121,8 @@ def evaluate_checkpoint(path: Path, args, device) -> dict:
         batch_size=args.batch_size, mode=args.eval_mode, num_workers=args.num_workers if args.num_workers is not None else suggested_workers(branch),
     )
     val_seconds = time.perf_counter() - started
-    metrics = score(samples, probs, truth)
+    threshold = checkpoint_threshold(payload)
+    metrics = score(samples, probs, truth, threshold)
 
     history_path = path.with_suffix(".history.json")
     train_seconds = None
@@ -134,6 +136,7 @@ def evaluate_checkpoint(path: Path, args, device) -> dict:
         "feature": cfg.kind,
         "model_name": payload.get("extra", {}).get("model_name"),
         "n_params_m": round(payload.get("extra", {}).get("n_params", 0) / 1e6, 1),
+        "threshold": threshold,
         "dev_call_accuracy": _rounded(payload.get("metrics", {}).get("dev_call_accuracy"), 4),
         "val_call_accuracy": _rounded(metrics.call_accuracy, 4),
         "val_segment_accuracy": _rounded(metrics.segment_accuracy, 4),
