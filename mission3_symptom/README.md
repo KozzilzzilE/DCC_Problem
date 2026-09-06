@@ -48,6 +48,7 @@ mission3_symptom/
 │   ├── threshold.py             # 9개 증상별 최적 임계값 그리드 탐색기
 │   ├── report.py                # 성과 리포트(MD) 및 최적 임계값(JSON) 생성기
 │   ├── dataset.py               # CSV 검증, text-only Dataset 및 DataLoader
+│   ├── kobert_tokenizer.py       # KoBERT SentencePiece tokenizer 및 BERT 입력 형식
 │   ├── model.py                 # KoBERT 9-label 모델 생성 및 저장
 │   ├── training.py              # 학습, 검증 및 실험 산출물 저장
 │   └── __init__.py              # m3 통합 인터페이스 export
@@ -72,6 +73,7 @@ mission3_symptom/
 | **`metrics.py`** | 공식 평가지표 계산기 | `eval_macro_f1()`<br>`calculate_binary_f1()` | 증상별 정밀도(Precision)와 재현율(Recall) 기반 이진 F1 계산(ZeroDivision 안전 처리) 및 산술 평균 기반 대회 공식 Macro F1 산출. |
 | **`threshold.py`** | 임계값 최적화 엔진 | `find_best_thresholds()`<br>`apply_thresholds()`<br>`get_threshold_curves()` | 0.05~0.95 구간(0.01 간격) 그리드 탐색을 통해 9개 증상별 F1을 극대화하는 황금 임계값 벡터 산출 및 시각화용 반응 곡선 데이터 생성. |
 | **`report.py`** | 성과 문서 & 추론 설정 자동화 | `generate_comparison_markdown()`<br>`save_thresholds_json()` | 기준선(0.5) 대비 F1 상승폭을 마크다운 리포트(`comparison.md`)로 자동 작성하고, 최종 추론용 `best_thresholds.json` 파일 저장. |
+| **`kobert_tokenizer.py`** | KoBERT tokenizer | `KoBertTokenizer` | `spiece.model`을 사용해 한국어를 SentencePiece subword로 변환하고 `[CLS] text [SEP]` 입력 형식과 local 저장/재로드를 보장. |
 | **`__init__.py`** | 패키지 인터페이스 허브 | `m3.*` 공개 API 노출 | 모델링 담당자가 복잡한 내부 구조를 몰라도 `from m3 import ...` 한 줄로 전처리 및 평가 함수를 즉시 호출 가능하도록 구성. |
 
 ---
@@ -88,7 +90,7 @@ mission3_symptom/
 python mission3_symptom/train.py \
   --train-csv <mission3_train.csv> \
   --val-csv <mission3_val.csv> \
-  --output-dir mission3_symptom/runs/kobert_baseline_seed42 \
+  --output-dir mission3_symptom/runs/kobert_correct_tokenizer_plain_bce_seed42 \
   --smoke-test \
   --amp
 ```
@@ -101,7 +103,7 @@ smoke test는 최대 Train 64건, Validation 32건, optimizer step 2회로 제�
 python mission3_symptom/train.py \
   --train-csv <mission3_train.csv> \
   --val-csv <mission3_val.csv> \
-  --output-dir mission3_symptom/runs/kobert_baseline_seed42 \
+  --output-dir mission3_symptom/runs/kobert_correct_tokenizer_plain_bce_seed42 \
   --model-name-or-path skt/kobert-base-v1 \
   --seed 42 \
   --max-length 512 \
@@ -117,7 +119,7 @@ python mission3_symptom/train.py \
 
 정식 run은 `best_model/`, `run_config.json`, `history.json`, `baseline_metrics.json`, `val_logits.npy`, `val_probs.npy`, `val_labels.npy`를 생성한다. 평가는 기존 `m3.metrics` 및 `m3.threshold.apply_thresholds`를 사용하여 threshold 0.5를 기준으로 수행한다.
 
-> 현재 `reports/best_thresholds.json`과 `reports/comparison.md`는 synthetic validation 데이터로 생성된 기존 결과이다. KoBERT baseline 학습은 이 파일을 수정하지 않으며, 실제 threshold 최적화는 별도 확인 후 수행한다.
+> `reports/best_thresholds.json`과 `reports/comparison.md`는 실제 모델 학습 이전에 synthetic validation 데이터로 생성된 기존 결과이므로 실제 Full Training 성능으로 해석하지 않는다. 실제 threshold 결과는 각 정식 run의 `threshold_metrics.json`과 `optimized_thresholds.json`으로 별도 관리하며 기존 reports 파일을 수정하지 않는다.
 
 ### 주피터 노트북 실행 (`model_train.ipynb`)
 VS Code 또는 Jupyter 환경에서 `mission3_symptom/model_train.ipynb`를 열고 순서대로 셀을 실행하면:
@@ -150,6 +152,7 @@ VS Code 또는 Jupyter 환경에서 `mission3_symptom/model_train.ipynb`를 열�
 | `WARMUP_RATIO` | 전체 optimizer step 중 learning-rate warmup 비율 |
 | `EPOCHS` | 전체 Training 데이터를 반복 학습하는 횟수 |
 | `USE_AMP` | 지원되는 CUDA 환경에서 mixed precision을 사용할지 여부 |
+| `USE_POS_WEIGHT` | Training label에서 계산한 클래스별 `negative / positive` 가중치를 BCE에 적용할지 여부. 기본값은 `False`이며 class imbalance ablation에서만 활성화 |
 
 최초 실행에서는 `TRAIN_CSV`와 `VAL_CSV`가 실제 CSV를 가리키는지 확인한다. 기본 경로와 다른 위치에 데이터가 있다면 이 두 값만 실행 환경에 맞게 변경한다.
 
@@ -168,6 +171,19 @@ VS Code 또는 Jupyter 환경에서 `mission3_symptom/model_train.ipynb`를 열�
 7번은 해당 checkpoint가 생성한 `val_probs`에서 class-wise optimized threshold를 탐색한다. 기본값은 `RUN_THRESHOLD_SEARCH = False`이므로 팀 확인 후 `True`로 변경해 실행한다. 8번은 탐색한 threshold를 적용하여 threshold 0.5 대비 Macro F1, 클래스별 F1과 개선량을 비교한다. 두 단계 모두 기존 reports 파일을 자동으로 저장하거나 수정하지 않는다.
 
 Threshold는 학습 hyperparameter가 아니라 학습 완료 후 probability에 적용하는 post-processing parameter이므로 threshold 탐색을 위해 모델을 다시 학습할 필요는 없다. 다만 모델이나 학습 조건이 바뀌면 probability 분포도 달라질 수 있으므로, 다른 checkpoint에서 얻은 threshold를 그대로 재사용하지 않고 각 정식 run의 `val_probs`를 기준으로 다시 계산하는 것을 원칙으로 한다.
+
+### 현재 정상 KoBERT 실험 결과
+
+초기 AutoTokenizer 기반 run은 KoBERT encoder와 맞지 않는 tokenizer가 선택된 상태였으므로 정상 KoBERT 성능 비교에서 제외한다. 정상 SentencePiece `KoBertTokenizer`를 적용한 두 run의 결과는 다음과 같다.
+
+| 실험 | Macro F1 @ 0.5 | Optimized Macro F1 | Cross-fitted optimized Macro F1 |
+|---|---:|---:|---:|
+| Correct tokenizer + plain BCE | 0.5737 | **0.6430** | **약 0.6360** |
+| Correct tokenizer + Training-derived pos_weight | **0.6035** | 0.6413 | 약 0.6319 |
+
+Pos_weight는 threshold 0.5에서 recall과 Macro F1을 높였지만 ranking/AP와 threshold 최적화 후 Macro F1은 개선하지 못했다. 따라서 현재 대표 configuration은 correct `KoBertTokenizer`와 plain BCE이며, pos_weight 옵션은 실제 ablation 재현을 위해 유지한다.
+
+다음 실험 우선순위는 `KoELECTRA-base-v3 + plain BCE`, `KLUE-RoBERTa-base + plain BCE`, 오심 FP/FN 분석, winning encoder의 epoch/LR 조정, text-only chunking 순이다.
 
 ---
 
