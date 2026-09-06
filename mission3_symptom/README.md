@@ -50,9 +50,9 @@ mission3_symptom/
 │   └── __init__.py              # m3 통합 인터페이스 export
 ├── reports/
 │   ├── comparison.md            # 기본 0.5 vs 최적 임계값 전/후 F1 성과 리포트
-│   └── best_thresholds.json     # 최종 추론 시 로드되는 9개 최적 임계값 파일
-├── extract_labels.ipynb         # ★ 구글 드라이브(001~013 zip) 라벨 추출 Colab 노트북 (32,840건 완료)
-├── model_train.ipynb            # ★ 메인 시각화 노트북 (F1 반응 곡선 차트, 비교표)
+├── extract_labels.ipynb         # ★ 1단계: 원본 zip(001~013)에서 JSON 라벨 32,840건 고속 추출 노트북
+├── data_preprocessing.ipynb     # ★ 2단계: 규정 준수 텍스트 정제 & 9개 타겟 증상 CSV 생성 전처리 노트북
+├── model_train.ipynb            # ★ 3단계: 메인 시각화 및 F1 임계값 최적화 노트북
 └── README.md                    # 현재 문서
 ```
 
