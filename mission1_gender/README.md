@@ -96,6 +96,20 @@ PYTHONPATH=mission1_gender python -m m1.train --branch resnet --cache cache/trai
 PYTHONPATH=mission1_gender python -m m1.train --branch w2v2 --cache cache/train --out mission1_gender/ckpt/w2v2_full.pt --epochs 3 --batch-size 16
 ```
 
+```bash
+PYTHONPATH=mission1_gender python -m m1.train --branch audeering --cache cache/train --out mission1_gender/ckpt/audeering_full.pt --epochs 3 --batch-size 32
+```
+
+세 번째 갈래 `audeering` 은 `audeering/wav2vec2-large-robust-6-ft-age-gender` 를 백본으로
+쓴다. Fisher/Switchboard **전화 음성**으로 사전학습된 유일한 후보라, 16 kHz 고음질로만
+사전학습된 앞의 두 갈래와 오류 프로파일이 다른지 보려고 넣었다 (zero-shot 진단에서
+우리 오답 70 통화 중 30 을 맞혔다 — `reports/audeering_diag.json`). 층별 학습 가중치와
+latent 시간 마스킹이 들어 있다.
+
+- **라이선스 CC-BY-NC-SA-4.0** (비상업). 이 갈래를 제출하면 문서에 명시해야 한다.
+- feature encoder 가 layer-norm 이라 **평가 배치 256 에서 OOM** 난다. `calibrate` /
+  `benchmark` / `analysis` 에 `--batch-size 64` 를 줄 것 (학습은 32 로 정상).
+
 ### 4. 비교표
 
 ```bash
