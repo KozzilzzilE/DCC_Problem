@@ -47,6 +47,8 @@ def parse_args(argv=None):
     p.add_argument("--eval-mode", choices=("center", "sliding"), default="center")
     p.add_argument("--no-amp", action="store_true")
     p.add_argument("--w2v2-model", type=str, default=None)
+    p.add_argument("--spec-augment", action="store_true",
+                   help="resnet 갈래에 SpecAugment (주파수 8, 시간 24, 각 2개 마스크)")
     p.add_argument("--log", type=Path, default=None, help="epoch 별 지표 JSON 경로")
     return p.parse_args(argv)
 
@@ -143,6 +145,8 @@ def main(argv=None) -> int:
     print(f"dev majority baseline (call-level): {majority_baseline(dev_truth):.4f}", flush=True)
 
     kwargs = {"model_name": args.w2v2_model} if args.branch in ("w2v2", "audeering") else {}
+    if args.spec_augment and args.branch == "resnet":
+        kwargs.update(freq_mask=8, time_mask=24, n_masks=2)
     model = build_model(args.branch, cfg, **kwargs).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"parameters: {n_params/1e6:.1f}M", flush=True)
@@ -214,6 +218,7 @@ def main(argv=None) -> int:
                     "n_params": n_params,
                     "n_train_segments": len(train_samples),
                     "model_name": args.w2v2_model,
+                    "spec_augment": bool(args.spec_augment),
                 },
             )
             print(f"  -> saved {args.out} (dev call acc {best:.4f})", flush=True)
