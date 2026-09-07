@@ -55,6 +55,8 @@ class TrainingConfig:
     max_val_samples: Optional[int] = None
     max_steps: Optional[int] = None
     smoke_test: bool = False
+    # 최적 모델(Best Checkpoint) 선정 기준: "val_loss" (기본값) 또는 "val_macro_f1" (대회 평가 지표 최고점)
+    checkpoint_metric: str = "val_loss"
 
 
 def set_seed(seed: int) -> None:
@@ -278,6 +280,12 @@ def _validate_config(config: TrainingConfig) -> None:
         raise ValueError("max_steps는 양수여야 합니다.")
     if not 0.0 <= config.warmup_ratio < 1.0:
         raise ValueError("warmup_ratio는 0 이상 1 미만이어야 합니다.")
+    # 최적 모델 선정 기준 검증 ("val_loss" 또는 "val_macro_f1"만 허용)
+    if config.checkpoint_metric not in {"val_loss", "val_macro_f1"}:
+        raise ValueError(
+            f"지원하지 않는 checkpoint_metric입니다: {config.checkpoint_metric}. "
+            "('val_loss' 또는 'val_macro_f1'만 허용됩니다)"
+        )
 
 
 def _build_optimizer(model, learning_rate: float, weight_decay: float):
@@ -445,8 +453,8 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             "val_token_lengths": val_lengths,
             "train_pos_weight_statistics": pos_weight_statistics,
             "checkpoint_selection_criterion": {
-                "metric": "val_loss",
-                "mode": "min",
+                "metric": config.checkpoint_metric,
+                "mode": "min" if config.checkpoint_metric == "val_loss" else "max",
             },
             "environment": _environment_metadata(device, amp_enabled),
         }
@@ -454,7 +462,9 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
     _write_json(output_dir / "run_config.json", config_data)
 
     history: List[Dict[str, object]] = []
+    # 최적 모델 선정을 위한 기준 점수 추적 (val_loss 최저값 또는 val_macro_f1 최고값)
     best_val_loss = math.inf
+    best_val_macro_f1 = -math.inf
     best_epoch = 0
     global_step = 0
     best_model_dir = output_dir / "best_model"
@@ -505,10 +515,25 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             f"val_loss={validation['loss']:.4f}, "
             f"val_macro_f1@0.5={validation['macro_f1']:.4f}"
         )
-        if float(validation["loss"]) < best_val_loss:
-            best_val_loss = float(validation["loss"])
+        # 최적 모델(Best Checkpoint) 판정 및 가중치 번들 저장
+        is_best = False
+        current_loss = float(validation["loss"])
+        current_f1 = float(validation["macro_f1"])
+
+        if config.checkpoint_metric == "val_loss":
+            if current_loss < best_val_loss:
+                best_val_loss = current_loss
+                is_best = True
+        elif config.checkpoint_metric == "val_macro_f1":
+            if current_f1 > best_val_macro_f1:
+                best_val_macro_f1 = current_f1
+                is_best = True
+
+        if is_best:
             best_epoch = epoch
             save_model_bundle(model, tokenizer, best_model_dir)
+            score_str = f"loss={current_loss:.4f}" if config.checkpoint_metric == "val_loss" else f"macro_f1={current_f1:.4f}"
+            print(f"  -> Best Checkpoint 갱신 (Epoch {epoch}, {config.checkpoint_metric}: {score_str})")
 
         if reached_max_steps:
             break
@@ -533,8 +558,8 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         "checkpoint": str(best_model_dir),
         "best_epoch": best_epoch,
         "checkpoint_selection_criterion": {
-            "metric": "val_loss",
-            "mode": "min",
+            "metric": config.checkpoint_metric,
+            "mode": "min" if config.checkpoint_metric == "val_loss" else "max",
         },
         "threshold": 0.5,
         "val_loss": best_validation["loss"],

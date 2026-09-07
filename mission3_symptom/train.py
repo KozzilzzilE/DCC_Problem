@@ -35,6 +35,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-val-samples", type=int)
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--smoke-test", action="store_true")
+    parser.add_argument(
+        "--checkpoint-metric",
+        choices=("val_loss", "val_macro_f1"),
+        default="val_loss",
+        help="최적 모델(Best Checkpoint) 저장 기준 지표 (기본값: val_loss, 대회 지표 기준: val_macro_f1)",
+    )
     return parser.parse_args()
 
 
@@ -83,6 +89,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         max_val_samples=max_val_samples,
         max_steps=max_steps,
         smoke_test=args.smoke_test,
+        checkpoint_metric=args.checkpoint_metric,
     )
 
 
