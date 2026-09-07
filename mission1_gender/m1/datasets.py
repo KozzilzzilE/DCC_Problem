@@ -110,9 +110,14 @@ class SegmentWindowDataset(Dataset):
         branch: str = "resnet",
         train: bool = True,
         seed: int = 0,
+        soft_targets: "list[float] | None" = None,
     ):
         self.index = index
         self.samples = samples
+        # 지식 증류용. samples 와 같은 길이의 [0,1] 타깃. None 이면 hard 라벨.
+        self.soft_targets = soft_targets
+        if soft_targets is not None and len(soft_targets) != len(samples):
+            raise ValueError("soft_targets 길이가 samples 와 다릅니다")
         self.cfg = cfg
         self.branch = branch
         self.train = train
@@ -140,7 +145,8 @@ class SegmentWindowDataset(Dataset):
             start = None
 
         wave = to_waveform(crop_or_pad(segment, target_len, start), self.branch)
-        return torch.from_numpy(wave), torch.tensor(float(sample.target))
+        target = self.soft_targets[idx] if self.soft_targets is not None else float(sample.target)
+        return torch.from_numpy(wave), torch.tensor(float(target))
 
 
 class SlidingWindowDataset(Dataset):
