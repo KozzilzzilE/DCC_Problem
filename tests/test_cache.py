@@ -152,8 +152,9 @@ def test_dataset_soft_targets_replace_hard_labels(tmp_path):
 
     hard = SegmentWindowDataset(index, samples, cfg, train=False)
     soft = SegmentWindowDataset(index, samples, cfg, train=False, soft_targets=[0.2, 0.9])
-    assert float(hard[0][1]) == 0.0 and float(soft[0][1]) == 0.2
-    assert float(soft[1][1]) == 0.9
+    assert float(hard[0][1]) == 0.0
+    assert float(soft[0][1]) == pytest.approx(0.2)   # float32 텐서
+    assert float(soft[1][1]) == pytest.approx(0.9)
 
     with pytest.raises(ValueError):
         SegmentWindowDataset(index, samples, cfg, soft_targets=[0.5])
