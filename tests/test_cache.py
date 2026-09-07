@@ -138,3 +138,22 @@ def test_gender_absent_is_written_as_empty(tmp_path):
     audio_dir, label_dir = make_call(tmp_path, "c1", [(0, 2000, 1)], gender=None)
     index = build_cache(label_dir, audio_dir, tmp_path / "cache")
     assert index.rows[0].gender is None
+
+
+def test_dataset_soft_targets_replace_hard_labels(tmp_path):
+    """지식 증류: soft_targets 를 주면 그 값이 타깃으로 나온다."""
+    from m1.config import FeatureConfig
+    from m1.datasets import SegmentWindowDataset, samples_from_rows
+
+    audio_dir, label_dir = make_call(tmp_path, "c1", [(0, 2000, 1), (3000, 5000, 1)], gender="M")
+    index = build_cache(label_dir, audio_dir, tmp_path / "cache")
+    samples = samples_from_rows(index.rows)
+    cfg = FeatureConfig()
+
+    hard = SegmentWindowDataset(index, samples, cfg, train=False)
+    soft = SegmentWindowDataset(index, samples, cfg, train=False, soft_targets=[0.2, 0.9])
+    assert float(hard[0][1]) == 0.0 and float(soft[0][1]) == 0.2
+    assert float(soft[1][1]) == 0.9
+
+    with pytest.raises(ValueError):
+        SegmentWindowDataset(index, samples, cfg, soft_targets=[0.5])
