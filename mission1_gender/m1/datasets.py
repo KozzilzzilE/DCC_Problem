@@ -145,7 +145,10 @@ class SegmentWindowDataset(Dataset):
             start = None
 
         wave = to_waveform(crop_or_pad(segment, target_len, start), self.branch)
-        target = self.soft_targets[idx] if self.soft_targets is not None else float(sample.target)
+        # getattr: Windows spawn 워커는 디스크의 최신 코드를 다시 import 하므로, 실행 중
+        # 수정된 클래스와 옛 객체가 만나도 죽지 않게 한다.
+        soft = getattr(self, "soft_targets", None)
+        target = soft[idx] if soft is not None else float(sample.target)
         return torch.from_numpy(wave), torch.tensor(float(target))
 
 
