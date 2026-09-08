@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
@@ -39,6 +40,12 @@ EXPECTED_KOBERT_SPECIAL_TOKEN_IDS = {
 
 # 한글 초성/중성/종성(자모) 유니코드 범위 정규식: 토크나이저가 한글을 자모 단위로 깨뜨리는지 감지
 JAMO_PATTERN = re.compile(r"[\u1100-\u11ff\u3130-\u318f]")
+
+
+def _console_safe_text(value: object) -> str:
+    """현재 stdout 인코딩에서 표현할 수 없는 문자를 escape하여 반환합니다."""
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    return str(value).encode(encoding, errors="backslashreplace").decode(encoding)
 
 
 def is_kobert_model(model_name_or_path: Union[str, Path]) -> bool:
@@ -109,7 +116,7 @@ def validate_kobert_tokenizer_model_compatibility(tokenizer, model) -> Dict[str,
         "vocab_size": tokenizer.vocab_size,
         "embedding_size": embedding_size,
     }
-    print(f"KoBERT Tokenizer sanity check 통과: {result}")
+    print(_console_safe_text(f"KoBERT Tokenizer sanity check 통과: {result}"))
     return result
 
 
@@ -164,7 +171,7 @@ def validate_generic_tokenizer_model_compatibility(tokenizer, model) -> Dict[str
         "vocab_size": len(tokenizer),
         "embedding_size": embedding_size,
     }
-    print(f"일반 백본({type(tokenizer).__name__}) Sanity check 통과: {result}")
+    print(_console_safe_text(f"일반 백본({type(tokenizer).__name__}) Sanity check 통과: {result}"))
     return result
 
 

@@ -172,9 +172,13 @@ VS Code 또는 Jupyter 환경에서 `mission3_symptom/model_train.ipynb`를 열�
 
 Threshold는 학습 hyperparameter가 아니라 학습 완료 후 probability에 적용하는 post-processing parameter이므로 threshold 탐색을 위해 모델을 다시 학습할 필요는 없다. 다만 모델이나 학습 조건이 바뀌면 probability 분포도 달라질 수 있으므로, 다른 checkpoint에서 얻은 threshold를 그대로 재사용하지 않고 각 정식 run의 `val_probs`를 기준으로 다시 계산하는 것을 원칙으로 한다.
 
-### 현재 정상 KoBERT 실험 결과
+### 현재 정상 Full Training 실험 결과
 
-초기 AutoTokenizer 기반 run은 KoBERT encoder와 맞지 않는 tokenizer가 선택된 상태였으므로 정상 KoBERT 성능 비교에서 제외한다. 정상 SentencePiece `KoBertTokenizer`를 적용한 두 run의 결과는 다음과 같다.
+초기 AutoTokenizer 기반 KoBERT run은 encoder와 맞지 않는 tokenizer가 선택된 상태였으므로 정상 성능 비교에서 제외한다. 이름이 `_smoke`로 끝나는 run과 `reports/`의 synthetic 결과도 아래 Full Training benchmark에 포함하지 않는다.
+
+#### KoBERT loss ablation
+
+정상 SentencePiece `KoBertTokenizer`를 적용한 두 KoBERT run의 결과는 다음과 같다.
 
 | 실험 | Macro F1 @ 0.5 | Optimized Macro F1 | Cross-fitted optimized Macro F1 |
 |---|---:|---:|---:|
@@ -183,7 +187,28 @@ Threshold는 학습 hyperparameter가 아니라 학습 완료 후 probability에
 
 Pos_weight는 threshold 0.5에서 recall과 Macro F1을 높였지만 ranking/AP와 threshold 최적화 후 Macro F1은 개선하지 못했다. 따라서 현재 대표 configuration은 correct `KoBertTokenizer`와 plain BCE이며, pos_weight 옵션은 실제 ablation 재현을 위해 유지한다.
 
-다음 실험 우선순위는 `KoELECTRA-base-v3 + plain BCE`, `KLUE-RoBERTa-base + plain BCE`, 오심 FP/FN 분석, winning encoder의 epoch/LR 조정, text-only chunking 순이다.
+기존 cross-fitted 수치는 참고값이다. 현재 repository에는 fold 정의, split 방식, seed, threshold protocol이 완전히 고정된 재현 코드와 산출물이 없으므로 KoELECTRA 수치를 임의로 추가하지 않는다. Protocol을 고정한 뒤 모든 backbone의 저장된 Validation prediction에 동일 방식으로 재계산할 예정이다.
+
+#### Backbone benchmark
+
+두 backbone은 모델과 그에 맞는 tokenizer만 변경했다. 동일 Train/Validation 데이터, Plain BCE, seed 42, 3 epochs, learning rate `2e-5`, max length 512, physical batch 8, gradient accumulation 2(effective batch 16), weight decay 0.01, warmup ratio 0.1, AMP, `val_loss` checkpoint와 동일한 class-wise threshold 탐색을 사용했다.
+
+Macro AUROC와 Macro AP는 각 Full run의 `val_probs.npy`와 `val_labels.npy`에서 9개 클래스별 지표를 계산한 뒤 산술 평균한 값이다.
+
+| Backbone | F1 @ 0.5 | Optimized Macro F1 | Macro AUROC | Macro AP | Val truncation | Training time |
+|---|---:|---:|---:|---:|---:|---:|
+| KoBERT (`skt/kobert-base-v1`) | 0.5737 | 0.6430 | 0.8754 | 0.6675 | 5.38% | 약 28분 19초 |
+| KoELECTRA (`monologg/koelectra-base-v3-discriminator`) | **0.5811** | **0.6464** | **0.8779** | **0.6713** | **2.83%** | 약 27분 19초 |
+
+KoELECTRA는 point estimate 기준 현재 가장 높은 결과이며 Optimized Macro F1이 KoBERT 대비 `0.6430 → 0.6464`(`+0.0035`)로 상승했다. 다만 single seed와 single Validation 기준의 작은 차이이므로 두 backbone은 현재 사실상 동급으로 해석하며, KoELECTRA를 최종 winner로 확정하지 않는다. 다음 후보인 `klue/roberta-base`까지 같은 조건으로 비교한 뒤 하나의 주력 backbone을 선정한다.
+
+#### 오심 관찰
+
+- KoBERT와 KoELECTRA의 optimized 오심 F1은 각각 0.3930과 0.4006(KoELECTRA threshold 0.18)로 개선 폭이 작아 주요 bottleneck으로 남았다.
+- KoELECTRA는 오심 recall을 높였지만 false positive도 증가했고, 특히 구토-only sample을 오심으로 함께 예측하는 경향이 관찰됐다.
+- KLUE-RoBERTa에서도 같은 현상이 반복되면 오심/구토 FP/FN 원문 error analysis를 우선한다. 현재 결과만으로 원인을 label ambiguity로 확정하지 않는다.
+
+다음 실험 우선순위는 `KLUE-RoBERTa-base + plain BCE`, 오심/구토 FP/FN 분석, winning encoder의 epoch/LR 조정, text-only chunking 순이다.
 
 ---
 
