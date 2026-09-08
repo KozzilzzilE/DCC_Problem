@@ -1,0 +1,121 @@
+"""Mission 3 multi-label 학습 loss 구현과 선택."""
+
+from __future__ import annotations
+
+from typing import Optional
+
+import torch
+from torch import nn
+
+
+class AsymmetricLoss(nn.Module):
+    """Sigmoid 기반 multi-label Asymmetric Loss.
+
+    각 label을 독립적인 binary task로 다루며 easy negative의 영향을 positive보다
+    강하게 줄인다. ``reduction='mean'``은 기존 BCEWithLogitsLoss의 기본 reduction과
+    loss scale을 맞추기 위한 이번 실험 설정이다.
+    """
+
+    def __init__(
+        self,
+        gamma_neg: float = 4.0,
+        gamma_pos: float = 1.0,
+        clip: float = 0.05,
+        eps: float = 1e-8,
+        reduction: str = "mean",
+        disable_focal_loss_grad: bool = True,
+    ) -> None:
+        super().__init__()
+        if gamma_neg < 0 or gamma_pos < 0:
+            raise ValueError("gamma_neg와 gamma_pos는 0 이상이어야 합니다.")
+        if not 0.0 <= clip < 1.0:
+            raise ValueError("clip은 0 이상 1 미만이어야 합니다.")
+        if not 0.0 < eps < 1.0:
+            raise ValueError("eps는 0 초과 1 미만이어야 합니다.")
+        if reduction not in {"none", "mean", "sum"}:
+            raise ValueError("reduction은 'none', 'mean', 'sum' 중 하나여야 합니다.")
+
+        self.gamma_neg = float(gamma_neg)
+        self.gamma_pos = float(gamma_pos)
+        self.clip = float(clip)
+        self.eps = float(eps)
+        self.reduction = reduction
+        self.disable_focal_loss_grad = bool(disable_focal_loss_grad)
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        if logits.shape != targets.shape:
+            raise ValueError(
+                "ASL logits와 targets shape이 같아야 합니다: "
+                f"logits={tuple(logits.shape)}, targets={tuple(targets.shape)}"
+            )
+
+        # AMP에서도 sigmoid/log 계산은 float32로 수행해 log(0)과 underflow를 피한다.
+        logits_float = logits.float()
+        targets_float = targets.to(dtype=logits_float.dtype)
+        positive_probability = torch.sigmoid(logits_float)
+        negative_probability = 1.0 - positive_probability
+
+        if self.clip > 0.0:
+            negative_probability = (negative_probability + self.clip).clamp(max=1.0)
+
+        positive_log_loss = targets_float * torch.log(
+            positive_probability.clamp(min=self.eps)
+        )
+        negative_log_loss = (1.0 - targets_float) * torch.log(
+            negative_probability.clamp(min=self.eps)
+        )
+        loss = positive_log_loss + negative_log_loss
+
+        if self.gamma_neg > 0.0 or self.gamma_pos > 0.0:
+            def calculate_focal_weight() -> torch.Tensor:
+                target_probability = (
+                    positive_probability * targets_float
+                    + negative_probability * (1.0 - targets_float)
+                )
+                one_sided_gamma = (
+                    self.gamma_pos * targets_float
+                    + self.gamma_neg * (1.0 - targets_float)
+                )
+                return (1.0 - target_probability).pow(one_sided_gamma)
+
+            if self.disable_focal_loss_grad:
+                with torch.no_grad():
+                    focal_weight = calculate_focal_weight()
+            else:
+                focal_weight = calculate_focal_weight()
+            loss = loss * focal_weight
+
+        loss = -loss
+        if self.reduction == "mean":
+            return loss.mean()
+        if self.reduction == "sum":
+            return loss.sum()
+        return loss
+
+
+def build_loss(
+    loss_type: str,
+    *,
+    pos_weight: Optional[torch.Tensor] = None,
+    asl_gamma_neg: float = 4.0,
+    asl_gamma_pos: float = 1.0,
+    asl_clip: float = 0.05,
+    asl_eps: float = 1e-8,
+    asl_reduction: str = "mean",
+    asl_disable_focal_loss_grad: bool = True,
+) -> nn.Module:
+    """Config 값으로 BCE 또는 ASL을 생성한다."""
+    if loss_type == "bce":
+        return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    if loss_type == "asl":
+        if pos_weight is not None:
+            raise ValueError("ASL과 pos_weight는 동시에 사용할 수 없습니다.")
+        return AsymmetricLoss(
+            gamma_neg=asl_gamma_neg,
+            gamma_pos=asl_gamma_pos,
+            clip=asl_clip,
+            eps=asl_eps,
+            reduction=asl_reduction,
+            disable_focal_loss_grad=asl_disable_focal_loss_grad,
+        )
+    raise ValueError(f"지원하지 않는 loss_type입니다: {loss_type}")

@@ -26,6 +26,7 @@ from .dataset import (
 )
 from .metrics import eval_macro_f1
 from .model import DEFAULT_MODEL_NAME, build_tokenizer_and_model, load_saved_model, save_model_bundle
+from .losses import build_loss
 from .threshold import apply_thresholds
 
 
@@ -57,6 +58,13 @@ class TrainingConfig:
     smoke_test: bool = False
     # 최적 모델(Best Checkpoint) 선정 기준: "val_loss" (기본값) 또는 "val_macro_f1" (대회 평가 지표 최고점)
     checkpoint_metric: str = "val_loss"
+    loss_type: str = "bce"
+    asl_gamma_neg: float = 4.0
+    asl_gamma_pos: float = 1.0
+    asl_clip: float = 0.05
+    asl_eps: float = 1e-8
+    asl_reduction: str = "mean"
+    asl_disable_focal_loss_grad: bool = True
 
 
 def set_seed(seed: int) -> None:
@@ -280,6 +288,19 @@ def _validate_config(config: TrainingConfig) -> None:
         raise ValueError("max_steps는 양수여야 합니다.")
     if not 0.0 <= config.warmup_ratio < 1.0:
         raise ValueError("warmup_ratio는 0 이상 1 미만이어야 합니다.")
+    if config.loss_type not in {"bce", "asl"}:
+        raise ValueError(f"지원하지 않는 loss_type입니다: {config.loss_type}")
+    if config.loss_type == "asl":
+        if config.use_pos_weight:
+            raise ValueError("ASL ablation에서는 use_pos_weight를 함께 사용할 수 없습니다.")
+        if config.asl_gamma_neg < 0 or config.asl_gamma_pos < 0:
+            raise ValueError("ASL gamma는 0 이상이어야 합니다.")
+        if not 0.0 <= config.asl_clip < 1.0:
+            raise ValueError("ASL clip은 0 이상 1 미만이어야 합니다.")
+        if not 0.0 < config.asl_eps < 1.0:
+            raise ValueError("ASL eps는 0 초과 1 미만이어야 합니다.")
+        if config.asl_reduction not in {"mean", "sum"}:
+            raise ValueError("학습용 ASL reduction은 'mean' 또는 'sum'이어야 합니다.")
     # 최적 모델 선정 기준 검증 ("val_loss" 또는 "val_macro_f1"만 허용)
     if config.checkpoint_metric not in {"val_loss", "val_macro_f1"}:
         raise ValueError(
@@ -407,6 +428,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
 
     model.to(device)
     pos_weight_statistics = None
+    pos_weights = None
     if config.use_pos_weight:
         pos_weights, pos_weight_statistics = _calculate_pos_weights(train_df, device)
         print("Training label 기반 pos_weight:")
@@ -417,9 +439,16 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
                 f"negative={stats['negative_count']}, "
                 f"pos_weight={stats['pos_weight']:.6f}"
             )
-        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weights)
-    else:
-        loss_fn = torch.nn.BCEWithLogitsLoss()
+    loss_fn = build_loss(
+        config.loss_type,
+        pos_weight=pos_weights,
+        asl_gamma_neg=config.asl_gamma_neg,
+        asl_gamma_pos=config.asl_gamma_pos,
+        asl_clip=config.asl_clip,
+        asl_eps=config.asl_eps,
+        asl_reduction=config.asl_reduction,
+        asl_disable_focal_loss_grad=config.asl_disable_focal_loss_grad,
+    )
     optimizer = _build_optimizer(model, config.learning_rate, config.weight_decay)
     updates_per_epoch = math.ceil(len(train_loader) / config.gradient_accumulation_steps)
     planned_steps = updates_per_epoch * config.epochs

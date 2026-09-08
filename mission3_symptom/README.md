@@ -239,7 +239,18 @@ seed 42와 seed 43의 standalone optimized Macro F1 차이는 약 0.0015로 작�
 
 Ensemble은 현재 Validation point estimate에서 가장 높은 optimized Macro F1, Macro AUROC와 Macro AP를 기록했지만 seed 42 대비 개선 폭은 작다. 또한 모든 취약 클래스가 함께 개선된 것은 아니다. optimized F1 기준 구토, 어지러움과 전신쇠약은 소폭 개선됐지만 두통은 `0.5525 → 0.5423`, 오심은 `0.4030 → 0.3988`로 seed 42보다 낮았다. 같은 Validation에서 threshold를 선택하고 평가한 결과이므로 ensemble의 우위를 통계적이거나 확정적인 결론으로 해석하지 않는다.
 
-추가 seed가 제공할 정보 대비 seed 44 Full Training의 우선순위는 현재 낮게 둔다. 다음 주요 실험은 backbone과 나머지 조건을 유지한 KLUE + Asymmetric Loss(ASL)로 정한다. 이는 높은 상관을 보인 seed model을 하나 더 추가하는 것보다, 오심·두통 등 ensemble에서도 일관되게 개선되지 않은 클래스의 loss-level 불균형 대응 효과를 직접 확인하기 위함이다.
+추가 seed가 제공할 정보 대비 seed 44 Full Training의 우선순위는 낮게 두고, 다음 ablation으로 backbone과 나머지 조건을 유지한 KLUE + Asymmetric Loss(ASL)를 확인했다.
+
+#### KLUE loss ablation: plain BCE vs ASL
+
+seed 42 KLUE-RoBERTa에서 loss만 plain BCE에서 ASL(`gamma_neg=4`, `gamma_pos=1`, `clip=0.05`)로 변경하고 나머지 학습 및 평가 조건은 동일하게 유지했다.
+
+| Loss | F1 @ 0.5 | Optimized Macro F1 | Macro AUROC | Macro AP | Best epoch |
+|---|---:|---:|---:|---:|---:|
+| Plain BCE | **0.600329** | **0.655421** | 0.883142 | 0.683620 | 2 |
+| ASL | 0.529330 | 0.652710 | **0.885651** | **0.686941** | 3 |
+
+ASL은 BCE보다 Macro AUROC `+0.002509`, Macro AP `+0.003321`로 ranking 지표가 소폭 상승했지만 optimized Macro F1은 `-0.002711` 하락해 전체 성능 개선으로 이어지지 않았다. 오심 optimized F1은 `0.4030 → 0.4092`로 소폭 상승했으나 문제를 해결한 수준은 아니며, 복통과 열상 외 다수 클래스의 optimized F1도 하락했다. ASL의 optimized threshold는 전체 클래스에서 0.59~0.72로 BCE의 0.19~0.51보다 높아져 확률 스케일이 전반적으로 위쪽으로 이동했다. 따라서 현재 standalone 대표 설정은 plain BCE로 유지하며, ASL의 효과를 과도하게 해석하지 않는다.
 
 #### 오심 관찰
 
@@ -247,7 +258,7 @@ Ensemble은 현재 Validation point estimate에서 가장 높은 optimized Macro
 - KLUE에서도 threshold 0.5 F1은 0.0529였고 threshold를 0.19로 낮춘 뒤 0.4030이 됐다.
 - 원인을 전처리, label noise 또는 구토와의 의미 중첩으로 단정하지 않고 세 모델의 오심/구토 FP/FN 원문을 우선 분석한다.
 
-오심/구토 Validation 오류에 대한 수동 검토와 seed ensemble 분석을 반영해, 다음 Full Training 후보는 KLUE + Asymmetric Loss(ASL)로 둔다. ASL의 구현 및 실행은 별도 실험 단계에서 진행한다.
+오심/구토 Validation 오류에 대한 수동 검토와 loss ablation 결과를 함께 고려해 후속 실험의 우선순위를 정한다.
 
 ---
 
