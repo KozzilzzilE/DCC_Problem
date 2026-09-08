@@ -217,13 +217,37 @@ KLUE의 best checkpoint는 epoch 2(`val_loss=0.2549`)였다. Train loss는 epoch
 | 전신쇠약 | 0.5570 | 0.23 | 0.5894 |
 | 호흡곤란 | 0.6622 | 0.36 | 0.6757 |
 
+#### KLUE seed 재현성 및 2-seed probability ensemble
+
+KLUE-RoBERTa plain BCE baseline의 1차 seed 재현성을 확인하기 위해 seed 43을 추가로 학습했다. seed 42와 seed 43은 `RUN_NAME`과 seed만 다르고 데이터 split, 모델, loss, optimizer 및 학습 설정, `val_loss` checkpoint 선택 기준과 threshold 탐색 protocol은 동일하다. 두 run 모두 epoch 2가 best checkpoint로 선택됐다.
+
+| 평가 대상 | F1 @ 0.5 | Optimized Macro F1 | Macro AUROC | Macro AP | Best epoch |
+|---|---:|---:|---:|---:|---:|
+| KLUE seed 42 | 0.600329 | **0.655421** | **0.883142** | **0.683620** | 2 |
+| KLUE seed 43 | **0.607258** | 0.653911 | 0.882340 | 0.679988 | 2 |
+| seed 42·43 probability ensemble | 0.603682 | **0.656804** | **0.885324** | **0.685990** | - |
+
+Ensemble은 동일한 Validation 3,640건에서 두 모델의 class-wise probability를 단순 평균한 뒤 standalone과 동일한 방식으로 threshold 0.5 지표와 클래스별 optimized threshold를 계산했다. 평균 전에 sample 순서, call ID와 label alignment가 동일한지 확인했다.
+
+| Ensemble delta (vs seed 42) | 변화량 |
+|---|---:|
+| Optimized Macro F1 | +0.001383 |
+| Macro AUROC | +0.002182 |
+| Macro AP | +0.002370 |
+
+seed 42와 seed 43의 standalone optimized Macro F1 차이는 약 0.0015로 작았다. 두 seed만 비교한 제한은 있지만, KLUE plain BCE baseline이 두 run에서 대체로 비슷한 수준으로 재현된 1차 결과로 해석한다. 두 모델 probability의 Pearson correlation은 0.975552로 상당히 높아 prediction diversity는 제한적이었다.
+
+Ensemble은 현재 Validation point estimate에서 가장 높은 optimized Macro F1, Macro AUROC와 Macro AP를 기록했지만 seed 42 대비 개선 폭은 작다. 또한 모든 취약 클래스가 함께 개선된 것은 아니다. optimized F1 기준 구토, 어지러움과 전신쇠약은 소폭 개선됐지만 두통은 `0.5525 → 0.5423`, 오심은 `0.4030 → 0.3988`로 seed 42보다 낮았다. 같은 Validation에서 threshold를 선택하고 평가한 결과이므로 ensemble의 우위를 통계적이거나 확정적인 결론으로 해석하지 않는다.
+
+추가 seed가 제공할 정보 대비 seed 44 Full Training의 우선순위는 현재 낮게 둔다. 다음 주요 실험은 backbone과 나머지 조건을 유지한 KLUE + Asymmetric Loss(ASL)로 정한다. 이는 높은 상관을 보인 seed model을 하나 더 추가하는 것보다, 오심·두통 등 ensemble에서도 일관되게 개선되지 않은 클래스의 loss-level 불균형 대응 효과를 직접 확인하기 위함이다.
+
 #### 오심 관찰
 
 - 세 backbone의 optimized 오심 F1은 KoBERT 0.3930, KoELECTRA 0.4006, KLUE-RoBERTa 0.4030으로 거의 개선되지 않아 현재 가장 큰 class-level bottleneck으로 남았다.
 - KLUE에서도 threshold 0.5 F1은 0.0529였고 threshold를 0.19로 낮춘 뒤 0.4030이 됐다.
 - 원인을 전처리, label noise 또는 구토와의 의미 중첩으로 단정하지 않고 세 모델의 오심/구토 FP/FN 원문을 우선 분석한다.
 
-다음 단계는 KLUE-RoBERTa를 기준으로 오심/구토 FP/FN 원문을 분석하고, 그 근거에 따라 최소 변경 후속 실험을 선택하는 것이다.
+오심/구토 Validation 오류에 대한 수동 검토와 seed ensemble 분석을 반영해, 다음 Full Training 후보는 KLUE + Asymmetric Loss(ASL)로 둔다. ASL의 구현 및 실행은 별도 실험 단계에서 진행한다.
 
 ---
 
