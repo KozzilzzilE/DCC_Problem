@@ -16,7 +16,7 @@
 2. **통화 단위 집계** — 한 통화의 조각별 확률을 평균(soft voting)해 남/여 결정
 
 통화당 신고자 조각이 평균 15.8개라 집계 효과가 크다. 실측으로 조각 정확도 0.877 →
-통화 정확도 0.981~0.984 (Validation 3,640통화, 갈래별 최종 표 참고).
+통화 정확도 0.982~0.984 (Validation 3,640통화, 갈래별 표 참고).
 
 ## 데이터 실측
 
@@ -30,33 +30,47 @@
 | Validation | 3,640통화 → 58,101조각 |
 | 다수결 기준선 | Validation 통화 단위 **0.538** |
 
-## ResNet 끌어올리기 — Validation 3,640통화 (전부 dev 임계값 보정)
+## 제출 모델 선정 — dev(sliding) 기준
 
-"성능이 비슷하면 복잡도까지 고려" 원칙에 따라 ResNet 을 w2v2 수준으로 올릴 수 있는지
-시험했다. 되찾을 수 있는 건 w2v2 와 겹치지 않는 ResNet 오답 21 건뿐이라 상한은 0.9843.
+**모델·설정·임계값은 전부 Training 내부 dev(2,920통화)로 고르고, Validation 은 보고만 한다.**
+dev 수치는 두 종류가 있어 표기한다: 학습 중 매 epoch 찍는 값은 `center`(조각당 창 1개),
+보정·비교표·제출 경로(`m1.calibrate`/`benchmark`/`infer`)는 `sliding`(창 여러 개 평균)이다.
+갈래를 비교할 때는 **제출 경로와 같은 `sliding` dev** 를 쓴다.
 
-| 변형 | 임계값 | 통화 Acc | 오답 | 비고 |
-|---|---|---|---|---|
-| ResNet50 기준 | 0.515 | 0.9808 | 70 | logmel/64 |
-| + SpecAugment | 0.500 | 0.9813 | 68 | 조각 +0.4%p, 통화 +2건 |
-| + SpecAug, logmel/80 | 0.530 | 0.9819 | 66 | dev 최고였음(0.9873) |
-| + SpecAug, MFCC | 0.490 | 0.9797 | 74 | dev 동률이었으나 Validation 에선 하락 |
-| **+ SpecAug, logmel/80, w2v2 증류(α=0.5)** | 0.480 | **0.9821** | **65** | **ResNet 최고. inference.py 로 재확인** |
-| Wav2Vec2-base (참고) | 0.515 | 0.9843 | 57 | |
+| 모델 | 임계값 | dev center | **dev sliding** | Validation | 오답 |
+|---|---|---|---|---|---|
+| **Wav2Vec2-base** (`w2v2_full.pt`) | 0.515 | 0.9897 | **0.9901** | **0.9843** | 57 |
+| ResNet50 + SpecAug + logmel/80 (`resnet_aug_m80.pt`) | 0.530 | 0.9866 | **0.9873** | 0.9819 | 66 |
+| ResNet50 + SpecAug + logmel/80 + 증류 (`resnet_kd.pt`) | 0.480 | 0.9856 | 0.9866 | 0.9821 | 65 |
+| ResNet50 + SpecAug + MFCC | 0.490 | 0.9866 | 0.9866 | 0.9797 | 74 |
+| ResNet50 + SpecAug | 0.500 | 0.9856 | 0.9860 | 0.9813 | 68 |
+| ResNet50 기준 (logmel/64) | 0.515 | 0.9860 | 0.9866 | 0.9808 | 70 |
+| audeering (전화 음성 사전학습) | 0.490 | 0.9873 | 0.9884 | 0.9816 | 67 |
 
-증류가 21 건 중 5 건을 되찾았다. 격차 0.35%p → **0.22%p (8통화)** 로, 3,640 통화의
-표준오차(≈0.23%p) 안이다. 고정 평균 앙상블은 어떤 조합도 w2v2 단독을 넘지 못했고
-(최고 0.9841), 6 개 모델이 전부 틀리는 통화가 37 건(1.02%)이다.
+**제출 1안: `w2v2_full.pt`** — dev 와 Validation 모두에서 같은 방향으로 앞선다
+(dev +0.28%p, Validation +0.24%p). 한쪽 집합에서만 좋은 게 아니므로 노이즈로 보지 않는다.
+체크포인트에 HF config 를 동봉해 오프라인 환경에서도 로딩된다 (`HF_HUB_OFFLINE=1` 실증).
 
-**제출 권장 (갱신)**: **ResNet50 + 증류 (`resnet_kd.pt`, 0.9821)**. w2v2 와 통계적으로
-구분되지 않는 정확도에 추론 7배 빠르고, 체크포인트 로딩에 인터넷이 필요 없다(w2v2 갈래는
-`from_pretrained` 로 뼈대를 만들어 오프라인 평가 환경에서 실패할 수 있다).
+**폴백: `resnet_aug_m80.pt`** — sliding dev 기준 ResNet 최고. 94 MB, 추론 7배 빠름.
+채점 머신에 GPU 가 없거나 시간 제한이 있으면 이쪽. `--ckpt_path` 만 바꾸면 된다.
+
+`resnet_kd.pt` 는 Validation 만 보면 ResNet 최고(0.9821)지만 **dev 근거가 없다**
+(sliding dev 0.9866 으로 기준 ResNet 과 동률). 한때 이 값으로 추천했던 것은
+Validation 으로 모델을 고른 셈이라 철회한다. 참고용으로만 둔다.
+
+### ResNet 끌어올리기 실험에서 배운 것
+
+되찾을 수 있는 건 w2v2 와 겹치지 않는 ResNet 오답 21 건뿐이라 상한은 0.9843 이었다.
+SpecAugment 는 과적합을 잡았지만(train 0.95 → 0.89) 통화 정확도로 거의 안 옮겨갔고,
+MFCC 는 dev 동률·Validation 하락 — dev 2,920 통화가 0.001 차이를 구분하지 못한다.
+고정 평균 앙상블은 6 개 모델 어떤 조합도 w2v2 단독을 넘지 못했고(최고 0.9841),
+6 개 전부 틀리는 통화 37 건(1.02%)이 바닥이다.
 
 ## 최종 결과 — 세 갈래 비교 (Validation 3,640통화, dev 임계값 보정)
 
 | 갈래 | 임계값 | 통화 Acc | 오답 | 파라미터 | 학습 s/epoch | 추론 ms/통화 | VRAM |
 |---|---|---|---|---|---|---|---|
-| ResNet50 | 0.515 | 0.9808 | 70 | **23.5M** | **326** | **12.4** | **368 MB** |
+| ResNet50 (기준) | 0.515 | 0.9808 | 70 | **23.5M** | **326** | **12.4** | **368 MB** |
 | **Wav2Vec2-base** | 0.515 | **0.9843** | **57** | 94.4M | 2,708 | 85.3 | 4,224 MB |
 | audeering (전화 음성 사전학습) | 0.490 | 0.9816 | 67 | 88.7M | 3,269 | 87.3 | 5,543 MB |
 
@@ -70,8 +84,7 @@
 남은 오답은 결정 경계 근처(확신도 중앙 0.195)의 애매한 목소리이고, 아동·구간오류·통화유형·
 라벨오류 가설은 모두 기각됐다.
 
-**제출 권장**: 정확도만 보면 Wav2Vec2(0.9843), 실시간 접수를 고려하면 ResNet50 —
-0.35%p 차이에 추론 6.9배·VRAM 11.5배다.
+이 표의 dev 는 `center` 값이다. 제출 선정은 위 "제출 모델 선정" 절의 `sliding` dev 를 따른다.
 
 ## 대회 규칙 대응
 
@@ -167,7 +180,8 @@ PYTHONPATH=mission1_gender python -m m1.calibrate --ckpt mission1_gender/ckpt/re
 
 조각 확률을 통화 단위로 평균하면 0.5 가 최적이 아니다. dev 에서 고른 0.515 를
 쓰면 Validation 통화 Accuracy 가 0.9791 -> 0.9808 이 된다 (계산 비용 0).
-보정값은 체크포인트에 저장되어 추론 시 자동 적용된다.
+보정값은 체크포인트에 저장되어 추론 시 자동 적용된다. 이때 찍히는 dev 정확도는 제출 경로와
+같은 `sliding` 모드라, 갈래 간 비교에는 학습 로그의 `center` 값이 아니라 이 값을 쓴다.
 
 **Validation 으로 임계값을 고르면 안 된다.** Validation 최적값 0.540 을 쓰면
 +0.28%p 로 보이지만 평가 데이터에 맞춘 값이라 재현되지 않는다. dev 에서 고른
@@ -176,11 +190,25 @@ PYTHONPATH=mission1_gender python -m m1.calibrate --ckpt mission1_gender/ckpt/re
 ### 6. 제출 규격 추론
 
 ```bash
-python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --ckpt_path ./mission1_gender/ckpt/resnet_full.pt --output ./outputs/mission1.csv
+python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --ckpt_path ./mission1_gender/ckpt/w2v2_full.pt --output ./outputs/mission1.csv
 ```
 
-체크포인트에 `FeatureConfig`와 갈래 이름이 함께 저장되므로, `--ckpt_path`만 바꾸면
-전처리가 자동으로 그에 맞게 복원된다.
+체크포인트에 `FeatureConfig`·갈래·임계값·HF config 가 함께 저장되므로, `--ckpt_path` 만
+바꾸면 전처리와 결정 경계가 자동으로 복원된다 (폴백: `resnet_aug_m80.pt`).
+
+### 7. 제출 직전 체크리스트
+
+`.pt` 는 git 에 없으므로(`.gitignore`) 제출 패키지에 파일을 직접 넣어야 한다. 넣은 그 파일로
+아래를 **한 번** 실행하고 첫 줄을 확인한다:
+
+```bash
+python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --ckpt_path <제출할 .pt> --output ./outputs/mission1.csv
+```
+
+- 첫 줄 `[Mission 1] branch=... threshold=0.515 ...` — **threshold 가 0.500 이면 보정 안 된 파일**이다.
+  `m1.calibrate` 를 안 거친 `.pt` 는 0.5 로 떨어져 ResNet 기준 0.9808 → 0.9791 이 된다
+- 종료 코드 0, `outputs/mission1.csv` 행 수 = 입력 통화 수, 값은 `남`/`여` 만
+- w2v2 갈래면 `HF_HUB_OFFLINE=1` 을 붙여 한 번 더 실행해 허브 없이 로딩되는지 확인
 
 ### 테스트
 
