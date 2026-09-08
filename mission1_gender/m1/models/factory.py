@@ -59,6 +59,10 @@ def save_checkpoint(
     }
     if branch in ("w2v2", "audeering"):
         payload["extra"]["model_name"] = getattr(model, "model_name", None)
+        # 추론 시 허브 접속 없이 뼈대를 만들 수 있게 HF config 를 동봉한다
+        backbone = getattr(model, "backbone", None)
+        if backbone is not None and hasattr(backbone, "config"):
+            payload["extra"]["hf_config"] = backbone.config.to_dict()
 
     torch.save(payload, path)
     return path
@@ -82,6 +86,7 @@ def load_checkpoint(path: str | Path, device: str | torch.device = "cpu") -> tup
         kwargs["pretrained"] = False
     elif branch in ("w2v2", "audeering"):
         kwargs["model_name"] = payload.get("extra", {}).get("model_name")
+        kwargs["hf_config"] = payload.get("extra", {}).get("hf_config")  # None 이면 from_pretrained 폴백
 
     model = build_model(branch, cfg, **kwargs)
     model.load_state_dict(payload["state_dict"])
@@ -112,3 +117,16 @@ def write_threshold(path: str | Path, threshold: float, dev_accuracy: float | No
         payload["extra"]["decision_threshold_dev_accuracy"] = float(dev_accuracy)
     torch.save(payload, path)
     return path
+
+
+def embed_hf_config(path: str | Path) -> bool:
+    """예전 체크포인트에 HF config 를 넣어 오프라인 로딩이 되게 한다. 바뀌면 True."""
+    path = Path(path)
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    if payload.get("branch") not in ("w2v2", "audeering") or payload.get("extra", {}).get("hf_config"):
+        return False
+    model = build_model(payload["branch"], FeatureConfig.from_dict(payload["feature_config"]),
+                        model_name=payload["extra"].get("model_name"))
+    payload.setdefault("extra", {})["hf_config"] = model.backbone.config.to_dict()
+    torch.save(payload, path)
+    return True
