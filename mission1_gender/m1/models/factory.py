@@ -15,6 +15,10 @@ from ..config import FeatureConfig
 
 CHECKPOINT_VERSION = 1
 
+# 조각 확률을 통화 단위로 평균했을 때의 기본 결정 경계.
+# m1.calibrate 로 dev 에서 보정한 값이 체크포인트에 있으면 그쪽이 우선한다.
+DEFAULT_THRESHOLD = 0.5
+
 
 def build_model(branch: str, cfg: FeatureConfig, **kwargs) -> nn.Module:
     if branch == "resnet":
@@ -26,6 +30,11 @@ def build_model(branch: str, cfg: FeatureConfig, **kwargs) -> nn.Module:
 
         model_name = kwargs.pop("model_name", None) or resolve_checkpoint()
         return Wav2Vec2Gender(model_name, **kwargs)
+    if branch == "audeering":
+        from .audeering import DEFAULT_NAME, AudeeringGender
+
+        model_name = kwargs.pop("model_name", None) or DEFAULT_NAME
+        return AudeeringGender(model_name, **kwargs)
     raise ValueError(f"unknown branch {branch!r}")
 
 
@@ -48,8 +57,12 @@ def save_checkpoint(
         "metrics": metrics or {},
         "extra": extra or {},
     }
-    if branch == "w2v2":
+    if branch in ("w2v2", "audeering"):
         payload["extra"]["model_name"] = getattr(model, "model_name", None)
+        # 추론 시 허브 접속 없이 뼈대를 만들 수 있게 HF config 를 동봉한다
+        backbone = getattr(model, "backbone", None)
+        if backbone is not None and hasattr(backbone, "config"):
+            payload["extra"]["hf_config"] = backbone.config.to_dict()
 
     torch.save(payload, path)
     return path
@@ -71,10 +84,49 @@ def load_checkpoint(path: str | Path, device: str | torch.device = "cpu") -> tup
     if branch == "resnet":
         # 저장된 가중치를 덮어쓸 것이므로 ImageNet 가중치를 새로 받을 필요가 없다.
         kwargs["pretrained"] = False
-    elif branch == "w2v2":
+    elif branch in ("w2v2", "audeering"):
         kwargs["model_name"] = payload.get("extra", {}).get("model_name")
+        kwargs["hf_config"] = payload.get("extra", {}).get("hf_config")  # None 이면 from_pretrained 폴백
 
     model = build_model(branch, cfg, **kwargs)
     model.load_state_dict(payload["state_dict"])
     model.to(device).eval()
     return model, branch, cfg, payload
+
+
+def checkpoint_threshold(payload: dict) -> float:
+    """체크포인트에 보정된 임계값이 있으면 그 값, 없으면 0.5."""
+    value = (payload or {}).get("extra", {}).get("decision_threshold")
+    if value is None:
+        return DEFAULT_THRESHOLD
+    value = float(value)
+    if not 0.0 < value < 1.0:
+        raise ValueError(f"decision_threshold 는 (0, 1) 이어야 합니다: {value}")
+    return value
+
+
+def write_threshold(path: str | Path, threshold: float, dev_accuracy: float | None = None) -> Path:
+    """학습을 다시 하지 않고 체크포인트에 보정된 임계값만 기록한다."""
+    if not 0.0 < threshold < 1.0:
+        raise ValueError(f"threshold 는 (0, 1) 이어야 합니다: {threshold}")
+
+    path = Path(path)
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    payload.setdefault("extra", {})["decision_threshold"] = float(threshold)
+    if dev_accuracy is not None:
+        payload["extra"]["decision_threshold_dev_accuracy"] = float(dev_accuracy)
+    torch.save(payload, path)
+    return path
+
+
+def embed_hf_config(path: str | Path) -> bool:
+    """예전 체크포인트에 HF config 를 넣어 오프라인 로딩이 되게 한다. 바뀌면 True."""
+    path = Path(path)
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    if payload.get("branch") not in ("w2v2", "audeering") or payload.get("extra", {}).get("hf_config"):
+        return False
+    model = build_model(payload["branch"], FeatureConfig.from_dict(payload["feature_config"]),
+                        model_name=payload["extra"].get("model_name"))
+    payload.setdefault("extra", {})["hf_config"] = model.backbone.config.to_dict()
+    torch.save(payload, path)
+    return True

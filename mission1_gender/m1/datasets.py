@@ -20,6 +20,8 @@ from .config import FeatureConfig
 
 INT16_SCALE = 32768.0
 W2V2_SAMPLE_RATE = 16000
+# raw waveform 을 16 kHz 로 받는 갈래. 캐시(8 kHz)에서 꺼낼 때 업샘플한다.
+RESAMPLE_BRANCHES = frozenset({"w2v2", "audeering"})
 _MEMMAP_CACHE_SIZE = 256
 
 
@@ -90,7 +92,7 @@ def crop_or_pad(segment: np.ndarray, target_len: int, start: int | None) -> np.n
 def to_waveform(segment: np.ndarray, branch: str) -> np.ndarray:
     """int16 -> float32 [-1, 1]. w2v2 갈래는 8 kHz -> 16 kHz 로 올린다."""
     wave = segment.astype(np.float32) / INT16_SCALE
-    if branch == "w2v2":
+    if branch in RESAMPLE_BRANCHES:
         # 폴리페이즈 FIR 업샘플. 원본에 없던 4 kHz 이상 대역은 비어 있으므로
         # 사전학습 도메인과의 갭이 남는다 (분석 시 명시).
         wave = resample_poly(wave, 2, 1).astype(np.float32)
@@ -108,9 +110,14 @@ class SegmentWindowDataset(Dataset):
         branch: str = "resnet",
         train: bool = True,
         seed: int = 0,
+        soft_targets: "list[float] | None" = None,
     ):
         self.index = index
         self.samples = samples
+        # 지식 증류용. samples 와 같은 길이의 [0,1] 타깃. None 이면 hard 라벨.
+        self.soft_targets = soft_targets
+        if soft_targets is not None and len(soft_targets) != len(samples):
+            raise ValueError("soft_targets 길이가 samples 와 다릅니다")
         self.cfg = cfg
         self.branch = branch
         self.train = train
@@ -138,7 +145,11 @@ class SegmentWindowDataset(Dataset):
             start = None
 
         wave = to_waveform(crop_or_pad(segment, target_len, start), self.branch)
-        return torch.from_numpy(wave), torch.tensor(float(sample.target))
+        # getattr: Windows spawn 워커는 디스크의 최신 코드를 다시 import 하므로, 실행 중
+        # 수정된 클래스와 옛 객체가 만나도 죽지 않게 한다.
+        soft = getattr(self, "soft_targets", None)
+        target = soft[idx] if soft is not None else float(sample.target)
+        return torch.from_numpy(wave), torch.tensor(float(target))
 
 
 class SlidingWindowDataset(Dataset):

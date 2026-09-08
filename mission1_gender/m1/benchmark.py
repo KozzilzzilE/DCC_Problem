@@ -20,13 +20,14 @@ import torch
 from ._console import ensure_utf8_stdout
 from .cache import CacheIndex
 from .datasets import samples_from_rows
-from .evaluate import majority_baseline, predict_segment_probs, score, truth_from_samples
-from .models import load_checkpoint
+from .evaluate import suggested_workers, majority_baseline, predict_segment_probs, score, truth_from_samples
+from .models import checkpoint_threshold, load_checkpoint
 
 COLUMNS = [
     ("label", "체크포인트"),
     ("branch", "갈래"),
     ("n_params_m", "파라미터(M)"),
+    ("threshold", "임계값"),
     ("dev_call_accuracy", "dev 통화 Acc"),
     ("val_call_accuracy", "Validation 통화 Acc"),
     ("val_segment_accuracy", "Validation 조각 Acc"),
@@ -43,7 +44,8 @@ def parse_args(argv=None):
     p.add_argument("--val-cache", type=Path, default=Path("cache/val"))
     p.add_argument("--out", type=Path, default=Path("mission1_gender/reports/comparison"))
     p.add_argument("--batch-size", type=int, default=128)
-    p.add_argument("--num-workers", type=int, default=4)
+    p.add_argument("--num-workers", type=int, default=None,
+                   help="기본값은 갈래에 맞춰 자동 (resnet 0 / 16k 업샘플 갈래 4)")
     p.add_argument("--eval-mode", choices=("center", "sliding"), default="sliding")
     p.add_argument("--latency-calls", type=int, default=200)
     return p.parse_args(argv)
@@ -116,10 +118,11 @@ def evaluate_checkpoint(path: Path, args, device) -> dict:
     started = time.perf_counter()
     probs = predict_segment_probs(
         model, index, samples, cfg, branch, device,
-        batch_size=args.batch_size, mode=args.eval_mode, num_workers=args.num_workers,
+        batch_size=args.batch_size, mode=args.eval_mode, num_workers=args.num_workers if args.num_workers is not None else suggested_workers(branch),
     )
     val_seconds = time.perf_counter() - started
-    metrics = score(samples, probs, truth)
+    threshold = checkpoint_threshold(payload)
+    metrics = score(samples, probs, truth, threshold)
 
     history_path = path.with_suffix(".history.json")
     train_seconds = None
@@ -133,6 +136,7 @@ def evaluate_checkpoint(path: Path, args, device) -> dict:
         "feature": cfg.kind,
         "model_name": payload.get("extra", {}).get("model_name"),
         "n_params_m": round(payload.get("extra", {}).get("n_params", 0) / 1e6, 1),
+        "threshold": round(threshold, 3),
         "dev_call_accuracy": _rounded(payload.get("metrics", {}).get("dev_call_accuracy"), 4),
         "val_call_accuracy": _rounded(metrics.call_accuracy, 4),
         "val_segment_accuracy": _rounded(metrics.segment_accuracy, 4),
@@ -157,7 +161,7 @@ def to_markdown(results: list[dict], baseline: float) -> str:
     header = "| " + " | ".join(title for _, title in COLUMNS) + " |"
     divider = "|" + "|".join(["---"] * len(COLUMNS)) + "|"
     lines = [
-        "# Mission 1 — CNN(ResNet50) vs 음성 특화(Wav2Vec2) 비교",
+        "# Mission 1 — 갈래 비교 (" + " / ".join(r["label"] for r in results) + ")",
         "",
         f"Validation 다수결 기준선(통화 단위): **{baseline:.4f}**",
         "",

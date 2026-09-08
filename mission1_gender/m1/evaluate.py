@@ -17,6 +17,10 @@ from .config import FeatureConfig
 from .datasets import Sample, SegmentWindowDataset, SlidingWindowDataset
 
 
+# 이 간격마다 torch.cuda.empty_cache(). 긴 루프의 할당자 단편화 방지.
+EMPTY_CACHE_EVERY = 200
+
+
 @dataclass
 class CallMetrics:
     call_accuracy: float
@@ -33,6 +37,18 @@ class CallMetrics:
             f"남 {self.per_gender_accuracy.get('남', float('nan')):.4f} "
             f"여 {self.per_gender_accuracy.get('여', float('nan')):.4f}"
         )
+
+
+def suggested_workers(branch: str) -> int:
+    """갈래별 권장 DataLoader 워커 수.
+
+    워커 수는 항목당 CPU 작업량에 맞춰야 한다.
+    - resnet : 캐시에서 메모리 복사만 하므로 CPU 작업이 없다. Windows 의 spawn
+      워커를 쓰면 배치마다 25MB 를 파이프로 넘기느라 오히려 5.6배 느려진다.
+    - w2v2   : 창마다 resample_poly 로 8k -> 16k 업샘플을 한다. 실제 CPU 작업이
+      있어 워커가 필요하다.
+    """
+    return 4 if branch in ("w2v2", "audeering") else 0
 
 
 @torch.no_grad()
@@ -58,6 +74,14 @@ def predict_segment_probs(
     else:
         raise ValueError(f"mode must be 'center' or 'sliding', got {mode!r}")
 
+    # 추론에서는 num_workers=0 이 가장 빠르다. Validation 캐시는 1.97GB 라 페이지
+    # 캐시에 들어가고 접근도 순차적이라 I/O 가 사실상 공짜인데(81,379 창 로딩 7.4초),
+    # Windows 의 spawn 워커를 쓰면 배치마다 25MB 를 파이프로 넘기느라 122초가 된다.
+    # 전체 Validation 추론이 23초 vs 130초로 갈린다.
+    #
+    # 학습은 반대다. 462,190 조각을 셔플해 15.67GB 캐시에 랜덤 접근하므로 I/O 가
+    # 병목이고, 워커가 1 epoch 을 2,056초에서 326초로 줄인다. train.py 의 기본값을
+    # 여기에 맞춰 낮추면 안 된다.
     loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -70,7 +94,12 @@ def predict_segment_probs(
     counts = np.zeros(len(samples), dtype=np.int64)
     cursor = 0
 
-    for waveform, tag in loader:
+    for step, (waveform, tag) in enumerate(loader, start=1):
+        if device.type == "cuda" and step % EMPTY_CACHE_EVERY == 0:
+            # Windows WDDM 은 VRAM 초과를 OOM 대신 시스템 RAM 페이징으로 숨겨
+            # 5~6배 느려진다 (교사 확률 추출 124분 -> 17분). 단편화된 캐시
+            # 블록을 주기적으로 돌려준다. 비용은 무시할 수준.
+            torch.cuda.empty_cache()
         waveform = waveform.to(device, non_blocking=True)
         with torch.autocast(device_type=device.type, enabled=amp and device.type == "cuda"):
             logits = model(waveform)
@@ -102,15 +131,16 @@ def score(
     samples: list[Sample],
     segment_probs: np.ndarray,
     truth: dict[str, str],
+    threshold: float = 0.5,
 ) -> CallMetrics:
-    """truth: call_id -> 'M' | 'F'."""
+    """truth: call_id -> 'M' | 'F'. threshold 는 체크포인트에 보정된 값을 넘긴다."""
     call_probs = call_probabilities(samples, segment_probs)
 
     confusion = {"남->남": 0, "남->여": 0, "여->남": 0, "여->여": 0}
     correct = 0
     for cid, prob in call_probs.items():
         gold = GENDER_OUTPUT[gender_to_target(truth[cid])]
-        pred = call_label(prob)
+        pred = call_label(prob, threshold)
         confusion[f"{gold}->{pred}"] += 1
         correct += gold == pred
 

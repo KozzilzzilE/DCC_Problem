@@ -21,7 +21,7 @@ from .config import FeatureConfig
 from .datasets import crop_or_pad, to_waveform
 from .features import sliding_windows
 from .labels import CallRecord, caller_utterances, iter_calls
-from .models import load_checkpoint
+from .models import checkpoint_threshold, load_checkpoint
 
 OUTPUT_COLUMNS = ["audio file name", "gender"]
 MIN_SEGMENT_MS = 100
@@ -94,9 +94,11 @@ def predict_directory(
     device = torch.device(device)
 
     model, branch, cfg, payload = load_checkpoint(ckpt_path, device=device)
+    threshold = checkpoint_threshold(payload)
     if verbose:
         trained = payload.get("metrics", {}).get("dev_call_accuracy")
         print(f"[Mission 1] branch={branch} device={device} feature={cfg.kind}"
+              f" threshold={threshold:.3f}"
               + (f" dev_call_acc={trained:.4f}" if trained else ""))
 
     records = list(iter_calls(label_dir))
@@ -143,7 +145,8 @@ def predict_directory(
     }
 
     rows = [
-        {"audio file name": f"{record.call_id}.wav", "gender": call_label(call_probs[record.call_id])}
+        {"audio file name": f"{record.call_id}.wav",
+         "gender": call_label(call_probs[record.call_id], threshold)}
         for record in records
     ]
 
@@ -151,7 +154,7 @@ def predict_directory(
     seen = {record.call_id for record in records}
     for wav in sorted(audio_dir.glob("*.wav")):
         if wav.stem not in seen:
-            rows.append({"audio file name": wav.name, "gender": call_label(None)})
+            rows.append({"audio file name": wav.name, "gender": call_label(None, threshold)})
 
     missing = sum(1 for r in records if not segment_probs.get(r.call_id))
     if verbose and missing:

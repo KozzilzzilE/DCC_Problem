@@ -15,8 +15,8 @@
    성별을 라벨로 붙여 이진 분류기를 학습
 2. **통화 단위 집계** — 한 통화의 조각별 확률을 평균(soft voting)해 남/여 결정
 
-통화당 신고자 조각이 평균 15.7개라 집계 효과가 크다. 실측으로 조각 정확도 0.857 →
-통화 정확도 0.980 (2,000통화 서브셋 기준).
+통화당 신고자 조각이 평균 15.8개라 집계 효과가 크다. 실측으로 조각 정확도 0.877 →
+통화 정확도 0.981~0.984 (Validation 3,640통화, 갈래별 최종 표 참고).
 
 ## 데이터 실측
 
@@ -24,11 +24,54 @@
 |---|---|
 | WAV 포맷 | **8 kHz mono 16-bit** (16 kHz 아님) |
 | 통화 길이 | 평균 72.5초 |
-| 신고자 발화 | 통화당 평균 15.7개 / 34.0초 |
-| 조각 길이 | 평균 2.16초, p50 1.55초, p90 4.71초 |
+| 신고자 발화 | 통화당 평균 15.8개 / 33.5초 (최소 1개) |
+| 조각 길이 | 평균 2.12초, p50 1.49초, p90 4.66초, max 24.2초 |
 | 전체 규모 | Training 29,200통화 → 462,190조각 (15.67 GB 캐시) |
 | Validation | 3,640통화 → 58,101조각 |
 | 다수결 기준선 | Validation 통화 단위 **0.538** |
+
+## ResNet 끌어올리기 — Validation 3,640통화 (전부 dev 임계값 보정)
+
+"성능이 비슷하면 복잡도까지 고려" 원칙에 따라 ResNet 을 w2v2 수준으로 올릴 수 있는지
+시험했다. 되찾을 수 있는 건 w2v2 와 겹치지 않는 ResNet 오답 21 건뿐이라 상한은 0.9843.
+
+| 변형 | 임계값 | 통화 Acc | 오답 | 비고 |
+|---|---|---|---|---|
+| ResNet50 기준 | 0.515 | 0.9808 | 70 | logmel/64 |
+| + SpecAugment | 0.500 | 0.9813 | 68 | 조각 +0.4%p, 통화 +2건 |
+| + SpecAug, logmel/80 | 0.530 | 0.9819 | 66 | dev 최고였음(0.9873) |
+| + SpecAug, MFCC | 0.490 | 0.9797 | 74 | dev 동률이었으나 Validation 에선 하락 |
+| **+ SpecAug, logmel/80, w2v2 증류(α=0.5)** | 0.480 | **0.9821** | **65** | **ResNet 최고. inference.py 로 재확인** |
+| Wav2Vec2-base (참고) | 0.515 | 0.9843 | 57 | |
+
+증류가 21 건 중 5 건을 되찾았다. 격차 0.35%p → **0.22%p (8통화)** 로, 3,640 통화의
+표준오차(≈0.23%p) 안이다. 고정 평균 앙상블은 어떤 조합도 w2v2 단독을 넘지 못했고
+(최고 0.9841), 6 개 모델이 전부 틀리는 통화가 37 건(1.02%)이다.
+
+**제출 권장 (갱신)**: **ResNet50 + 증류 (`resnet_kd.pt`, 0.9821)**. w2v2 와 통계적으로
+구분되지 않는 정확도에 추론 7배 빠르고, 체크포인트 로딩에 인터넷이 필요 없다(w2v2 갈래는
+`from_pretrained` 로 뼈대를 만들어 오프라인 평가 환경에서 실패할 수 있다).
+
+## 최종 결과 — 세 갈래 비교 (Validation 3,640통화, dev 임계값 보정)
+
+| 갈래 | 임계값 | 통화 Acc | 오답 | 파라미터 | 학습 s/epoch | 추론 ms/통화 | VRAM |
+|---|---|---|---|---|---|---|---|
+| ResNet50 | 0.515 | 0.9808 | 70 | **23.5M** | **326** | **12.4** | **368 MB** |
+| **Wav2Vec2-base** | 0.515 | **0.9843** | **57** | 94.4M | 2,708 | 85.3 | 4,224 MB |
+| audeering (전화 음성 사전학습) | 0.490 | 0.9816 | 67 | 88.7M | 3,269 | 87.3 | 5,543 MB |
+
+다수결 기준선 0.5382. **세 모델이 모두 틀리는 통화 45개(1.24%)** 가 이 데이터의 오답
+바닥이다 — 매 통화마다 맞는 모델을 고를 수 있어도 0.9876 이 상한이고, 고정 평균 앙상블은
+어느 조합도 Wav2Vec2 단독을 넘지 못한다 (`m1.overlap`, `reports/overlap_*.json`).
+
+**닫힌 개선 경로** (전부 측정으로 확인): 더 긴 학습(과적합), 가중 집계(dev 가 구분 못 함),
+앙상블(오류 겹침 79~90%), 전처리(raw waveform 을 보는 갈래가 같은 통화에서 실패),
+전화 음성 사전학습(파인튜닝하면 같은 오류로 수렴 — zero-shot oracle 0.9890 → 파인튜닝 후 0.9854).
+남은 오답은 결정 경계 근처(확신도 중앙 0.195)의 애매한 목소리이고, 아동·구간오류·통화유형·
+라벨오류 가설은 모두 기각됐다.
+
+**제출 권장**: 정확도만 보면 Wav2Vec2(0.9843), 실시간 접수를 고려하면 ResNet50 —
+0.35%p 차이에 추론 6.9배·VRAM 11.5배다.
 
 ## 대회 규칙 대응
 
@@ -96,13 +139,41 @@ PYTHONPATH=mission1_gender python -m m1.train --branch resnet --cache cache/trai
 PYTHONPATH=mission1_gender python -m m1.train --branch w2v2 --cache cache/train --out mission1_gender/ckpt/w2v2_full.pt --epochs 3 --batch-size 16
 ```
 
+```bash
+PYTHONPATH=mission1_gender python -m m1.train --branch audeering --cache cache/train --out mission1_gender/ckpt/audeering_full.pt --epochs 3 --batch-size 32
+```
+
+세 번째 갈래 `audeering` 은 `audeering/wav2vec2-large-robust-6-ft-age-gender` 를 백본으로
+쓴다. Fisher/Switchboard **전화 음성**으로 사전학습된 유일한 후보라, 16 kHz 고음질로만
+사전학습된 앞의 두 갈래와 오류 프로파일이 다른지 보려고 넣었다 (zero-shot 진단에서
+우리 오답 70 통화 중 30 을 맞혔다 — `reports/audeering_diag.json`). 층별 학습 가중치와
+latent 시간 마스킹이 들어 있다.
+
+- **라이선스 CC-BY-NC-SA-4.0** (비상업). 이 갈래를 제출하면 문서에 명시해야 한다.
+- feature encoder 가 layer-norm 이라 **평가 배치 256 에서 OOM** 난다. `calibrate` /
+  `benchmark` / `analysis` 에 `--batch-size 64` 를 줄 것 (학습은 32 로 정상).
+
 ### 4. 비교표
 
 ```bash
 PYTHONPATH=mission1_gender python -m m1.benchmark --ckpt mission1_gender/ckpt/resnet_full.pt --ckpt mission1_gender/ckpt/w2v2_full.pt
 ```
 
-### 5. 제출 규격 추론
+### 5. 결정 임계값 보정 (선택, 권장)
+
+```bash
+PYTHONPATH=mission1_gender python -m m1.calibrate --ckpt mission1_gender/ckpt/resnet_full.pt
+```
+
+조각 확률을 통화 단위로 평균하면 0.5 가 최적이 아니다. dev 에서 고른 0.515 를
+쓰면 Validation 통화 Accuracy 가 0.9791 -> 0.9808 이 된다 (계산 비용 0).
+보정값은 체크포인트에 저장되어 추론 시 자동 적용된다.
+
+**Validation 으로 임계값을 고르면 안 된다.** Validation 최적값 0.540 을 쓰면
++0.28%p 로 보이지만 평가 데이터에 맞춘 값이라 재현되지 않는다. dev 에서 고른
+값의 실제 이득은 +0.16%p 다.
+
+### 6. 제출 규격 추론
 
 ```bash
 python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --ckpt_path ./mission1_gender/ckpt/resnet_full.pt --output ./outputs/mission1.csv
@@ -119,10 +190,12 @@ python -m pytest -q
 
 ## 환경 주의사항
 
-**`requirements.txt`의 `torch==2.7.1+cu118` 핀은 RTX 5060에서 동작하지 않는다.**
-RTX 5060은 Blackwell(sm_120)이고 CUDA 11.8은 이 아키텍처를 지원하지 않는다.
-이 작업은 `torch 2.13.0+cu130` + `torchvision 0.28.0+cu130`으로 진행했다.
-제출용 `requirements.txt`는 팀 환경에 맞춰 별도 조율이 필요하다.
+**GPU 스택은 `requirements.txt`에서 버전을 고정하지 않는다.** 원래 `torch==2.7.1+cu118`로
+고정돼 있었는데, RTX 5060은 Blackwell(sm_120)이라 그 조합은 설치조차 되지 않는다
+(`No matching distribution found`). 머신마다 GPU가 다르므로 torch/torchvision은 각자
+자기 GPU에 맞는 인덱스에서 먼저 설치한 뒤 `requirements.txt`를 적용한다 — 설치 명령은
+`requirements.txt` 안에 적어 두었다. 이 작업은 `torch 2.13.0+cu130` +
+`torchvision 0.28.0+cu130`으로 진행했다.
 
 **한국어 base 크기 Wav2Vec2는 공개된 것이 없다.** 한국어는 large(24층)만 있어
 (`kresnik/wav2vec2-large-xlsr-korean`), 8 GB VRAM과 통제된 비교를 고려해 기본

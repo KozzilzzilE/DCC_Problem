@@ -240,3 +240,101 @@ def test_call_windows_tags_segments_not_windows(tmp_path):
     assert set(tags) == {0, 1}
     assert tags.count(0) > 1, "10초 조각은 창이 여러 개 나와야 한다"
     assert tags.count(1) == 1, "1초 조각은 패딩되어 창 하나"
+
+
+def test_checkpoint_threshold_defaults_to_half():
+    from m1.models import DEFAULT_THRESHOLD, checkpoint_threshold
+
+    assert checkpoint_threshold({}) == DEFAULT_THRESHOLD == 0.5
+    assert checkpoint_threshold({"extra": {}}) == 0.5
+    assert checkpoint_threshold({"extra": {"decision_threshold": 0.515}}) == 0.515
+
+
+def test_checkpoint_threshold_rejects_out_of_range():
+    from m1.models import checkpoint_threshold
+
+    for bad in (0.0, 1.0, -0.1, 1.5):
+        with pytest.raises(ValueError):
+            checkpoint_threshold({"extra": {"decision_threshold": bad}})
+
+
+def test_write_threshold_round_trips(tmp_path):
+    from m1.models import checkpoint_threshold, load_checkpoint, write_threshold
+
+    cfg = FeatureConfig()
+    model = build_model("resnet", cfg, pretrained=False)
+    path = save_checkpoint(tmp_path / "m.pt", model, "resnet", cfg)
+
+    _, _, _, payload = load_checkpoint(path, device="cpu")
+    assert checkpoint_threshold(payload) == 0.5      # 보정 전
+
+    write_threshold(path, 0.515, dev_accuracy=0.9866)
+    model2, branch, cfg2, payload2 = load_checkpoint(path, device="cpu")
+    assert checkpoint_threshold(payload2) == 0.515   # 보정 후
+    assert cfg2 == cfg and branch == "resnet"        # 나머지는 그대로
+    assert payload2["extra"]["decision_threshold_dev_accuracy"] == 0.9866
+
+
+def test_write_threshold_rejects_out_of_range(tmp_path):
+    from m1.models import write_threshold
+
+    cfg = FeatureConfig()
+    path = save_checkpoint(tmp_path / "m.pt", build_model("resnet", cfg, pretrained=False),
+                           "resnet", cfg)
+    with pytest.raises(ValueError):
+        write_threshold(path, 1.2)
+
+
+def test_inference_uses_calibrated_threshold(tmp_path, monkeypatch):
+    """체크포인트의 임계값이 실제 출력 라벨을 바꾸는지 확인한다."""
+    from m1 import infer
+
+    cfg = FeatureConfig()
+    audio_dir = tmp_path / "audio"
+    label_dir = tmp_path / "label"
+    audio_dir.mkdir()
+    label_dir.mkdir()
+
+    # 창의 첫 샘플이 0.052 -> logit 0.52 -> P(여) 0.627
+    wave = np.zeros(SR * 6, dtype=np.int16)
+    wave[: SR * 5] = int(0.052 * 32768)
+    sf.write(audio_dir / "c.wav", wave, SR, subtype="PCM_16")
+    (label_dir / "c.json").write_text(
+        json.dumps({"utterances": [{"startAt": 0, "endAt": 5000, "speaker": 1}]}),
+        encoding="utf-8",
+    )
+
+    def fake_load(path, device="cpu"):
+        return _FirstSampleModel(), "resnet", cfg, {"extra": {"decision_threshold": path}}
+
+    monkeypatch.setattr(infer, "load_checkpoint", fake_load)
+
+    low = infer.predict_directory(audio_dir, label_dir, 0.5, device="cpu", verbose=False)
+    high = infer.predict_directory(audio_dir, label_dir, 0.7, device="cpu", verbose=False)
+
+    assert low.iloc[0]["gender"] == "여"    # 0.627 >= 0.5
+    assert high.iloc[0]["gender"] == "남"   # 0.627 <  0.7
+
+
+
+def test_w2v2_checkpoint_loads_without_hub_access(tmp_path, monkeypatch):
+    """체크포인트에 HF config 가 동봉되면 from_pretrained 없이 로드돼야 한다 (오프라인 평가)."""
+    import transformers
+    from m1.models import load_checkpoint
+    from m1.models.w2v2 import Wav2Vec2Gender
+
+    cfg = FeatureConfig()
+    hf = transformers.Wav2Vec2Config(hidden_size=32, num_hidden_layers=1, num_attention_heads=2,
+                                     intermediate_size=64, conv_dim=(8,) * 7, vocab_size=32).to_dict()
+    model = Wav2Vec2Gender("dummy/never-downloaded", hf_config=hf)
+    path = save_checkpoint(tmp_path / "w.pt", model, "w2v2", cfg)
+
+    def boom(*a, **k):
+        raise AssertionError("from_pretrained 가 호출됨 — 오프라인 로딩 실패")
+    monkeypatch.setattr(transformers.Wav2Vec2Model, "from_pretrained", boom)
+
+    loaded, branch, _, payload = load_checkpoint(path, device="cpu")
+    assert branch == "w2v2" and payload["extra"]["hf_config"]["hidden_size"] == 32
+    x = torch.randn(1, 16000)
+    with torch.no_grad():
+        assert torch.allclose(loaded(x), model.eval()(x), atol=1e-5)

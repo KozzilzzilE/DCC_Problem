@@ -1,0 +1,101 @@
+{
+  "length": {
+    "resnet_full": [
+      {
+        "bucket": "0-1s",
+        "n": 19524,
+        "share": 0.336,
+        "accuracy": 0.8712,
+        "mean_seconds": 0.65
+      },
+      {
+        "bucket": "1-2s",
+        "n": 16666,
+        "share": 0.2868,
+        "accuracy": 0.8474,
+        "mean_seconds": 1.44
+      },
+      {
+        "bucket": "2-3s",
+        "n": 8577,
+        "share": 0.1476,
+        "accuracy": 0.8832,
+        "mean_seconds": 2.45
+      },
+      {
+        "bucket": "3-5s",
+        "n": 8432,
+        "share": 0.1451,
+        "accuracy": 0.9135,
+        "mean_seconds": 3.85
+      },
+      {
+        "bucket": "5s+",
+        "n": 4902,
+        "share": 0.0844,
+        "accuracy": 0.9278,
+        "mean_seconds": 6.68
+      }
+    ],
+    "audeering_full": [
+      {
+        "bucket": "0-1s",
+        "n": 19524,
+        "share": 0.336,
+        "accuracy": 0.8884,
+        "mean_seconds": 0.65
+      },
+      {
+        "bucket": "1-2s",
+        "n": 16666,
+        "share": 0.2868,
+        "accuracy": 0.8581,
+        "mean_seconds": 1.44
+      },
+      {
+        "bucket": "2-3s",
+        "n": 8577,
+        "share": 0.1476,
+        "accuracy": 0.9063,
+        "mean_seconds": 2.45
+      },
+      {
+        "bucket": "3-5s",
+        "n": 8432,
+        "share": 0.1451,
+        "accuracy": 0.9309,
+        "mean_seconds": 3.85
+      },
+      {
+        "bucket": "5s+",
+        "n": 4902,
+        "share": 0.0844,
+        "accuracy": 0.9415,
+        "mean_seconds": 6.68
+      }
+    ]
+  },
+  "per_model": {
+    "resnet_full": {
+      "branch": "resnet"
+    },
+    "audeering_full": {
+      "branch": "audeering"
+    }
+  },
+  "overlap": {
+    "n_calls": 3640,
+    "wrong_a": 70,
+    "wrong_b": 67,
+    "wrong_both": 53,
+    "wrong_only_a": 17,
+    "wrong_only_b": 14,
+    "overlap_ratio": 0.791,
+    "accuracy_a": 0.9808,
+    "accuracy_b": 0.9816,
+    "oracle_accuracy": 0.9854,
+    "mean_ensemble_accuracy": 0.9813,
+    "model_a": "resnet_full",
+    "model_b": "audeering_full"
+  }
+}
