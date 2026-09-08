@@ -18,6 +18,8 @@ import torch
 import torch.nn as nn
 from transformers import Wav2Vec2Model
 
+from .w2v2 import build_backbone
+
 from ..datasets import W2V2_SAMPLE_RATE
 
 DEFAULT_NAME = "audeering/wav2vec2-large-robust-6-ft-age-gender"
@@ -33,10 +35,11 @@ class AudeeringGender(nn.Module):
         dropout: float = 0.1,
         mask_time_prob: float = 0.05,
         layer_weighted: bool = True,
+        hf_config: dict | None = None,
     ):
         super().__init__()
         self.model_name = model_name
-        self.backbone = Wav2Vec2Model.from_pretrained(model_name)
+        self.backbone = build_backbone(model_name, hf_config)
 
         # SpecAugment 에 해당하는 latent 시간 마스킹. 학습 모드에서만 적용된다.
         # 두 갈래 모두 epoch 3 에서 과적합했으므로 정규화를 넣는다.

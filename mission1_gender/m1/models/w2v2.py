@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
-from transformers import AutoConfig, Wav2Vec2Model
+from transformers import AutoConfig, Wav2Vec2Config, Wav2Vec2Model
 
 from ..datasets import W2V2_SAMPLE_RATE
 
@@ -37,6 +37,17 @@ def resolve_checkpoint(candidates=DEFAULT_CANDIDATES) -> str:
     raise RuntimeError("no wav2vec2 checkpoint available -> " + "; ".join(errors))
 
 
+def build_backbone(model_name: str, hf_config: dict | None) -> Wav2Vec2Model:
+    """체크포인트에 HF config 가 동봉돼 있으면 네트워크 없이 뼈대만 만든다.
+
+    from_pretrained 는 추론 시점에 허브 접속을 시도해 오프라인 평가 환경에서
+    실패한다. 가중치는 어차피 state_dict 로 덮어쓰므로 config 만 있으면 된다.
+    """
+    if hf_config:
+        return Wav2Vec2Model(Wav2Vec2Config.from_dict(hf_config))
+    return Wav2Vec2Model.from_pretrained(model_name)
+
+
 class Wav2Vec2Gender(nn.Module):
     """(B, samples@16k) -> (B,) logit. 양수면 '여'(class 1)."""
 
@@ -45,10 +56,11 @@ class Wav2Vec2Gender(nn.Module):
         model_name: str,
         freeze_feature_encoder: bool = True,
         dropout: float = 0.1,
+        hf_config: dict | None = None,
     ):
         super().__init__()
         self.model_name = model_name
-        self.backbone = Wav2Vec2Model.from_pretrained(model_name)
+        self.backbone = build_backbone(model_name, hf_config)
 
         if freeze_feature_encoder:
             # 하위 CNN 특징 추출기는 얼려 둔다. 8 GB VRAM 에서 메모리를 아끼고,

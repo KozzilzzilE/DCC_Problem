@@ -314,3 +314,27 @@ def test_inference_uses_calibrated_threshold(tmp_path, monkeypatch):
 
     assert low.iloc[0]["gender"] == "여"    # 0.627 >= 0.5
     assert high.iloc[0]["gender"] == "남"   # 0.627 <  0.7
+
+
+
+def test_w2v2_checkpoint_loads_without_hub_access(tmp_path, monkeypatch):
+    """체크포인트에 HF config 가 동봉되면 from_pretrained 없이 로드돼야 한다 (오프라인 평가)."""
+    import transformers
+    from m1.models import load_checkpoint
+    from m1.models.w2v2 import Wav2Vec2Gender
+
+    cfg = FeatureConfig()
+    hf = transformers.Wav2Vec2Config(hidden_size=32, num_hidden_layers=1, num_attention_heads=2,
+                                     intermediate_size=64, conv_dim=(8,) * 7, vocab_size=32).to_dict()
+    model = Wav2Vec2Gender("dummy/never-downloaded", hf_config=hf)
+    path = save_checkpoint(tmp_path / "w.pt", model, "w2v2", cfg)
+
+    def boom(*a, **k):
+        raise AssertionError("from_pretrained 가 호출됨 — 오프라인 로딩 실패")
+    monkeypatch.setattr(transformers.Wav2Vec2Model, "from_pretrained", boom)
+
+    loaded, branch, _, payload = load_checkpoint(path, device="cpu")
+    assert branch == "w2v2" and payload["extra"]["hf_config"]["hidden_size"] == 32
+    x = torch.randn(1, 16000)
+    with torch.no_grad():
+        assert torch.allclose(loaded(x), model.eval()(x), atol=1e-5)

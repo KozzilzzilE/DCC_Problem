@@ -22,7 +22,7 @@ from ._console import ensure_utf8_stdout
 from .cache import CacheIndex
 from .config import FeatureConfig, TrainConfig
 from .datasets import SegmentWindowDataset, Sample, samples_from_rows, split_calls
-from .evaluate import majority_baseline, predict_segment_probs, score, truth_from_samples
+from .evaluate import EMPTY_CACHE_EVERY, majority_baseline, predict_segment_probs, score, truth_from_samples
 from .models import build_model, save_checkpoint
 
 
@@ -100,9 +100,11 @@ def run_epoch(model, loader, criterion, optimizer, scaler, device, amp) -> tuple
     seen = 0
     correct = 0
 
-    for waveform, target in loader:
+    for step, (waveform, target) in enumerate(loader, start=1):
         waveform = waveform.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
+        if device.type == "cuda" and step % EMPTY_CACHE_EVERY == 0:
+            torch.cuda.empty_cache()  # WDDM 페이징 방지 (evaluate.py 참고)
 
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast(device_type=device.type, enabled=amp):

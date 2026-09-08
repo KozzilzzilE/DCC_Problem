@@ -17,6 +17,10 @@ from .config import FeatureConfig
 from .datasets import Sample, SegmentWindowDataset, SlidingWindowDataset
 
 
+# 이 간격마다 torch.cuda.empty_cache(). 긴 루프의 할당자 단편화 방지.
+EMPTY_CACHE_EVERY = 200
+
+
 @dataclass
 class CallMetrics:
     call_accuracy: float
@@ -90,7 +94,12 @@ def predict_segment_probs(
     counts = np.zeros(len(samples), dtype=np.int64)
     cursor = 0
 
-    for waveform, tag in loader:
+    for step, (waveform, tag) in enumerate(loader, start=1):
+        if device.type == "cuda" and step % EMPTY_CACHE_EVERY == 0:
+            # Windows WDDM 은 VRAM 초과를 OOM 대신 시스템 RAM 페이징으로 숨겨
+            # 5~6배 느려진다 (교사 확률 추출 124분 -> 17분). 단편화된 캐시
+            # 블록을 주기적으로 돌려준다. 비용은 무시할 수준.
+            torch.cuda.empty_cache()
         waveform = waveform.to(device, non_blocking=True)
         with torch.autocast(device_type=device.type, enabled=amp and device.type == "cuda"):
             logits = model(waveform)
