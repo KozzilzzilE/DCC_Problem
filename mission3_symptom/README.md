@@ -187,28 +187,43 @@ Threshold는 학습 hyperparameter가 아니라 학습 완료 후 probability에
 
 Pos_weight는 threshold 0.5에서 recall과 Macro F1을 높였지만 ranking/AP와 threshold 최적화 후 Macro F1은 개선하지 못했다. 따라서 현재 대표 configuration은 correct `KoBertTokenizer`와 plain BCE이며, pos_weight 옵션은 실제 ablation 재현을 위해 유지한다.
 
-기존 cross-fitted 수치는 참고값이다. 현재 repository에는 fold 정의, split 방식, seed, threshold protocol이 완전히 고정된 재현 코드와 산출물이 없으므로 KoELECTRA 수치를 임의로 추가하지 않는다. Protocol을 고정한 뒤 모든 backbone의 저장된 Validation prediction에 동일 방식으로 재계산할 예정이다.
+기존 cross-fitted 수치는 참고값이다. 현재 repository에는 fold 정의, split 방식, seed, threshold protocol이 완전히 고정된 재현 코드와 산출물이 없으므로 다른 backbone의 수치를 임의로 추가하지 않는다. Protocol을 고정한 뒤 모든 backbone의 저장된 Validation prediction에 동일 방식으로 재계산할 예정이다.
 
 #### Backbone benchmark
 
-두 backbone은 모델과 그에 맞는 tokenizer만 변경했다. 동일 Train/Validation 데이터, Plain BCE, seed 42, 3 epochs, learning rate `2e-5`, max length 512, physical batch 8, gradient accumulation 2(effective batch 16), weight decay 0.01, warmup ratio 0.1, AMP, `val_loss` checkpoint와 동일한 class-wise threshold 탐색을 사용했다.
+세 backbone은 모델과 그에 맞는 tokenizer만 변경했다. 동일 Train 29,200건/Validation 3,640건, Plain BCE, seed 42, 3 epochs, learning rate `2e-5`, max length 512, physical batch 8, gradient accumulation 2(effective batch 16), weight decay 0.01, warmup ratio 0.1, AMP, `val_loss` checkpoint와 동일한 class-wise threshold 탐색을 사용했다.
 
 Macro AUROC와 Macro AP는 각 Full run의 `val_probs.npy`와 `val_labels.npy`에서 9개 클래스별 지표를 계산한 뒤 산술 평균한 값이다.
 
 | Backbone | F1 @ 0.5 | Optimized Macro F1 | Macro AUROC | Macro AP | Val truncation | Training time |
 |---|---:|---:|---:|---:|---:|---:|
 | KoBERT (`skt/kobert-base-v1`) | 0.5737 | 0.6430 | 0.8754 | 0.6675 | 5.38% | 약 28분 19초 |
-| KoELECTRA (`monologg/koelectra-base-v3-discriminator`) | **0.5811** | **0.6464** | **0.8779** | **0.6713** | **2.83%** | 약 27분 19초 |
+| KoELECTRA (`monologg/koelectra-base-v3-discriminator`) | 0.5811 | 0.6464 | 0.8779 | 0.6713 | 2.83% | 약 27분 19초 |
+| KLUE-RoBERTa (`klue/roberta-base`) | **0.6003** | **0.6554** | **0.8831** | **0.6836** | **2.69%** | 약 27분 10초 |
 
-KoELECTRA는 point estimate 기준 현재 가장 높은 결과이며 Optimized Macro F1이 KoBERT 대비 `0.6430 → 0.6464`(`+0.0035`)로 상승했다. 다만 single seed와 single Validation 기준의 작은 차이이므로 두 backbone은 현재 사실상 동급으로 해석하며, KoELECTRA를 최종 winner로 확정하지 않는다. 다음 후보인 `klue/roberta-base`까지 같은 조건으로 비교한 뒤 하나의 주력 backbone을 선정한다.
+KLUE-RoBERTa는 point estimate 기준 현재 가장 높은 결과이며 Optimized Macro F1은 `KoBERT 0.6430 → KoELECTRA 0.6464 → KLUE-RoBERTa 0.6554`로 상승했다. KLUE는 대부분의 낮은 F1 클래스에서도 소폭 개선됐지만 오심 개선은 제한적이었다. 다만 single seed/single Validation 결과이고 optimized threshold도 같은 Validation에서 선택했으므로 압도적인 winner로 단정하지 않으며, 현재의 주력 backbone 후보로 둔다.
+
+KLUE의 best checkpoint는 epoch 2(`val_loss=0.2549`)였다. Train loss는 epoch 3까지 감소했지만 val loss는 epoch 2에서 최소인 뒤 0.2567로 소폭 상승했고 F1@0.5는 `0.6003 → 0.6003`으로 거의 동일해, epoch 2 이후 Validation 개선이 제한적이었다.
+
+| KLUE class | F1 @ 0.5 | Optimized threshold | Optimized F1 |
+|---|---:|---:|---:|
+| 고열 | 0.6813 | 0.27 | 0.7023 |
+| 구토 | 0.5860 | 0.38 | 0.6066 |
+| 두통 | 0.5147 | 0.36 | 0.5525 |
+| 복통 | 0.8201 | 0.44 | 0.8239 |
+| 어지러움 | 0.6429 | 0.37 | 0.6584 |
+| 열상 | 0.8859 | 0.51 | 0.8869 |
+| 오심 | 0.0529 | 0.19 | 0.4030 |
+| 전신쇠약 | 0.5570 | 0.23 | 0.5894 |
+| 호흡곤란 | 0.6622 | 0.36 | 0.6757 |
 
 #### 오심 관찰
 
-- KoBERT와 KoELECTRA의 optimized 오심 F1은 각각 0.3930과 0.4006(KoELECTRA threshold 0.18)로 개선 폭이 작아 주요 bottleneck으로 남았다.
-- KoELECTRA는 오심 recall을 높였지만 false positive도 증가했고, 특히 구토-only sample을 오심으로 함께 예측하는 경향이 관찰됐다.
-- KLUE-RoBERTa에서도 같은 현상이 반복되면 오심/구토 FP/FN 원문 error analysis를 우선한다. 현재 결과만으로 원인을 label ambiguity로 확정하지 않는다.
+- 세 backbone의 optimized 오심 F1은 KoBERT 0.3930, KoELECTRA 0.4006, KLUE-RoBERTa 0.4030으로 거의 개선되지 않아 현재 가장 큰 class-level bottleneck으로 남았다.
+- KLUE에서도 threshold 0.5 F1은 0.0529였고 threshold를 0.19로 낮춘 뒤 0.4030이 됐다.
+- 원인을 전처리, label noise 또는 구토와의 의미 중첩으로 단정하지 않고 세 모델의 오심/구토 FP/FN 원문을 우선 분석한다.
 
-다음 실험 우선순위는 `KLUE-RoBERTa-base + plain BCE`, 오심/구토 FP/FN 분석, winning encoder의 epoch/LR 조정, text-only chunking 순이다.
+다음 단계는 KLUE-RoBERTa를 기준으로 오심/구토 FP/FN 원문을 분석하고, 그 근거에 따라 최소 변경 후속 실험을 선택하는 것이다.
 
 ---
 
