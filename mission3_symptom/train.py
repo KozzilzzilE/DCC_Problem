@@ -30,6 +30,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--use-pos-weight", action="store_true")
+    parser.add_argument("--loss-type", choices=("bce", "asl"), default="bce")
+    parser.add_argument("--asl-gamma-neg", type=float, default=4.0)
+    parser.add_argument("--asl-gamma-pos", type=float, default=1.0)
+    parser.add_argument("--asl-clip", type=float, default=0.05)
+    parser.add_argument("--asl-eps", type=float, default=1e-8)
+    parser.add_argument("--asl-reduction", choices=("mean", "sum"), default="mean")
     parser.add_argument("--local-files-only", action="store_true")
     parser.add_argument("--max-train-samples", type=int)
     parser.add_argument("--max-val-samples", type=int)
@@ -84,6 +90,12 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         device=args.device,
         amp=args.amp,
         use_pos_weight=args.use_pos_weight,
+        loss_type=args.loss_type,
+        asl_gamma_neg=args.asl_gamma_neg,
+        asl_gamma_pos=args.asl_gamma_pos,
+        asl_clip=args.asl_clip,
+        asl_eps=args.asl_eps,
+        asl_reduction=args.asl_reduction,
         local_files_only=args.local_files_only,
         max_train_samples=max_train_samples,
         max_val_samples=max_val_samples,
