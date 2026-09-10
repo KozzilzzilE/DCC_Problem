@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.pyc
 
@@ -24,4 +24,12 @@ outputs/**
 .vscode/
 .idea/
 
-
+# Mission 3 Data & Sensitive Transcripts 
+*.npy
+*.csv
+*manual_review*
+*error_analysis_raw*
+*raw*
+mission3_symptom/runs/**
+!mission3_symptom/runs/**/.gitignore
+!mission3_symptom/runs/**/.gitkeep
