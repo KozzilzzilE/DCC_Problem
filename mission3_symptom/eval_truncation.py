@@ -38,28 +38,61 @@ from m3.truncation import (
 )
 
 
+def _as_id_list(value) -> List[int]:
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if value and isinstance(value[0], list):
+        value = value[0]
+    return [int(token_id) for token_id in value]
+
+
 def _content_ids(tokenizer, text: str) -> Tuple[List[int], Optional[List[Tuple[int, int]]]]:
-    kwargs = {"add_special_tokens": False, "truncation": False}
+    kwargs = {
+        "add_special_tokens": False,
+        "truncation": False,
+        "padding": False,
+    }
     offsets = None
     try:
         encoded = tokenizer(text, return_offsets_mapping=True, **kwargs)
         raw_offsets = encoded.get("offset_mapping")
         if raw_offsets is not None:
             offsets = [(int(start), int(end)) for start, end in raw_offsets]
+            if offsets and isinstance(offsets[0], (list, tuple)) and len(offsets[0]) == 2:
+                if not isinstance(offsets[0][0], (int, float)):
+                    offsets = [(int(start), int(end)) for start, end in offsets[0]]
+                else:
+                    offsets = [(int(start), int(end)) for start, end in offsets]
     except (TypeError, ValueError, NotImplementedError):
         encoded = tokenizer(text, **kwargs)
-    ids = encoded["input_ids"]
-    if hasattr(ids, "tolist"):
-        ids = ids.tolist()
-    if ids and isinstance(ids[0], list):
-        ids = ids[0]
-        if offsets and isinstance(offsets[0], list):
-            offsets = [(int(start), int(end)) for start, end in offsets]
-    return [int(token_id) for token_id in ids], offsets
+    return _as_id_list(encoded["input_ids"]), offsets
+
+
+def _wrap_special_tokens(tokenizer, content_ids: Sequence[int]) -> List[int]:
+    content = [int(token_id) for token_id in content_ids]
+    try:
+        wrapped = tokenizer.build_inputs_with_special_tokens(content)
+        return _as_id_list(wrapped)
+    except (AttributeError, TypeError, NotImplementedError):
+        pass
+
+    cls_id = tokenizer.cls_token_id
+    sep_id = tokenizer.sep_token_id
+    if cls_id is None:
+        cls_id = tokenizer.bos_token_id
+    if sep_id is None:
+        sep_id = tokenizer.eos_token_id
+
+    output = list(content)
+    if cls_id is not None:
+        output = [int(cls_id), *output]
+    if sep_id is not None:
+        output = [*output, int(sep_id)]
+    return output
 
 
 def _features_from_content(tokenizer, content_ids: Sequence[int]) -> Dict[str, List[int]]:
-    input_ids = tokenizer.build_inputs_with_special_tokens(list(content_ids))
+    input_ids = _wrap_special_tokens(tokenizer, content_ids)
     features: Dict[str, List[int]] = {
         "input_ids": input_ids,
         "attention_mask": [1] * len(input_ids),
