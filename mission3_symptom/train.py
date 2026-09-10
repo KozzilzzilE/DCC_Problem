@@ -42,6 +42,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument(
+        "--checkpoint-metric",
+        choices=("val_loss", "val_macro_f1"),
+        default="val_loss",
+        help="최적 모델(Best Checkpoint) 저장 기준 지표 (기본값: val_loss, 대회 지표 기준: val_macro_f1)",
+    )
+    parser.add_argument(
         "--encode-mode",
         choices=("truncate", "head_tail"),
         default="truncate",
