@@ -36,7 +36,9 @@ def parse_args(argv=None):
     p.add_argument("--label_dir", required=True, help="json 라벨 폴더 (startAt/endAt/speaker 만 사용)")
     p.add_argument("--ckpt_path", default=str(DEFAULT_CKPT), help=f"체크포인트 (.pt). 기본 {DEFAULT_CKPT.name}")
     p.add_argument("--output", required=True, help="결과 CSV 경로 (예: ./outputs/mission1.csv)")
-    p.add_argument("--batch_size", type=int, default=128, help="창(window) 단위 추론 배치 크기")
+    p.add_argument("--batch_size", type=int, default=None,
+                   help="창(window) 단위 추론 배치 크기. 생략하면 갈래별 기본값(w2v2 32, resnet 128). "
+                        "8 GB GPU 에서 w2v2 를 128 로 올리면 VRAM 초과로 10배 느려진다")
     return p.parse_args(argv)
 
 

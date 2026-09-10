@@ -360,3 +360,11 @@ def test_mission_folder_standalone_cli(dataset, ckpt, tmp_path):
     assert len(df) == 3
     assert set(df["gender"]) <= {"남", "여"}
     assert "통화당" in result.stdout      # 추론 시간 요약 줄
+
+
+def test_suggested_batch_size_keeps_16k_branches_inside_8gb():
+    """16 kHz 갈래는 배치 128 이면 8 GB VRAM 을 넘겨 WDDM 페이징으로 10배 느려진다."""
+    from m1.infer import suggested_batch_size
+    assert suggested_batch_size("w2v2") <= 64
+    assert suggested_batch_size("audeering") <= 64
+    assert suggested_batch_size("resnet") == 128

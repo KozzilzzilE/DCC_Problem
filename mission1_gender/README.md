@@ -232,20 +232,30 @@ python -m pytest -q
 | Active 파라미터 (추론) | 94.4M — dense 모델, 전 파라미터 사용 | 23.5M |
 | 학습 시 trainable | 90.2M (feature encoder 4.2M 동결) | 23.5M |
 | 학습·추론 환경 | NVIDIA GeForce RTX 5060 (8 GB), Windows 10, Python 3.14, torch 2.13.0+cu130, AMP | 동일 |
-| Validation 추론 batch size | 128 (발화 조각 창 단위; `inference.py --batch_size`) | 128 |
-| Validation 전체 추론 시간 (3,640통화) | **1,869초 (31.2분)** | **26.8초** |
-| 샘플(통화)당 평균 | **513.6 ms** | **7.4 ms** |
+| Validation 추론 batch size | **32** (16 kHz 갈래 기본값, 아래 참고; `inference.py --batch_size` 로 변경 가능) | 128 |
+| Validation 전체 추론 시간 (3,640통화) | **242초 (4.0분)** | **28.0초** |
+| 샘플(통화)당 평균 | **66.5 ms** | **7.7 ms** |
 | 가중치 파일 | 378 MB | 94 MB |
 
 전체 추론 시간은 이 폴더의 `inference.py` 를 `HF_HUB_OFFLINE=1` 로 1회 실행해 잰 벽시계
 시간(모델 로딩·wav 디코딩·리샘플·추론·CSV 저장 포함)이다. Validation 3,640 통화, 2026-09-10 실측.
 
-**w2v2 의 통화당 513.6 ms 는 `benchmark.py` 의 64 ms 와 8배 차이가 난다.** 벤치마크 경로는
-DataLoader 워커 4개가 8 kHz → 16 kHz 리샘플을 병렬로 처리하지만, 제출 경로(`m1/infer.py`)는
-창(window)마다 메인 스레드에서 `resample_poly` 를 호출한다 — GPU 가 아니라 단일 스레드
-CPU 리샘플이 병목이다. ResNet 갈래는 리샘플이 없어 영향이 없다. 채점 머신의 CPU 가
-느리면 w2v2 는 이보다 더 걸릴 수 있으므로, 시간 제한이 있다면 폴백 `resnet_aug_m80.pt` 를
-쓴다 (정확도 0.9819, 27초).
+**w2v2 는 배치 크기를 128 로 올리면 8 GB GPU 에서 10배 느려진다 (통화당 616 ms, 31 분).**
+16 kHz 창(48,896 샘플) 128 개를 한 번에 넣으면 예약 GPU 메모리가 9.2 GB 로 VRAM 8 GB 를
+넘고, Windows WDDM 이 OOM 을 내는 대신 시스템 RAM 으로 조용히 페이징한다. 배치 64 이하
+(예약 4.4 GB 이하)면 통화당 58 ms 다. 그래서 `m1/infer.py` 는 16 kHz 갈래 기본 배치를
+32 로 둔다 (예약 3.2 GB). 150 통화 표본 프로파일 (CPU 로드·리샘플은 통화당 11 ms 로 병목 아님):
+
+| batch | 통화당 | 예약 GPU 메모리 |
+|---|---|---|
+| 128 | 616 ms | 9.21 GB (VRAM 초과) |
+| 64 | 58 ms | 4.37 GB |
+| 32 | 57 ms | 3.17 GB |
+| 16 | 59 ms | 1.98 GB |
+
+VRAM 이 8 GB 보다 작은 채점 머신이면 `--batch_size 16` 으로 내린다 (속도 손해 없음).
+ResNet 은 8 kHz 멜 입력이라 128 도 안전하다. 시간 제한이 매우 빡빡하면 폴백
+`resnet_aug_m80.pt` (정확도 0.9819, 28초)를 쓴다.
 
 ## 제출 패키징 주의
 
