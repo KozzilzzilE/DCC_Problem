@@ -187,14 +187,21 @@ PYTHONPATH=mission1_gender python -m m1.calibrate --ckpt mission1_gender/ckpt/re
 +0.28%p 로 보이지만 평가 데이터에 맞춘 값이라 재현되지 않는다. dev 에서 고른
 값의 실제 이득은 +0.16%p 다.
 
-### 6. 제출 규격 추론
+### 6. 제출 규격 추론 — 이 폴더만으로 실행
+
+이 폴더(`mission1_gender/`) 안의 `inference.py` 가 미션 단독 진입점이다. 같은 폴더의
+`m1` 패키지만 import 하고 다른 미션의 의존성은 쓰지 않는다.
 
 ```bash
-python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --ckpt_path ./mission1_gender/ckpt/w2v2_full.pt --output ./outputs/mission1.csv
+cd mission1_gender
+python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_path ckpt/w2v2_full.pt --output ./outputs/mission1.csv
 ```
 
-체크포인트에 `FeatureConfig`·갈래·임계값·HF config 가 함께 저장되므로, `--ckpt_path` 만
-바꾸면 전처리와 결정 경계가 자동으로 복원된다 (폴백: `resnet_aug_m80.pt`).
+체크포인트에 `FeatureConfig`·갈래·결정 임계값·HF config 가 함께 저장되므로 `--ckpt_path` 만
+바꾸면 전처리와 결정 경계가 자동으로 복원되고, **인터넷 접속 없이** 로딩된다
+(`HF_HUB_OFFLINE=1` 로 실증). 폴백은 `ckpt/resnet_aug_m80.pt`.
+
+리포지터리 루트의 `inference.py` 는 세 미션 공용 진입점이며 같은 함수를 호출한다.
 
 ### 7. 제출 직전 체크리스트
 
@@ -202,7 +209,8 @@ python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --
 아래를 **한 번** 실행하고 첫 줄을 확인한다:
 
 ```bash
-python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --ckpt_path <제출할 .pt> --output ./outputs/mission1.csv
+cd mission1_gender
+python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_path ckpt/<제출할 .pt> --output ./outputs/mission1.csv
 ```
 
 - 첫 줄 `[Mission 1] branch=... threshold=0.515 ...` — **threshold 가 0.500 이면 보정 안 된 파일**이다.
@@ -215,6 +223,36 @@ python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --
 ```bash
 python -m pytest -q
 ```
+
+## 계산 효율성 (채점 안내 2-8 항목)
+
+| 항목 | 제출 1안 `w2v2_full.pt` | 폴백 `resnet_aug_m80.pt` |
+|---|---|---|
+| Total 파라미터 | 94.4M | 23.5M |
+| Active 파라미터 (추론) | 94.4M — dense 모델, 전 파라미터 사용 | 23.5M |
+| 학습 시 trainable | 90.2M (feature encoder 4.2M 동결) | 23.5M |
+| 학습·추론 환경 | NVIDIA GeForce RTX 5060 (8 GB), Windows 10, Python 3.14, torch 2.13.0+cu130, AMP | 동일 |
+| Validation 추론 batch size | 128 (발화 조각 창 단위; `inference.py --batch_size`) | 128 |
+| Validation 전체 추론 시간 (3,640통화) | **1,869초 (31.2분)** | **26.8초** |
+| 샘플(통화)당 평균 | **513.6 ms** | **7.4 ms** |
+| 가중치 파일 | 378 MB | 94 MB |
+
+전체 추론 시간은 이 폴더의 `inference.py` 를 `HF_HUB_OFFLINE=1` 로 1회 실행해 잰 벽시계
+시간(모델 로딩·wav 디코딩·리샘플·추론·CSV 저장 포함)이다. Validation 3,640 통화, 2026-09-10 실측.
+
+**w2v2 의 통화당 513.6 ms 는 `benchmark.py` 의 64 ms 와 8배 차이가 난다.** 벤치마크 경로는
+DataLoader 워커 4개가 8 kHz → 16 kHz 리샘플을 병렬로 처리하지만, 제출 경로(`m1/infer.py`)는
+창(window)마다 메인 스레드에서 `resample_poly` 를 호출한다 — GPU 가 아니라 단일 스레드
+CPU 리샘플이 병목이다. ResNet 갈래는 리샘플이 없어 영향이 없다. 채점 머신의 CPU 가
+느리면 w2v2 는 이보다 더 걸릴 수 있으므로, 시간 제한이 있다면 폴백 `resnet_aug_m80.pt` 를
+쓴다 (정확도 0.9819, 27초).
+
+## 제출 패키징 주의
+
+- `ckpt/*.pt` 는 `.gitignore` 라 **리포지터리에 없다.** 제출 폴더에는 `ckpt/w2v2_full.pt`
+  (와 폴백 `ckpt/resnet_aug_m80.pt`)를 직접 넣을 것
+- 폴더 구성: `inference.py`, `m1/`, `ckpt/`, `requirements.txt`, `model_train.ipynb`, `README.md`
+- 넣은 그 `.pt` 로 위 체크리스트를 한 번 실행해 첫 줄의 `threshold=` 가 0.500 이 아닌지 확인
 
 ## 환경 주의사항
 

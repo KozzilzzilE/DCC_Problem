@@ -338,3 +338,25 @@ def test_w2v2_checkpoint_loads_without_hub_access(tmp_path, monkeypatch):
     x = torch.randn(1, 16000)
     with torch.no_grad():
         assert torch.allclose(loaded(x), model.eval()(x), atol=1e-5)
+
+
+def test_mission_folder_standalone_cli(dataset, ckpt, tmp_path):
+    """미션 폴더(mission1_gender/) 안의 inference.py 만으로 실행돼야 한다 (폴더 단독 제출)."""
+    audio_dir, label_dir = dataset
+    output = tmp_path / "outputs" / "mission1.csv"
+    folder = REPO_ROOT / "mission1_gender"
+
+    result = subprocess.run(
+        [sys.executable, "inference.py",
+         "--audio_dir", str(audio_dir), "--label_dir", str(label_dir),
+         "--ckpt_path", str(ckpt), "--output", str(output)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=folder,                      # 폴더 안에서 실행
+        env={**__import__("os").environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"},
+    )
+    assert result.returncode == 0, result.stderr
+    df = pd.read_csv(output)
+    assert list(df.columns) == ["audio file name", "gender"]
+    assert len(df) == 3
+    assert set(df["gender"]) <= {"남", "여"}
+    assert "통화당" in result.stdout      # 추론 시간 요약 줄
