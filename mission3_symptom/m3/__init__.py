@@ -27,6 +27,12 @@ from .threshold import (
     find_best_thresholds,
     get_threshold_curves,
 )
+from .truncation import (
+    analyze_truncated_symptoms,
+    head_tail_concat,
+    merge_chunk_probs,
+    split_ids_for_windows,
+)
 
 __all__ = [
     "TARGET_SYMPTOMS",
@@ -46,4 +52,8 @@ __all__ = [
     "get_threshold_curves",
     "save_thresholds_json",
     "generate_comparison_markdown",
+    "analyze_truncated_symptoms",
+    "head_tail_concat",
+    "merge_chunk_probs",
+    "split_ids_for_windows",
 ]

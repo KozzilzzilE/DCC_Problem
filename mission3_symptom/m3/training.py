@@ -65,6 +65,7 @@ class TrainingConfig:
     asl_eps: float = 1e-8
     asl_reduction: str = "mean"
     asl_disable_focal_loss_grad: bool = True
+    encode_mode: str = "truncate"
 
 
 def set_seed(seed: int) -> None:
@@ -307,6 +308,8 @@ def _validate_config(config: TrainingConfig) -> None:
             f"지원하지 않는 checkpoint_metric입니다: {config.checkpoint_metric}. "
             "('val_loss' 또는 'val_macro_f1'만 허용됩니다)"
         )
+    if config.encode_mode not in {"truncate", "head_tail"}:
+        raise ValueError(f"지원하지 않는 encode_mode입니다: {config.encode_mode}")
 
 
 def _build_optimizer(model, learning_rate: float, weight_decay: float):
@@ -413,6 +416,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         num_workers=config.num_workers,
         pin_memory=pin_memory,
         pad_to_multiple_of=8 if device.type == "cuda" else None,
+        encode_mode=config.encode_mode,
     )
     val_loader = create_dataloader(
         val_df,
@@ -424,6 +428,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         num_workers=config.num_workers,
         pin_memory=pin_memory,
         pad_to_multiple_of=8 if device.type == "cuda" else None,
+        encode_mode=config.encode_mode,
     )
 
     model.to(device)

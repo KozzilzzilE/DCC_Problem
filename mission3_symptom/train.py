@@ -47,6 +47,12 @@ def parse_args() -> argparse.Namespace:
         default="val_loss",
         help="최적 모델(Best Checkpoint) 저장 기준 지표 (기본값: val_loss, 대회 지표 기준: val_macro_f1)",
     )
+    parser.add_argument(
+        "--encode-mode",
+        choices=("truncate", "head_tail"),
+        default="truncate",
+        help="512 초과 통화 입력: truncate(앞만) 또는 head_tail(앞 128+꼬리)",
+    )
     return parser.parse_args()
 
 
@@ -102,6 +108,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         max_steps=max_steps,
         smoke_test=args.smoke_test,
         checkpoint_metric=args.checkpoint_metric,
+        encode_mode=args.encode_mode,
     )
 
 
