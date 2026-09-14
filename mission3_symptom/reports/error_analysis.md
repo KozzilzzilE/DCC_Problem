@@ -287,9 +287,9 @@ Plain BCE를 유지하면서 같은 sample의 positive label score가 negative l
 
 Backbone 변경은 실제 비교에서 `KoBERT 0.642988 < KoELECTRA 0.646446 < KLUE-RoBERTa 0.655421`로 가장 명확한 차이를 만들었다. 제공 Training 데이터만 fine-tuning하고 공개 pretrained weight를 사용하는 전제에서 다음 후보를 검토할 수 있다.
 
-- [`kakaobank/kf-deberta-base`](https://huggingface.co/kakaobank/kf-deberta-base): DeBERTa-v2 기반 12-layer/hidden 768 모델이며 공개 weight는 약 746MB다. 모델 카드의 KLUE benchmark는 KLUE-RoBERTa-large보다 높은 평균을 보고해 가장 강한 1차 후보지만, 범용+금융 corpus와 응급 통화 사이의 domain mismatch 및 큰 vocabulary에 따른 메모리 증가가 위험이다. RTX 4060 8GB에서는 AMP와 작은 physical batch/gradient accumulation을 전제로 현실적인 후보이나 실제 1-step memory smoke가 선행돼야 한다.
-- [`beomi/KcELECTRA-base`](https://huggingface.co/beomi/KcELECTRA-base): 12-layer/hidden 768 ELECTRA로 댓글 기반 noisy Korean pretraining이 구어체·비정형 transcript에 유리할 가능성이 있다. Base 크기라 8GB feasibility와 offline submission 복잡도는 양호하지만, 제작자도 일반 corpus task에서는 KoELECTRA가 더 나을 수 있다고 설명하므로 KLUE baseline을 넘을지는 불확실하다. 재현 시 revision을 고정해야 한다.
-- [`klue/roberta-large`](https://huggingface.co/klue/roberta-large): 동일 KLUE 계열의 24-layer/hidden 1024 모델로 표현력 증가는 가장 명확하지만 weight가 약 1.35GB이고 약 355M 규모다. 현재 max length 512와 AdamW full fine-tuning을 RTX 4060 8GB에서 유지하기 어렵고 batch 축소, gradient checkpointing 또는 optimizer 변경이 필요할 가능성이 높아 공정한 단일 변수 비교와 제출 운용성이 떨어진다.
+- [`kakaobank/kf-deberta-base`](https://huggingface.co/kakaobank/kf-deberta-base): DeBERTa-v2 기반 12-layer/hidden 768 모델이다. 모델 카드의 KLUE benchmark는 KLUE-RoBERTa-large보다 높은 평균을 보고해 가장 강한 1차 후보지만, 범용+금융 corpus와 응급 통화 사이의 domain mismatch 및 큰 vocabulary가 위험이다. 실제 실험 전 tokenizer·모델 호환성과 save/load 동작을 짧게 검증해야 한다.
+- [`beomi/KcELECTRA-base`](https://huggingface.co/beomi/KcELECTRA-base): 12-layer/hidden 768 ELECTRA로 댓글 기반 noisy Korean pretraining이 구어체·비정형 transcript에 유리할 가능성이 있다. Base 계열이라 기존 pipeline에 적용하기 비교적 단순하지만, 제작자도 일반 corpus task에서는 KoELECTRA가 더 나을 수 있다고 설명하므로 KLUE baseline을 넘을지는 불확실하다. 재현 시 revision을 고정해야 한다.
+- [`klue/roberta-large`](https://huggingface.co/klue/roberta-large): 동일 KLUE 계열의 24-layer/hidden 1024 모델로 표현력 증가는 가장 명확하지만 current baseline보다 규모가 크게 증가한다. 기존 학습 조건을 그대로 유지하기 어려울 수 있어 공정한 단일 변수 비교와 제출 운용성이 떨어진다.
 
 공개 pretrained model 자체는 규칙 전제에 부합하지만, 실제 사용 전 license와 대회 허용 범위를 다시 확인하고 모델·tokenizer를 제출 환경에 함께 저장해 offline inference가 되는지 검증해야 한다.
 
@@ -299,14 +299,13 @@ Backbone 변경은 실제 비교에서 `KoBERT 0.642988 < KoELECTRA 0.646446 < K
 |---|---|---|---|
 | 예상 성능 상승 가능성 | 중간 | 중간 | 중간~높음 |
 | 구현 난이도 | 낮음 | 낮음~중간 | 낮음~중간 |
-| RTX 4060 8GB | 매우 양호 | 매우 양호 | Base 후보는 조건부 양호, Large는 낮음 |
 | 1회 Yes/No 판단 | 비교적 명확 | 낮음: loss weight 영향 | 비교적 명확 |
 | error analysis 직접성 | 높음 | 높음 | 중간 |
 | 남은 시간 대비 효율 | 높음 | 중간 | 높음 |
 | competition rule 안전성 | 높음 | 높음 | 공개 weight/license 재확인 필요 |
-| inference/submission 복잡도 | 거의 증가 없음 | 증가 없음 | 모델별 메모리·bundle 증가 |
+| inference/submission 복잡도 | 거의 증가 없음 | 증가 없음 | 모델 규모에 따라 증가 |
 
-최종 우선순위는 **1순위 C → 2순위 A → 3순위 B**다. 다음 Full Training은 `kakaobank/kf-deberta-base`를 추천한다. 기존 backbone 비교에서 확인된 가장 강한 실증 신호를 활용하면서 Large 모델보다 8GB 운용 가능성이 높기 때문이다. 단, 성능 향상을 보장하지 않으며 향후 실행 시 전체 학습 전에 1-step memory smoke로 batch feasibility와 offline save/load를 먼저 확인해야 한다.
+최종 우선순위는 **1순위 C → 2순위 A → 3순위 B**다. 다음 Full Training은 `kakaobank/kf-deberta-base`를 추천한다. 기존 backbone 비교에서 확인된 가장 강한 실증 신호를 활용하면서 Large 모델보다 baseline과 가까운 규모의 후보이기 때문이다. 단, 성능 향상을 보장하지 않으며 향후 실행 시 전체 학습 전에 tokenizer·모델 호환성과 offline save/load를 먼저 확인해야 한다.
 
 ---
 

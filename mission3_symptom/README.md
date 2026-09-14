@@ -117,7 +117,7 @@ python mission3_symptom/train.py \
   --amp
 ```
 
-`--device auto`가 기본값이며 CUDA를 사용할 수 없으면 CPU를 선택한다. `--amp`는 CUDA에서만 활성화되고 그 외 환경에서는 자동으로 비활성화된다.
+`--device auto`가 기본값이며 사용 가능한 실행 환경을 자동으로 선택한다. `--amp`는 지원되는 환경에서만 활성화된다.
 
 정식 run은 `best_model/`, `run_config.json`, `history.json`, `baseline_metrics.json`, `val_logits.npy`, `val_probs.npy`, `val_labels.npy`를 생성한다. 평가는 기존 `m3.metrics` 및 `m3.threshold.apply_thresholds`를 사용하여 threshold 0.5를 기준으로 수행한다.
 
@@ -153,7 +153,7 @@ VS Code 또는 Jupyter 환경에서 `mission3_symptom/model_train.ipynb`를 열�
 | `WEIGHT_DECAY` | 과적합 완화를 위한 AdamW weight decay |
 | `WARMUP_RATIO` | 전체 optimizer step 중 learning-rate warmup 비율 |
 | `EPOCHS` | 전체 Training 데이터를 반복 학습하는 횟수 |
-| `USE_AMP` | 지원되는 CUDA 환경에서 mixed precision을 사용할지 여부 |
+| `USE_AMP` | 지원되는 환경에서 mixed precision을 사용할지 여부 |
 | `USE_POS_WEIGHT` | Training label에서 계산한 클래스별 `negative / positive` 가중치를 BCE에 적용할지 여부. 기본값은 `False`이며 class imbalance ablation에서만 활성화 |
 | `ENCODE_MODE` | 기본값 `truncate`. Head-tail truncation ablation에서만 `head_tail` 사용 |
 | `USE_PURE_NAUSEA_SAMPLING` | pure-nausea group-aware sampling 활성화 여부. CLI/TrainingConfig 기본값은 `False` |
