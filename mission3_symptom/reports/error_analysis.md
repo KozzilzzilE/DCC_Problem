@@ -201,18 +201,119 @@ Global Error Analysis에서 발견한 문제를 바탕으로 가설을 세우고
 
 ---
 
-## 6. 다음 실험
+## 6. Learning rate `1e-5` ablation
 
-1. **Learning rate `2e-5 → 1e-5` 단일 변수 ablation**: 최고 성능 CLS baseline의 나머지 조건을 유지한다. Baseline과 Label Attention 모두 epoch 2가 best였고 epoch 3에서 train loss는 계속 감소했지만 validation loss는 개선되지 않았으므로, 더 완만한 fine-tuning update가 Validation ranking과 F1에 미치는 영향을 확인할 가치가 있다.
-2. **Label dependency 후보는 보류**: label 간 의존성을 직접 다루는 방법은 가능성이 있으나 구현하지 않고, learning-rate 실험 결과를 확인한 뒤 필요성을 판단한다.
+### 6.1 목적과 설정
+
+Baseline과 Label Attention 모두 epoch 2에서 minimum validation loss를 기록하고 epoch 3에서는 train loss만 계속 감소했다. 구조를 더 추가하기 전에 fine-tuning update를 완만하게 하면 Validation ranking과 Macro F1이 개선되는지 확인했다.
+
+Run `klue_roberta_base_plain_bce_seed42_lr1e5_val_loss`는 최고 CLS baseline과 비교해 learning rate만 `2e-5 → 1e-5`로 변경했다. KLUE-RoBERTa-base, CLS pooling, plain BCE, seed 42, `truncate`, sampling OFF, max length 512, train/Validation batch 8/16, gradient accumulation 2, 3 epochs, weight decay 0.01, warmup ratio 0.1, AMP와 minimum `val_loss` checkpoint 기준은 모두 동일하다.
+
+### 6.2 전체 결과와 학습 흐름
+
+| 지표 | LR `2e-5` baseline | LR `1e-5` | 변화 |
+|---|---:|---:|---:|
+| Best epoch | 2 | 2 | 0 |
+| Best validation loss | 0.254921 | 0.256425 | +0.001504 |
+| Macro F1 @ 0.5 | 0.600329 | 0.596253 | -0.004076 |
+| Optimized Macro F1 | 0.655421 | 0.656180 | +0.000759 |
+| Threshold optimization gain | +0.055092 | +0.059927 | +0.004835 |
+
+| epoch | baseline train/val loss | LR `1e-5` train/val loss | baseline/LR `1e-5` F1@0.5 |
+|---:|---:|---:|---:|
+| 1 | 0.3164 / 0.2626 | 0.3334 / 0.2665 | 0.5832 / 0.5787 |
+| 2 | 0.2486 / 0.2549 | 0.2539 / 0.2564 | 0.6003 / 0.5963 |
+| 3 | 0.2279 / 0.2567 | 0.2387 / 0.2568 | 0.6003 / 0.5926 |
+
+낮은 LR에서는 train loss 감소가 더 느렸고 best validation loss와 F1@0.5도 baseline보다 낮았다. 다만 저장된 class-wise optimized threshold를 적용한 Macro F1은 약 `+0.0008` 높았다. 같은 Validation에서 threshold를 선택한 point estimate이고 기존 seed 변화에서도 약 0.001 이상의 변동이 관찰됐으므로, LR `1e-5`가 명확히 우수하다고 판단하지 않는다.
+
+### 6.3 클래스별 변화
+
+| 클래스 | threshold | F1@0.5 | baseline optimized F1 | LR `1e-5` optimized F1 | 변화 |
+|---|---:|---:|---:|---:|---:|
+| 고열 | 0.33 | 0.6797 | 0.7023 | 0.7051 | +0.0028 |
+| 구토 | 0.31 | 0.5863 | 0.6066 | 0.6100 | +0.0034 |
+| 두통 | 0.24 | 0.5222 | 0.5525 | 0.5435 | -0.0090 |
+| 복통 | 0.46 | 0.8190 | 0.8239 | 0.8202 | -0.0037 |
+| 어지러움 | 0.41 | 0.6405 | 0.6584 | 0.6608 | +0.0024 |
+| 열상 | 0.50 | 0.8855 | 0.8869 | 0.8855 | -0.0014 |
+| 오심 | 0.19 | 0.0046 | 0.4030 | 0.4133 | +0.0102 |
+| 전신쇠약 | 0.35 | 0.5626 | 0.5894 | 0.5947 | +0.0052 |
+| 호흡곤란 | 0.27 | 0.6659 | 0.6757 | 0.6727 | -0.0030 |
+
+오심·전신쇠약·구토·고열·어지러움은 optimized F1이 상승했지만 두통·복통·호흡곤란은 하락했다. 특히 오심의 F1@0.5는 0.0046으로 매우 낮고 threshold 0.19에서 회복돼, 전체 개선은 기본 score calibration의 개선보다 threshold 사후 조정에 의존한다. LR `1e-5`는 **weak positive signal**로 기록하되 명확한 채택 근거로 보지 않으며, `1.5e-5`, `7e-6`, `5e-6` 또는 epoch 증가와 같은 추가 LR tuning은 종료한다.
 
 ---
 
-## 7. 결론
+## 7. 주요 ablation 종합
 
-- truncation과 pure-nausea sampling은 일부 현상을 바꿨지만 현재 baseline을 개선하지 못했으며 기본값은 각각 `truncate`, sampling OFF를 유지한다.
-- Label-wise Attention의 optimized Macro F1은 `0.655421 → 0.655291`로 개선되지 않았다.
-- positive label 2개·3개 표본의 FN rate가 각각 `+1.79%p`, `+0.95%p` 악화되어 실험의 핵심 목표를 달성하지 못했다.
-- 일부 클래스의 co-occurrence recall과 broad FP는 개선됐지만, 다른 클래스의 recall 하락과 FN 증가가 동반됐다.
-- CLS pooling bottleneck 가설은 이번 결과로 지지되지 않으며 Label-wise Attention 방향은 종료한다.
-- 다음 우선순위는 기존 CLS baseline에서 learning rate만 `1e-5`로 낮추는 단일 변수 ablation이다.
+| 실험 | Optimized Macro F1 | 해석 |
+|---|---:|---|
+| KoBERT | 0.642988 | 정상 tokenizer 기준 초기 backbone |
+| KoELECTRA | 0.646446 | KoBERT 대비 상승 |
+| KLUE CLS baseline | 0.655421 | 현재 기준 standalone |
+| `pos_weight` | 약 0.6413 | 개선 없음 |
+| ASL | 0.652710 | ranking은 일부 상승했으나 F1 하락 |
+| BCE+ASL probability ensemble | 0.655897 | baseline 대비 작은 상승 |
+| 2-seed probability ensemble | 0.656804 | 현재 저장 결과 중 최고 point estimate이나 상승 폭 작음 |
+| truncation variants | 약 0.650 | 전체 개선 없음 |
+| pure-nausea sampling | 0.6485 | 오심 일부 변화와 다른 클래스 하락 |
+| Label-wise Attention | 0.655291 | multi-label FN 개선 없음 |
+| LR `1e-5` | 0.656180 | 약 +0.0008, weak positive signal |
+
+Loss, sampling, truncation, pooling과 learning rate를 하나씩 바꾼 실험은 대체로 `0.655~0.657` 부근의 좁은 범위에 수렴하거나 baseline보다 낮았다. 작은 hyperparameter 조정을 반복하기보다, 기존 실험과 가설이 구분되는 구조적 변화 또는 더 강한 공개 pretrained encoder를 우선 검토하는 편이 남은 시간 대비 합리적이다.
+
+---
+
+## 8. 다음 실험 후보 분석
+
+### 8.1 A. Label dependency modeling
+
+9개 baseline logit에 `9 × 9` dependency correction을 더하되 diagonal을 제외하고 zero initialization하는 방식이다. Label Attention이 “각 label이 어떤 token을 볼 것인가”를 검증했다면 이 후보는 “한 label의 예측이 다른 label의 예측에 어떤 보정을 줄 것인가”를 직접 모델링한다.
+
+- **장점**: multi-label co-occurrence FN과 confusion-like pair에 직접 연결된다. off-diagonal weight만 사용하면 추가 파라미터는 72개이며 학습·추론 비용도 9차원 행렬 연산 수준이다. correction을 zero initialization하고 별도 loss weight 없이 BCE로 end-to-end 학습하면 단일 Full Training의 해석도 비교적 명확하다.
+- **위험**: Training label correlation을 의미적 인과처럼 학습해 broad FP를 늘릴 수 있다. Validation에 우연히 강한 dependency에 맞으면 일반화되지 않을 수 있고, 전신쇠약·오심 같은 FP sink가 다시 강화될 가능성이 있다.
+- **판단**: error analysis와 가장 직접적으로 연결되는 저비용 구조 실험이다. 다만 전체 표현력이 늘어나는 것은 아니므로 기대 상승 폭은 제한적일 수 있다.
+
+### 8.2 B. Pairwise ranking auxiliary loss
+
+Plain BCE를 유지하면서 같은 sample의 positive label score가 negative label score보다 높아지도록 pairwise ranking term을 추가하는 방식이다.
+
+- **장점**: positive/negative score separation을 직접 최적화하며, 한 sample 안에서 누락되는 positive label을 끌어올릴 가능성이 있다. label 수가 9개라 pair 계산량은 작고 inference 경로는 baseline과 동일하다. 오심·두통처럼 score overlap이 큰 클래스에 도움이 될 가능성이 있다.
+- **위험**: 클래스별 prevalence와 calibration이 다른데 모든 cross-label score를 직접 비교하면 불필요한 순서 제약이 생길 수 있다. auxiliary weight라는 새 hyperparameter가 필요해 한 번의 실패가 아이디어의 실패인지 weight 선택 실패인지 구분하기 어렵다. 강한 weight는 negative label을 과도하게 낮추거나 positive label을 일괄 상승시켜 FP/FN 균형을 흔들 수 있다.
+- **판단**: 계산·제출 비용은 낮지만 단일 실험의 Yes/No 해석력이 세 후보 중 가장 낮다.
+
+### 8.3 C. Stronger public pretrained backbone
+
+Backbone 변경은 실제 비교에서 `KoBERT 0.642988 < KoELECTRA 0.646446 < KLUE-RoBERTa 0.655421`로 가장 명확한 차이를 만들었다. 제공 Training 데이터만 fine-tuning하고 공개 pretrained weight를 사용하는 전제에서 다음 후보를 검토할 수 있다.
+
+- [`kakaobank/kf-deberta-base`](https://huggingface.co/kakaobank/kf-deberta-base): DeBERTa-v2 기반 12-layer/hidden 768 모델이며 공개 weight는 약 746MB다. 모델 카드의 KLUE benchmark는 KLUE-RoBERTa-large보다 높은 평균을 보고해 가장 강한 1차 후보지만, 범용+금융 corpus와 응급 통화 사이의 domain mismatch 및 큰 vocabulary에 따른 메모리 증가가 위험이다. RTX 4060 8GB에서는 AMP와 작은 physical batch/gradient accumulation을 전제로 현실적인 후보이나 실제 1-step memory smoke가 선행돼야 한다.
+- [`beomi/KcELECTRA-base`](https://huggingface.co/beomi/KcELECTRA-base): 12-layer/hidden 768 ELECTRA로 댓글 기반 noisy Korean pretraining이 구어체·비정형 transcript에 유리할 가능성이 있다. Base 크기라 8GB feasibility와 offline submission 복잡도는 양호하지만, 제작자도 일반 corpus task에서는 KoELECTRA가 더 나을 수 있다고 설명하므로 KLUE baseline을 넘을지는 불확실하다. 재현 시 revision을 고정해야 한다.
+- [`klue/roberta-large`](https://huggingface.co/klue/roberta-large): 동일 KLUE 계열의 24-layer/hidden 1024 모델로 표현력 증가는 가장 명확하지만 weight가 약 1.35GB이고 약 355M 규모다. 현재 max length 512와 AdamW full fine-tuning을 RTX 4060 8GB에서 유지하기 어렵고 batch 축소, gradient checkpointing 또는 optimizer 변경이 필요할 가능성이 높아 공정한 단일 변수 비교와 제출 운용성이 떨어진다.
+
+공개 pretrained model 자체는 규칙 전제에 부합하지만, 실제 사용 전 license와 대회 허용 범위를 다시 확인하고 모델·tokenizer를 제출 환경에 함께 저장해 offline inference가 되는지 검증해야 한다.
+
+### 8.4 후보 비교와 우선순위
+
+| 기준 | A. Label dependency | B. Pairwise ranking | C. Stronger backbone |
+|---|---|---|---|
+| 예상 성능 상승 가능성 | 중간 | 중간 | 중간~높음 |
+| 구현 난이도 | 낮음 | 낮음~중간 | 낮음~중간 |
+| RTX 4060 8GB | 매우 양호 | 매우 양호 | Base 후보는 조건부 양호, Large는 낮음 |
+| 1회 Yes/No 판단 | 비교적 명확 | 낮음: loss weight 영향 | 비교적 명확 |
+| error analysis 직접성 | 높음 | 높음 | 중간 |
+| 남은 시간 대비 효율 | 높음 | 중간 | 높음 |
+| competition rule 안전성 | 높음 | 높음 | 공개 weight/license 재확인 필요 |
+| inference/submission 복잡도 | 거의 증가 없음 | 증가 없음 | 모델별 메모리·bundle 증가 |
+
+최종 우선순위는 **1순위 C → 2순위 A → 3순위 B**다. 다음 Full Training은 `kakaobank/kf-deberta-base`를 추천한다. 기존 backbone 비교에서 확인된 가장 강한 실증 신호를 활용하면서 Large 모델보다 8GB 운용 가능성이 높기 때문이다. 단, 성능 향상을 보장하지 않으며 향후 실행 시 전체 학습 전에 1-step memory smoke로 batch feasibility와 offline save/load를 먼저 확인해야 한다.
+
+---
+
+## 9. 결론
+
+- LR `1e-5`는 optimized Macro F1을 `0.655421 → 0.656180`으로 `+0.000759` 높였지만 F1@0.5와 validation loss는 악화됐다.
+- 클래스별 상승과 하락이 섞여 있고 기존 seed 변동보다 작은 차이이므로 weak positive signal로만 기록하며, LR 추가 tuning은 종료한다.
+- 지금까지 단순 loss·sampling·truncation·pooling·LR 변경은 기준 성능을 명확히 넘지 못했다.
+- 다음 우선순위는 stronger public pretrained backbone, zero-initialized label dependency residual, pairwise ranking auxiliary loss 순이다.
+- 다음 Full Training 후보는 `kakaobank/kf-deberta-base`이며, 공개 pretrained weight만 초기화에 사용하고 제공 Training 데이터만 fine-tuning한다.

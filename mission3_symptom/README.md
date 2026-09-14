@@ -272,7 +272,13 @@ ASL은 BCE보다 Macro AUROC `+0.002509`, Macro AP `+0.003321`로 ranking 지표
 - **설정**: KLUE-RoBERTa, plain BCE, seed 42, `encode_mode=truncate`, sampling OFF baseline에서 pooling만 label별 learnable query 기반 token attention으로 변경했다. 추가 파라미터는 6,912개(약 0.006%)다.
 - **결과**: best epoch는 모두 2였고, optimized Macro F1은 CLS `0.655421`에서 Label Attention `0.655291`로 `-0.000130` 변했다. positive label 2개 표본의 FN rate는 `39.79% → 41.57%`, 3개 표본은 `44.29% → 45.24%`로 개선되지 않았다.
 - **결론**: 일부 클래스의 co-occurrence recall과 broad FP는 개선됐지만 FN 증가와 trade-off가 있었으므로 최종 모델로 채택하지 않는다. pooling 구조는 현재 주요 병목이 아니라고 판단해 이 방향을 종료한다.
-- **다음 실험**: 최고 성능 CLS baseline에서 learning rate만 `2e-5 → 1e-5`로 낮추는 단일 변수 ablation을 우선 검토한다. Label dependency 접근은 그 결과 이후 판단한다.
+
+### Learning-rate ablation
+
+- **설정**: 최고 성능 KLUE CLS baseline의 learning rate만 `2e-5 → 1e-5`로 낮추고 model, plain BCE, seed 42, `truncate`, sampling OFF 및 나머지 학습 조건을 유지했다.
+- **결과**: best epoch 2, F1@0.5 `0.596253`, optimized Macro F1 `0.656180`으로 baseline `0.655421` 대비 `+0.000759`였다.
+- **결론**: optimized 지표의 weak positive signal은 있지만 F1@0.5는 `0.600329 → 0.596253`으로 하락했고 클래스별 변화도 혼재했다. LR `1e-5`를 명확히 우수한 설정으로 채택하지 않으며 추가 LR tuning은 종료한다.
+- **다음 방향**: 작은 hyperparameter 조정보다 stronger public pretrained backbone을 우선 검토하고, 이후 label dependency modeling과 pairwise ranking loss 순으로 판단한다.
 
 #### 오심 관찰
 
