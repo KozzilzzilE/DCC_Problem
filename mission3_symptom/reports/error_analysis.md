@@ -141,22 +141,78 @@ KoBERT, KoELECTRA, KLUE-RoBERTa의 저장된 prediction artifact를 같은 기�
 
 ---
 
-## 5. 통합 해석과 다음 실험 우선순위
+## 5. Follow-up: Label-wise Attention
 
-현재 증거를 종합하면 우선순위는 다음과 같다.
+### 5.1 가설과 설계
 
-1. **Label-wise evidence aggregation 검토**: label마다 별도의 query로 token evidence를 모아 다증상 표본의 FN과 generic label 과활성화를 줄일 수 있는지 확인한다.
-2. **오심 threshold 및 score 분리 모니터링**: threshold 최적화 효과는 유지하되, 다음 모델에서도 오심 AP·AUROC·precision/recall을 함께 비교한다.
-3. **truncation과 pure-nausea sampling은 낮은 우선순위의 ablation 옵션으로 유지**: 기본값은 각각 `truncate`, sampling OFF를 유지한다.
+Global Error Analysis에서 positive label 수가 많을수록 FN rate가 증가한 원인을, 하나의 CLS representation이 여러 증상의 서로 다른 token evidence를 충분히 보존하지 못하기 때문이라고 가정했다. 이를 검증하기 위해 다른 학습 조건은 유지하고 pooling만 바꾼 단일 ablation을 수행했다.
 
-Label-wise Attention Pooling은 global 분석에서 드러난 병목과 직접 연결되는 후보지만 성능 향상을 보장하지 않는다. encoder hidden state에 필요한 정보가 이미 없으면 pooling만으로 복구할 수 없고, 희소 label query가 과적합하거나 CLS baseline보다 최적화가 불안정해질 수 있다. 따라서 다음 실험에서는 다른 모든 조건을 고정하고 pooling 방식 하나만 바꾸는 ablation으로 검증해야 한다.
+- **기존 CLS**: first token representation 하나를 shared classifier에 전달해 9개 logit 생성
+- **Label-wise Attention**: 9개 label별 learnable query가 token hidden state에 attention하고, label별 weighted representation을 기존 classifier의 해당 output weight와 결합해 logit 생성
+- **파라미터 변화**: `110,625,033 → 110,631,945`(+6,912, 약 0.006%)
+- **공통 조건**: KLUE-RoBERTa-base, plain BCE, seed 42, `encode_mode=truncate`, sampling OFF, max length 512, learning rate `2e-5`, 3 epochs, minimum `val_loss` checkpoint
+
+### 5.2 Full Training 결과
+
+| 지표 | CLS baseline | Label Attention | 변화 |
+|---|---:|---:|---:|
+| Best epoch | 2 | 2 | 0 |
+| Validation loss | 0.254921 | 0.255887 | +0.000966 |
+| Macro F1 @ 0.5 | 0.600329 | 0.594089 | -0.006240 |
+| Optimized Macro F1 | 0.655421 | 0.655291 | -0.000130 |
+| Macro AUROC | 0.883142 | 0.882844 | -0.000298 |
+| Macro AP | 0.683620 | 0.682569 | -0.001051 |
+
+Optimized Macro F1은 사실상 동률이지만 개선은 아니며, 고정 threshold 0.5와 ranking 지표도 낮아졌다.
+
+### 5.3 Multi-label FN 비교
+
+동일한 3,640개 Validation label 배열과 각 run에 저장된 optimized threshold를 사용해 비교했다.
+
+| positive label 수 | CLS FN rate | Label Attention FN rate | 변화 |
+|---:|---:|---:|---:|
+| 1개 | 23.15% | 24.56% | +1.41%p |
+| 2개 | 39.79% | 41.57% | +1.79%p |
+| 3개 | 44.29% | 45.24% | +0.95%p |
+| 4개 이상 | 57.84% | 57.84% | 0 |
+
+핵심 목표였던 2개 이상 label 영역에서 FN rate가 개선되지 않았고 2개·3개 그룹은 오히려 악화됐다. 따라서 CLS pooling 자체가 multi-label FN 증가의 주된 원인이라는 가설은 이번 실험에서 지지되지 않는다.
+
+### 5.4 Co-occurrence와 FP/FN 패턴
+
+일부 label에서는 다른 증상과 함께 등장할 때 recall이 올랐지만 일관된 개선은 아니었다.
+
+| 클래스 | CLS co-occurrence recall | Label Attention | 변화 |
+|---|---:|---:|---:|
+| 두통 | 40.44% | 42.22% | +1.78%p |
+| 호흡곤란 | 44.32% | 48.86% | +4.55%p |
+| 고열 | 55.75% | 50.44% | -5.31%p |
+| 전신쇠약 | 63.82% | 57.94% | -5.88%p |
+
+전신쇠약 FP는 `445 → 368`(-77), 오심 FP는 `514 → 450`(-64)으로 감소했다. 그러나 recall도 각각 `70.35% → 65.59%`, `55.48% → 51.52%`로 낮아져, broad FP 완화는 FN 증가와 맞바꾼 결과에 가깝다.
+
+Positive-label instance에서는 `FN → TP` 86건보다 `TP → FN` 160건이 많아 TP가 순 74건 감소했다. Negative-label instance에서는 `FP → TN` 352건, `TN → FP` 185건으로 FP가 순 167건 감소했다. Exact match는 `1,543 / 3,640 (42.39%) → 1,572 / 3,640 (43.19%)`로 0.80%p 올랐지만, 주 지표와 multi-label FN이 개선되지 않아 채택 근거로 보지 않는다.
+
+### 5.5 해석과 결정
+
+Global Error Analysis에서 발견한 문제를 바탕으로 가설을 세우고 Label-wise Attention으로 검증했으나, 핵심 지표와 multi-label FN이 개선되지 않았다. 두통·호흡곤란에서 label-specific recall의 약한 신호는 있었지만 고열·전신쇠약 등에서 반대 결과가 나타났고, 전체적으로는 증상을 덜 놓치기보다 양성 예측을 더 보수적으로 만드는 변화였다.
+
+따라서 pooling 구조는 현재 주요 병목이 아니라고 판단하며 Label-wise Attention을 최종 모델로 채택하지 않는다. 이 방향은 여기서 종료하고 query 수 조정이나 attention 구조 변형 같은 세부 튜닝의 우선순위도 낮게 둔다.
 
 ---
 
-## 6. 결론
+## 6. 다음 실험
 
-- 초기 오심/구토 분석은 취약 클래스와 annotation ambiguity 가능성을 찾는 데 유효했지만, 두 클래스의 직접 혼동은 global 최상위 오류가 아니다.
-- Validation에서 512 토큰 초과 비율은 2.69%이고 `head_tail`/`sliding` 실험도 개선되지 않아 truncation은 현 시점의 주된 병목이 아니다.
-- pure-nausea weight 1.5 sampling은 오심 F1을 소폭 높였으나 recall과 다른 클래스 성능을 낮춰 Macro F1이 `0.6554 → 0.6485`로 하락했다.
-- 가장 강한 신호는 positive label 수가 많아질수록 FN rate가 `23.15% → 57.84%`로 증가하고, 여러 클래스에서 co-occurrence recall이 낮아지는 현상이다.
-- 다음 구조 후보는 KLUE-RoBERTa와 학습 조건을 유지한 채 CLS pooling만 label-wise token attention pooling으로 교체하는 최소 ablation이다.
+1. **Learning rate `2e-5 → 1e-5` 단일 변수 ablation**: 최고 성능 CLS baseline의 나머지 조건을 유지한다. Baseline과 Label Attention 모두 epoch 2가 best였고 epoch 3에서 train loss는 계속 감소했지만 validation loss는 개선되지 않았으므로, 더 완만한 fine-tuning update가 Validation ranking과 F1에 미치는 영향을 확인할 가치가 있다.
+2. **Label dependency 후보는 보류**: label 간 의존성을 직접 다루는 방법은 가능성이 있으나 구현하지 않고, learning-rate 실험 결과를 확인한 뒤 필요성을 판단한다.
+
+---
+
+## 7. 결론
+
+- truncation과 pure-nausea sampling은 일부 현상을 바꿨지만 현재 baseline을 개선하지 못했으며 기본값은 각각 `truncate`, sampling OFF를 유지한다.
+- Label-wise Attention의 optimized Macro F1은 `0.655421 → 0.655291`로 개선되지 않았다.
+- positive label 2개·3개 표본의 FN rate가 각각 `+1.79%p`, `+0.95%p` 악화되어 실험의 핵심 목표를 달성하지 못했다.
+- 일부 클래스의 co-occurrence recall과 broad FP는 개선됐지만, 다른 클래스의 recall 하락과 FN 증가가 동반됐다.
+- CLS pooling bottleneck 가설은 이번 결과로 지지되지 않으며 Label-wise Attention 방향은 종료한다.
+- 다음 우선순위는 기존 CLS baseline에서 learning rate만 `1e-5`로 낮추는 단일 변수 ablation이다.

@@ -72,6 +72,7 @@ class TrainingConfig:
     encode_mode: str = "truncate"
     use_pure_nausea_sampling: bool = False
     pure_nausea_weight: float = 1.5
+    pooling_type: str = "cls"
 
 
 def set_seed(seed: int) -> None:
@@ -316,6 +317,8 @@ def _validate_config(config: TrainingConfig) -> None:
         )
     if config.encode_mode not in {"truncate", "head_tail"}:
         raise ValueError(f"지원하지 않는 encode_mode입니다: {config.encode_mode}")
+    if config.pooling_type not in {"cls", "label_attention"}:
+        raise ValueError(f"지원하지 않는 pooling_type입니다: {config.pooling_type}")
     if not math.isfinite(config.pure_nausea_weight) or config.pure_nausea_weight < 1.0:
         raise ValueError("pure_nausea_weight는 1.0 이상의 유한한 값이어야 합니다.")
 
@@ -479,6 +482,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         config.model_name_or_path,
         local_files_only=config.local_files_only,
         revision=config.model_revision,
+        pooling_type=config.pooling_type,
     )
 
     train_lengths = calculate_token_length_stats(

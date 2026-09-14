@@ -266,6 +266,14 @@ ASL은 BCE보다 Macro AUROC `+0.002509`, Macro AP `+0.003321`로 ranking 지표
 - **결과**: best epoch 1, F1@0.5 `0.5855`, optimized Macro F1 `0.6485`였다. optimized F1은 오심 `0.4030 → 0.4081`로 소폭 상승했지만 구토 `0.6066 → 0.5886`, 두통 `0.5525 → 0.5231`로 하락했고, 전체도 `0.655421 → 0.6485`로 감소했다.
 - **결론**: C weight 1.5 sampling은 최종 baseline으로 채택하지 않는다. 구현은 재현 가능한 ablation 옵션으로 유지하되 기본값은 OFF로 유지한다.
 
+### Label-wise Attention ablation
+
+- **가설**: CLS representation 하나가 여러 증상의 token evidence를 충분히 보존하지 못해 multi-label 표본의 FN이 증가하는지 검증했다.
+- **설정**: KLUE-RoBERTa, plain BCE, seed 42, `encode_mode=truncate`, sampling OFF baseline에서 pooling만 label별 learnable query 기반 token attention으로 변경했다. 추가 파라미터는 6,912개(약 0.006%)다.
+- **결과**: best epoch는 모두 2였고, optimized Macro F1은 CLS `0.655421`에서 Label Attention `0.655291`로 `-0.000130` 변했다. positive label 2개 표본의 FN rate는 `39.79% → 41.57%`, 3개 표본은 `44.29% → 45.24%`로 개선되지 않았다.
+- **결론**: 일부 클래스의 co-occurrence recall과 broad FP는 개선됐지만 FN 증가와 trade-off가 있었으므로 최종 모델로 채택하지 않는다. pooling 구조는 현재 주요 병목이 아니라고 판단해 이 방향을 종료한다.
+- **다음 실험**: 최고 성능 CLS baseline에서 learning rate만 `2e-5 → 1e-5`로 낮추는 단일 변수 ablation을 우선 검토한다. Label dependency 접근은 그 결과 이후 판단한다.
+
 #### 오심 관찰
 
 - 세 backbone의 optimized 오심 F1은 KoBERT 0.3930, KoELECTRA 0.4006, KLUE-RoBERTa 0.4030으로 거의 개선되지 않아 현재 가장 큰 class-level bottleneck으로 남았다.

@@ -53,6 +53,12 @@ def parse_args() -> argparse.Namespace:
         help="512 초과 통화 입력: truncate(앞만) 또는 head_tail(앞 128+꼬리)",
     )
     parser.add_argument(
+        "--pooling-type",
+        choices=("cls", "label_attention"),
+        default="cls",
+        help="분류 pooling: 기존 first-token cls 또는 RoBERTa label_attention",
+    )
+    parser.add_argument(
         "--use-pure-nausea-sampling",
         action="store_true",
         help="Training의 pure-nausea(오심=1, 구토=0) row만 가중 재샘플링",
@@ -119,6 +125,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         smoke_test=args.smoke_test,
         checkpoint_metric=args.checkpoint_metric,
         encode_mode=args.encode_mode,
+        pooling_type=args.pooling_type,
         use_pure_nausea_sampling=args.use_pure_nausea_sampling,
         pure_nausea_weight=args.pure_nausea_weight,
     )
