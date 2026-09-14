@@ -26,17 +26,25 @@ for _stream in (sys.stdout, sys.stderr):
 # [공통] Mission 2 모델 아키텍처 정의
 # ==========================================
 class AudioResNet(nn.Module):
-    def __init__(self):
+    def __init__(self, pretrained=False, dropout_rate=0.3):
         super(AudioResNet, self).__init__()
-        self.model = models.resnet50(pretrained=False)
-        old_conv = self.model.conv1
-        self.model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.model.conv1.weight.data = old_conv.weight.data.mean(dim=1, keepdim=True)
-        num_ftrs = self.model.fc.in_features
-        self.model.fc = nn.Linear(num_ftrs, 1)
+        self.resnet = models.resnet50(weights=None)
+        old_conv = self.resnet.conv1
+        self.resnet.conv1 = nn.Conv2d(
+            1, old_conv.out_channels,
+            kernel_size=old_conv.kernel_size,
+            stride=old_conv.stride,
+            padding=old_conv.padding,
+            bias=False
+        )
+        in_features = self.resnet.fc.in_features
+        self.resnet.fc = nn.Sequential(
+            nn.Dropout(dropout_rate),
+            nn.Linear(in_features, 1)
+        )
         
     def forward(self, x):
-        return self.model(x)
+        return self.resnet(x)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="데이터+AI 크리에이터 캠프 본선 추론 스크립트")
@@ -99,9 +107,17 @@ def mission2_inference(audio_dir, label_dir, ckpt_path):
             # 회원님의 아이디어: 조금씩 겹치게 자르기 (오버랩)
             stride = max_time_steps // 2  
             
-            for utt in data.get('utterances', []):
-                start_ms = utt['startAt']
-                end_ms = utt['endAt']
+            dialog_list = data.get('utterances') or data.get('dialogs') or data.get('dialogue') or []
+            for utt in dialog_list:
+                start_ms = utt.get('startAt') if 'startAt' in utt else utt.get('start_time', 0)
+                end_ms = utt.get('endAt') if 'endAt' in utt else utt.get('end_time', 0)
+                # 초 단위로 들어있는 경우 ms로 변환
+                if start_ms < 100 and end_ms < 100 and (end_ms - start_ms) > 0.05:
+                    start_ms = int(start_ms * 1000)
+                    end_ms = int(end_ms * 1000)
+                else:
+                    start_ms = int(start_ms)
+                    end_ms = int(end_ms)
                 
                 start_sample = int((start_ms / 1000.0) * sr)
                 end_sample = int((end_ms / 1000.0) * sr)
