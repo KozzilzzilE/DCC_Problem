@@ -207,12 +207,15 @@ def create_dataloader(
     pin_memory: bool = False,
     pad_to_multiple_of: Optional[int] = None,
     encode_mode: str = "truncate",
+    sampler=None,
 ) -> DataLoader:
     """재현 가능한 순서로 학습 또는 검증 DataLoader를 생성."""
     if batch_size <= 0:
         raise ValueError("batch_size는 양수여야 합니다.")
     if num_workers < 0:
         raise ValueError("num_workers는 0 이상이어야 합니다.")
+    if sampler is not None and shuffle:
+        raise ValueError("sampler와 shuffle=True는 함께 사용할 수 없습니다.")
 
     generator = torch.Generator()
     generator.manual_seed(seed)
@@ -226,6 +229,7 @@ def create_dataloader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
+        sampler=sampler,
         collate_fn=MultiLabelCollator(tokenizer, pad_to_multiple_of=pad_to_multiple_of),
         num_workers=num_workers,
         pin_memory=pin_memory,
