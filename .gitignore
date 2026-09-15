@@ -15,6 +15,7 @@ data/**
 !data/**/.gitkeep
 outputs/**
 !outputs/**/.gitkeep
+.codex_kf_cache/
 *.pt
 *.pth
 *.h5
