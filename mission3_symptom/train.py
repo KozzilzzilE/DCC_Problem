@@ -30,7 +30,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--use-pos-weight", action="store_true")
-    parser.add_argument("--loss-type", choices=("bce", "asl"), default="bce")
+    parser.add_argument("--loss-type", choices=("bce", "asl", "dependency"), default="bce")
+    parser.add_argument("--dependency-alpha", type=float, default=0.1, help="Weight for Label Dependency Loss")
     parser.add_argument("--asl-gamma-neg", type=float, default=4.0)
     parser.add_argument("--asl-gamma-pos", type=float, default=1.0)
     parser.add_argument("--asl-clip", type=float, default=0.05)
@@ -91,6 +92,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         amp=args.amp,
         use_pos_weight=args.use_pos_weight,
         loss_type=args.loss_type,
+        dependency_alpha=args.dependency_alpha,
         asl_gamma_neg=args.asl_gamma_neg,
         asl_gamma_pos=args.asl_gamma_pos,
         asl_clip=args.asl_clip,

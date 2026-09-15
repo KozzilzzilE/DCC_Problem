@@ -8,6 +8,41 @@ import torch
 from torch import nn
 
 
+class LabelDependencyLoss(nn.Module):
+    """BCE에 Label 간의 동시 발생성(Co-occurrence) 제약 조건을 추가한 Loss.
+    
+    자주 동시 발생(Co-occurrence)하는 증상들이 서로 비슷한 예측 확률을 갖도록
+    차이의 제곱에 Co-occurrence 가중치를 곱해 페널티(Penalty)로 부여합니다.
+    """
+
+    def __init__(
+        self,
+        co_occurrence_matrix: torch.Tensor,
+        alpha: float = 0.1,
+        pos_weight: Optional[torch.Tensor] = None,
+    ) -> None:
+        super().__init__()
+        self.bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        # (num_classes, num_classes) 형태의 정규화된 동시 발생 행렬
+        self.register_buffer("co_occurrence", co_occurrence_matrix.float())
+        self.alpha = float(alpha)
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        base_loss = self.bce(logits, targets)
+        
+        # (Batch, NumClasses)
+        probs = torch.sigmoid(logits)
+        
+        # (Batch, NumClasses, NumClasses): 각 샘플 내 클래스 쌍의 예측 확률 차이 제곱
+        prob_diff_sq = (probs.unsqueeze(2) - probs.unsqueeze(1)) ** 2
+        
+        # 동시 발생 빈도가 높은 쌍일수록 확률 차이가 작도록 유도
+        # batch 및 클래스 차원에 대해 평균을 구함
+        dependency_penalty = (prob_diff_sq * self.co_occurrence).mean()
+        
+        return base_loss + self.alpha * dependency_penalty
+
+
 class AsymmetricLoss(nn.Module):
     """Sigmoid 기반 multi-label Asymmetric Loss.
 
@@ -103,8 +138,10 @@ def build_loss(
     asl_eps: float = 1e-8,
     asl_reduction: str = "mean",
     asl_disable_focal_loss_grad: bool = True,
+    co_occurrence_matrix: Optional[torch.Tensor] = None,
+    dependency_alpha: float = 0.1,
 ) -> nn.Module:
-    """Config 값으로 BCE 또는 ASL을 생성한다."""
+    """Config 값으로 BCE, ASL 또는 Dependency Loss를 생성한다."""
     if loss_type == "bce":
         return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     if loss_type == "asl":
@@ -117,5 +154,13 @@ def build_loss(
             eps=asl_eps,
             reduction=asl_reduction,
             disable_focal_loss_grad=asl_disable_focal_loss_grad,
+        )
+    if loss_type == "dependency":
+        if co_occurrence_matrix is None:
+            raise ValueError("Dependency loss를 사용하려면 co_occurrence_matrix가 필수입니다.")
+        return LabelDependencyLoss(
+            co_occurrence_matrix=co_occurrence_matrix,
+            alpha=dependency_alpha,
+            pos_weight=pos_weight,
         )
     raise ValueError(f"지원하지 않는 loss_type입니다: {loss_type}")

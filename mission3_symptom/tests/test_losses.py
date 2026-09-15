@@ -13,7 +13,7 @@ MISSION3_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(MISSION3_DIR))
 
 from m3.config import NUM_CLASSES
-from m3.losses import AsymmetricLoss, build_loss
+from m3.losses import AsymmetricLoss, LabelDependencyLoss, build_loss
 from m3.training import TrainingConfig, _validate_config
 
 
@@ -102,6 +102,29 @@ class LossTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "use_pos_weight"):
             _validate_config(config)
+
+    def test_dependency_loss_finite_and_backward(self) -> None:
+        logits = torch.randn(4, NUM_CLASSES, requires_grad=True)
+        targets = torch.randint(0, 2, (4, NUM_CLASSES), dtype=torch.float32)
+        co_occ = torch.rand(NUM_CLASSES, NUM_CLASSES)
+        
+        loss = LabelDependencyLoss(co_occurrence_matrix=co_occ)(logits, targets)
+        loss.backward()
+
+        self.assertEqual(loss.ndim, 0)
+        self.assertTrue(torch.isfinite(loss))
+        self.assertIsNotNone(logits.grad)
+        self.assertTrue(torch.isfinite(logits.grad).all())
+
+    def test_dependency_loss_zero_alpha_matches_bce(self) -> None:
+        logits = torch.randn(4, NUM_CLASSES)
+        targets = torch.randint(0, 2, logits.shape, dtype=torch.float32)
+        co_occ = torch.rand(NUM_CLASSES, NUM_CLASSES)
+        
+        dep_loss = LabelDependencyLoss(co_occurrence_matrix=co_occ, alpha=0.0)(logits, targets)
+        bce = torch.nn.BCEWithLogitsLoss()(logits, targets)
+        self.assertTrue(torch.allclose(dep_loss, bce, atol=1e-6, rtol=1e-6))
+
 
 
 if __name__ == "__main__":
