@@ -137,7 +137,7 @@ KoBERT, KoELECTRA, KLUE-RoBERTa의 저장된 prediction artifact를 같은 기�
 - 세 backbone 공통 FP: `1,207 / 27,524 = 4.39%`
 - 클래스별 공통 FN: 두통 `44.39%`, 구토 `38.92%`, 오심 `38.00%`
 
-백본 교체만으로 해소되지 않는 오류가 상당하다. 현재 KLUE-RoBERTa가 세 모델 중 가장 높은 기준 성능을 보인 점까지 고려하면, 다음 실험은 새 backbone보다 같은 encoder에서 label별 증거를 분리해 모으는 head 구조가 더 직접적인 가설이다.
+백본 교체만으로 해소되지 않는 오류가 상당하다. 이 공통 오류 수치는 당시 세 backbone prediction으로 계산했으며 KF-DeBERTa를 포함해 다시 산출하지는 않았다. 이후 KF-DeBERTa의 optimized Macro F1도 `0.655760`으로 KLUE-RoBERTa `0.655421`과 거의 같았다는 aggregate 결과는, backbone 교체만으로 병목을 크게 해소하기 어렵다는 해석과 일관된다.
 
 ---
 
@@ -252,6 +252,7 @@ Run `klue_roberta_base_plain_bce_seed42_lr1e5_val_loss`는 최고 CLS baseline�
 | KoBERT | 0.642988 | 정상 tokenizer 기준 초기 backbone |
 | KoELECTRA | 0.646446 | KoBERT 대비 상승 |
 | KLUE CLS baseline | 0.655421 | 현재 기준 standalone |
+| KF-DeBERTa CLS | 0.655760 | 단일 run은 소폭 상승했으나 비용 대비 명확한 우위 없음 |
 | `pos_weight` | 약 0.6413 | 개선 없음 |
 | ASL | 0.652710 | ranking은 일부 상승했으나 F1 하락 |
 | BCE+ASL probability ensemble | 0.655897 | baseline 대비 작은 상승 |
@@ -261,11 +262,11 @@ Run `klue_roberta_base_plain_bce_seed42_lr1e5_val_loss`는 최고 CLS baseline�
 | Label-wise Attention | 0.655291 | multi-label FN 개선 없음 |
 | LR `1e-5` | 0.656180 | 약 +0.0008, weak positive signal |
 
-Loss, sampling, truncation, pooling과 learning rate를 하나씩 바꾼 실험은 대체로 `0.655~0.657` 부근의 좁은 범위에 수렴하거나 baseline보다 낮았다. 작은 hyperparameter 조정을 반복하기보다, 기존 실험과 가설이 구분되는 구조적 변화 또는 더 강한 공개 pretrained encoder를 우선 검토하는 편이 남은 시간 대비 합리적이다.
+Loss, sampling, truncation, pooling과 learning rate를 하나씩 바꾼 실험은 대체로 `0.655~0.657` 부근의 좁은 범위에 수렴하거나 baseline보다 낮았다. 더 강한 공개 pretrained encoder인 KF-DeBERTa도 같은 범위에 머물렀으므로, 작은 설정 변경이나 backbone 교체를 반복하기보다 기존 분석과 직접 연결되는 구조적 가설을 검토하는 편이 합리적이다.
 
 ---
 
-## 8. 다음 실험 후보 분석
+## 8. 후속 실험 분석 및 진행 상태
 
 ### 8.1 A. Label dependency modeling
 
@@ -283,36 +284,32 @@ Plain BCE를 유지하면서 같은 sample의 positive label score가 negative l
 - **위험**: 클래스별 prevalence와 calibration이 다른데 모든 cross-label score를 직접 비교하면 불필요한 순서 제약이 생길 수 있다. auxiliary weight라는 새 hyperparameter가 필요해 한 번의 실패가 아이디어의 실패인지 weight 선택 실패인지 구분하기 어렵다. 강한 weight는 negative label을 과도하게 낮추거나 positive label을 일괄 상승시켜 FP/FN 균형을 흔들 수 있다.
 - **판단**: 계산·제출 비용은 낮지만 단일 실험의 Yes/No 해석력이 세 후보 중 가장 낮다.
 
-### 8.3 C. Stronger public pretrained backbone
+### 8.3 C. Stronger public pretrained backbone — KF-DeBERTa 결과
 
-Backbone 변경은 실제 비교에서 `KoBERT 0.642988 < KoELECTRA 0.646446 < KLUE-RoBERTa 0.655421`로 가장 명확한 차이를 만들었다. 제공 Training 데이터만 fine-tuning하고 공개 pretrained weight를 사용하는 전제에서 다음 후보를 검토할 수 있다.
+Backbone 변경이 초기 비교에서 가장 분명한 상승을 만든 점을 바탕으로 `kakaobank/kf-deberta-base` revision `363b171d71443b0874b0bf9cea053eb5b1650633`을 추가 검증했다. 공개 pretrained weight는 초기화에만 사용하고 제공 Training 29,200건으로 학습했으며, KLUE baseline과 동일한 plain BCE, seed 42, learning rate `2e-5`, effective batch 16, max length 512 및 minimum `val_loss` checkpoint 조건을 유지했다.
 
-- [`kakaobank/kf-deberta-base`](https://huggingface.co/kakaobank/kf-deberta-base): DeBERTa-v2 기반 12-layer/hidden 768 모델이다. 모델 카드의 KLUE benchmark는 KLUE-RoBERTa-large보다 높은 평균을 보고해 가장 강한 1차 후보지만, 범용+금융 corpus와 응급 통화 사이의 domain mismatch 및 큰 vocabulary가 위험이다. 실제 실험 전 tokenizer·모델 호환성과 save/load 동작을 짧게 검증해야 한다.
-- [`beomi/KcELECTRA-base`](https://huggingface.co/beomi/KcELECTRA-base): 12-layer/hidden 768 ELECTRA로 댓글 기반 noisy Korean pretraining이 구어체·비정형 transcript에 유리할 가능성이 있다. Base 계열이라 기존 pipeline에 적용하기 비교적 단순하지만, 제작자도 일반 corpus task에서는 KoELECTRA가 더 나을 수 있다고 설명하므로 KLUE baseline을 넘을지는 불확실하다. 재현 시 revision을 고정해야 한다.
-- [`klue/roberta-large`](https://huggingface.co/klue/roberta-large): 동일 KLUE 계열의 24-layer/hidden 1024 모델로 표현력 증가는 가장 명확하지만 current baseline보다 규모가 크게 증가한다. 기존 학습 조건을 그대로 유지하기 어려울 수 있어 공정한 단일 변수 비교와 제출 운용성이 떨어진다.
-
-공개 pretrained model 자체는 규칙 전제에 부합하지만, 실제 사용 전 license와 대회 허용 범위를 다시 확인하고 모델·tokenizer를 제출 환경에 함께 저장해 offline inference가 되는지 검증해야 한다.
+- **결과**: best epoch 2, F1@0.5 `0.606132`, optimized Macro F1 `0.655760`이다. KLUE seed 42 `0.655421`보다 `+0.000339` 높지만, KLUE seed 42·43 차이 약 `0.0015`보다 작다.
+- **Threshold 의존성**: 오심은 threshold 0.5 F1 `0.1452`에서 threshold 0.19 적용 후 `0.3964`로 상승했다. 전체 Macro F1 상승 `+0.049628`도 학습된 표현 변경이 아니라 Validation decision boundary 후처리 결과다.
+- **입력 길이**: Validation 512 token 초과 비율은 KF-DeBERTa `1.51%`, KLUE-RoBERTa `2.69%`로 KF가 낮았지만 최종 Macro F1의 명확한 차이로 이어지지 않았다.
+- **비용**: 저장된 Validation wall-clock은 KF epoch 1 `1132.206초`, epoch 2 `770.013초`였고 KLUE best-checkpoint 평가는 `19.260초`였다. 단일 로컬 환경 측정이므로 일반적인 속도 배수로 해석하지 않지만 현재 운용 조건에서는 계산 비용이 크게 증가했다.
+- **판단**: KF-DeBERTa가 약간 높은 point estimate를 기록했으나 성능 차이와 비용을 함께 보면 KLUE-RoBERTa를 교체할 근거는 충분하지 않다. KLUE-RoBERTa를 현재 기준 backbone으로 유지한다.
 
 ### 8.4 후보 비교와 우선순위
 
-| 기준 | A. Label dependency | B. Pairwise ranking | C. Stronger backbone |
-|---|---|---|---|
-| 예상 성능 상승 가능성 | 중간 | 중간 | 중간~높음 |
-| 구현 난이도 | 낮음 | 낮음~중간 | 낮음~중간 |
-| 1회 Yes/No 판단 | 비교적 명확 | 낮음: loss weight 영향 | 비교적 명확 |
-| error analysis 직접성 | 높음 | 높음 | 중간 |
-| 남은 시간 대비 효율 | 높음 | 중간 | 높음 |
-| competition rule 안전성 | 높음 | 높음 | 공개 weight/license 재확인 필요 |
-| inference/submission 복잡도 | 거의 증가 없음 | 증가 없음 | 모델 규모에 따라 증가 |
+| 후보 | 상태 | 현재 판단 |
+|---|---|---|
+| C. KF-DeBERTa backbone | 완료 | `0.655760`; KLUE 대비 상승 폭이 작고 계산 비용이 커 기본 backbone으로 교체하지 않음 |
+| A. Label dependency | 미실행 | global error analysis와 직접 연결되는 다음 구조적 후보 |
+| B. Pairwise ranking | 미실행 | loss weight의 영향 때문에 단일 실험 해석력이 상대적으로 낮아 후순위 |
 
-최종 우선순위는 **1순위 C → 2순위 A → 3순위 B**다. 다음 Full Training은 `kakaobank/kf-deberta-base`를 추천한다. 기존 backbone 비교에서 확인된 가장 강한 실증 신호를 활용하면서 Large 모델보다 baseline과 가까운 규모의 후보이기 때문이다. 단, 성능 향상을 보장하지 않으며 향후 실행 시 전체 학습 전에 tokenizer·모델 호환성과 offline save/load를 먼저 확인해야 한다.
+Stronger backbone 실험은 완료됐으며, 현재 다음 구조적 후보는 zero-initialized label dependency residual이다. 이는 실험 우선순위일 뿐 성능 개선을 예측하거나 채택을 확정한 표현은 아니다.
 
 ---
 
 ## 9. 결론
 
-- LR `1e-5`는 optimized Macro F1을 `0.655421 → 0.656180`으로 `+0.000759` 높였지만 F1@0.5와 validation loss는 악화됐다.
-- 클래스별 상승과 하락이 섞여 있고 기존 seed 변동보다 작은 차이이므로 weak positive signal로만 기록하며, LR 추가 tuning은 종료한다.
-- 지금까지 단순 loss·sampling·truncation·pooling·LR 변경은 기준 성능을 명확히 넘지 못했다.
-- 다음 우선순위는 stronger public pretrained backbone, zero-initialized label dependency residual, pairwise ranking auxiliary loss 순이다.
-- 다음 Full Training 후보는 `kakaobank/kf-deberta-base`이며, 공개 pretrained weight만 초기화에 사용하고 제공 Training 데이터만 fine-tuning한다.
+- LR `1e-5`는 optimized Macro F1을 `0.655421 → 0.656180`으로 `+0.000759` 높였지만 F1@0.5와 Validation loss는 악화돼 weak positive signal로만 남겼다.
+- KF-DeBERTa는 optimized Macro F1 `0.655760`으로 KLUE seed 42보다 `+0.000339` 높았으나 seed 변동보다 작은 차이였고 계산 비용은 크게 증가했다.
+- 지금까지 loss·sampling·truncation·pooling·LR과 stronger backbone 변경은 `0.655~0.657` 부근의 병목을 명확히 넘지 못했다.
+- 성능, 효율성과 실험 재현성을 함께 고려해 KLUE-RoBERTa를 현재 기준 backbone으로 유지한다.
+- 다음 구조적 검토 우선순위는 zero-initialized label dependency residual, pairwise ranking auxiliary loss 순이며 두 실험 모두 아직 성능 결과가 없다.

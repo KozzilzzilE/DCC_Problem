@@ -287,6 +287,49 @@ class ModelPoolingTest(unittest.TestCase):
                 )
         attention_loader.assert_not_called()
 
+    def test_kf_deberta_with_label_attention_fails_fast(self) -> None:
+        with patch(
+            "m3.model.AutoConfig.from_pretrained",
+            return_value=SimpleNamespace(model_type="deberta-v2"),
+        ), patch(
+            "m3.model.AutoTokenizer.from_pretrained"
+        ) as tokenizer_loader, patch(
+            "m3.model.RobertaForLabelWiseAttentionClassification.from_pretrained"
+        ) as attention_loader:
+            with self.assertRaisesRegex(ValueError, "RoBERTa 계열만 지원"):
+                build_tokenizer_and_model(
+                    "kakaobank/kf-deberta-base",
+                    pooling_type=LABEL_ATTENTION_POOLING,
+                )
+        tokenizer_loader.assert_not_called()
+        attention_loader.assert_not_called()
+
+    def test_kf_deberta_cls_uses_generic_auto_path(self) -> None:
+        tokenizer = MagicMock()
+        model = MagicMock()
+        with patch(
+            "m3.model.AutoTokenizer.from_pretrained", return_value=tokenizer
+        ) as tokenizer_loader, patch(
+            "m3.model.AutoModelForSequenceClassification.from_pretrained",
+            return_value=model,
+        ) as model_loader, patch(
+            "m3.model.validate_tokenizer_model_compatibility"
+        ):
+            loaded_tokenizer, loaded_model = build_tokenizer_and_model(
+                "kakaobank/kf-deberta-base",
+                pooling_type=CLS_POOLING,
+            )
+
+        self.assertIs(loaded_tokenizer, tokenizer)
+        self.assertIs(loaded_model, model)
+        tokenizer_loader.assert_called_once()
+        model_loader.assert_called_once()
+        self.assertEqual(model_loader.call_args.kwargs["num_labels"], NUM_CLASSES)
+        self.assertEqual(
+            model_loader.call_args.kwargs["problem_type"],
+            "multi_label_classification",
+        )
+
     def test_invalid_pooling_type_fails_fast(self) -> None:
         with self.assertRaisesRegex(ValueError, "지원하지 않는 pooling_type"):
             validate_pooling_type("mean")

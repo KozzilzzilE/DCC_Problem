@@ -49,7 +49,7 @@ mission3_symptom/
 │   ├── report.py                # 성과 리포트(MD) 및 최적 임계값(JSON) 생성기
 │   ├── dataset.py               # CSV 검증, text-only Dataset 및 DataLoader
 │   ├── kobert_tokenizer.py       # KoBERT SentencePiece tokenizer 및 BERT 입력 형식
-│   ├── model.py                 # KoBERT 9-label 모델 생성 및 저장
+│   ├── model.py                 # Hugging Face backbone 기반 9-label 모델 생성 및 저장
 │   ├── training.py              # 학습, 검증 및 실험 산출물 저장
 │   └── __init__.py              # m3 통합 인터페이스 export
 ├── reports/
@@ -57,7 +57,7 @@ mission3_symptom/
 ├── extract_labels.ipynb         # ★ 1단계: 원본 zip(001~013)에서 JSON 라벨 32,840건 고속 추출 노트북
 ├── data_preprocessing.ipynb     # ★ 2단계: 규정 준수 텍스트 정제 & 9개 타겟 증상 CSV 생성 전처리 노트북
 ├── model_train.ipynb            # ★ 3단계: 실제 baseline 결과 검증 및 시각화 노트북
-├── train.py                     # KoBERT baseline 학습 CLI
+├── train.py                     # 공통 backbone 학습 CLI
 ├── tests/                       # 데이터 및 label shape 단위 테스트
 └── README.md                    # 현재 문서
 ```
@@ -198,17 +198,57 @@ Pos_weight는 threshold 0.5에서 recall과 Macro F1을 높였지만 ranking/AP�
 
 #### Backbone benchmark
 
-세 backbone은 모델과 그에 맞는 tokenizer만 변경했다. 동일 Train 29,200건/Validation 3,640건, Plain BCE, seed 42, 3 epochs, learning rate `2e-5`, max length 512, physical batch 8, gradient accumulation 2(effective batch 16), weight decay 0.01, warmup ratio 0.1, AMP, `val_loss` checkpoint와 동일한 class-wise threshold 탐색을 사용했다.
+네 backbone은 모델과 그에 맞는 tokenizer만 변경했다. 동일 Training 29,200건/Validation 3,640건, plain BCE, seed 42, 3 epochs, learning rate `2e-5`, max length 512, physical batch 8, gradient accumulation 2(effective batch 16), weight decay 0.01, warmup ratio 0.1, AMP, minimum `val_loss` checkpoint 선택과 동일한 class-wise threshold 탐색을 사용했다. 공개 pretrained checkpoint는 초기화에만 사용했으며, 제공 Training 데이터만 supervised fine-tuning에 사용하고 Validation은 평가와 threshold 선택에만 사용했다.
 
-Macro AUROC와 Macro AP는 각 Full run의 `val_probs.npy`와 `val_labels.npy`에서 9개 클래스별 지표를 계산한 뒤 산술 평균한 값이다.
+| Model | Best Epoch | F1 @ 0.5 | Optimized Macro F1 |
+|---|---:|---:|---:|
+| KoBERT (`skt/kobert-base-v1`) | 3 | 0.573737 | 0.642988 |
+| KoELECTRA (`monologg/koelectra-base-v3-discriminator`) | 3 | 0.581073 | 0.646446 |
+| KLUE-RoBERTa (`klue/roberta-base`) | 2 | 0.600329 | 0.655421 |
+| KF-DeBERTa (`kakaobank/kf-deberta-base`) | 2 | **0.606132** | **0.655760** |
 
-| Backbone | F1 @ 0.5 | Optimized Macro F1 | Macro AUROC | Macro AP | Val truncation | Training time |
-|---|---:|---:|---:|---:|---:|---:|
-| KoBERT (`skt/kobert-base-v1`) | 0.5737 | 0.6430 | 0.8754 | 0.6675 | 5.38% | 약 28분 19초 |
-| KoELECTRA (`monologg/koelectra-base-v3-discriminator`) | 0.5811 | 0.6464 | 0.8779 | 0.6713 | 2.83% | 약 27분 19초 |
-| KLUE-RoBERTa (`klue/roberta-base`) | **0.6003** | **0.6554** | **0.8831** | **0.6836** | **2.69%** | 약 27분 10초 |
+Backbone 교체는 초기 세 모델에서 `KoBERT → KoELECTRA → KLUE-RoBERTa` 순으로 비교적 분명한 상승을 만들었다. KF-DeBERTa는 단일 Validation run에서 가장 높은 point estimate를 기록했지만, optimized Macro F1은 KLUE-RoBERTa보다 `0.000339` 높은 수준에 그쳤다. 같은 Validation에서 threshold를 선택하고 평가한 결과이므로 이 작은 차이를 명확한 성능 우위로 해석하지 않는다.
 
-KLUE-RoBERTa는 point estimate 기준 현재 가장 높은 결과이며 Optimized Macro F1은 `KoBERT 0.6430 → KoELECTRA 0.6464 → KLUE-RoBERTa 0.6554`로 상승했다. KLUE는 대부분의 낮은 F1 클래스에서도 소폭 개선됐지만 오심 개선은 제한적이었다. 다만 single seed/single Validation 결과이고 optimized threshold도 같은 Validation에서 선택했으므로 압도적인 winner로 단정하지 않으며, 현재의 주력 backbone 후보로 둔다.
+#### KF-DeBERTa Full Training 및 threshold 최적화
+
+Run `kf_deberta_base_plain_bce_seed42_val_loss`는 `kakaobank/kf-deberta-base` revision `363b171d71443b0874b0bf9cea053eb5b1650633`을 사용했다. Standard CLS classification path에서 Label Attention, `pos_weight`, ASL과 weighted sampling을 모두 끄고 plain BCE로 학습했다. 나머지 조건은 backbone benchmark와 동일하며 입력은 `truncate` 방식으로 최대 512 token까지만 사용했다.
+
+| Epoch | Train loss | Validation loss | Validation Macro F1 @ 0.5 | 선택 |
+|---:|---:|---:|---:|---|
+| 1 | 0.302746 | 0.258396 | 0.576790 | - |
+| 2 | 0.243850 | **0.254455** | **0.606132** | best checkpoint |
+| 3 | **0.221921** | 0.258950 | 0.601708 | - |
+
+Epoch 3에서 train loss는 계속 감소했지만 Validation loss가 다시 증가했고 Macro F1@0.5도 epoch 2를 넘지 못했다. 따라서 minimum Validation loss 기준으로 저장된 epoch 2 checkpoint가 이 run의 적절한 선택이며, epoch 2 이후에는 가벼운 과적합 조짐이 관찰된 것으로 해석한다.
+
+Best checkpoint의 class-wise threshold 최적화 결과는 다음과 같다. 이는 모델 표현을 다시 학습한 결과가 아니라, 같은 Validation probability에 적용하는 **decision boundary 후처리**다.
+
+| 증상 | F1 @ 0.5 | Optimized threshold | Optimized F1 | Delta |
+|---|---:|---:|---:|---:|
+| 고열 | 0.6691 | 0.31 | 0.6931 | +0.0240 |
+| 구토 | 0.5831 | 0.33 | 0.5992 | +0.0161 |
+| 두통 | 0.5009 | 0.23 | 0.5663 | +0.0654 |
+| 복통 | 0.8205 | 0.35 | 0.8239 | +0.0034 |
+| 어지러움 | 0.6480 | 0.34 | 0.6671 | +0.0191 |
+| 열상 | 0.8927 | 0.47 | 0.8934 | +0.0007 |
+| 오심 | 0.1452 | 0.19 | 0.3964 | +0.2513 |
+| 전신쇠약 | 0.5498 | 0.22 | 0.5923 | +0.0425 |
+| 호흡곤란 | 0.6460 | 0.27 | 0.6702 | +0.0241 |
+| **Macro F1** | **0.606132** | class-wise | **0.655760** | **+0.049628** |
+
+오심은 threshold `0.19`에서 F1이 `0.1452 → 0.3964`로 가장 크게 변했다. 이는 오심의 낮은 score scale에 맞춘 후처리가 필요하다는 근거이며, backbone 자체가 오심 표현 문제를 해결했다는 의미는 아니다.
+
+KF-DeBERTa의 `BertTokenizer`는 vocabulary 130,000개를 사용했고 Validation의 512 token 초과 비율은 `55 / 3,640 = 1.51%`였다. KLUE-RoBERTa의 `98 / 3,640 = 2.69%`보다 truncation 노출은 낮았지만, 이 tokenizer상의 이점이 Macro F1의 명확한 상승으로 이어지지는 않았다.
+
+저장된 단일 로컬 run의 Validation wall-clock은 KF-DeBERTa가 epoch 1 `1132.206초`, epoch 2 `770.013초`였고, KLUE-RoBERTa best-checkpoint 평가는 `19.260초`였다. 실행별 초기화와 환경 영향을 받는 측정이므로 일반적인 속도 배수로 단정하지 않지만, 이 프로젝트의 동일 로컬 실험 조건에서는 KF-DeBERTa의 계산 비용이 크게 증가했다.
+
+#### 현재 기준 backbone 선정
+
+KF-DeBERTa의 optimized Macro F1 `0.6557598681`은 KLUE-RoBERTa seed 42의 `0.6554208986`보다 약 `0.000339` 높다. 그러나 KLUE 자체도 seed 42 `0.6554209`, seed 43 `0.6539106`으로 약 `0.0015` 변동했기 때문에, KF와 KLUE의 차이는 단일 run의 변동 범위보다 작다.
+
+따라서 KF-DeBERTa는 유효한 비교 후보이자 약간 높은 단일 Validation 점수를 기록한 모델로 남기되, **성능 차이의 불확실성, 계산 비용, 기존 실험의 재현성과 운용 효율을 함께 고려해 KLUE-RoBERTa를 현재 기준 backbone(selected baseline backbone)으로 유지한다.** 더 강한 backbone으로 교체하는 것만으로 현재 `0.655~0.657` 부근의 Validation Macro F1 병목이 크게 해소되지는 않았으며, 이는 향후 label dependency와 같은 구조적 가설을 검토할 근거가 된다. 아직 실행하지 않은 후속 실험의 성능은 가정하지 않는다.
+
+#### KLUE-RoBERTa baseline threshold 결과
 
 KLUE의 best checkpoint는 epoch 2(`val_loss=0.2549`)였다. Train loss는 epoch 3까지 감소했지만 val loss는 epoch 2에서 최소인 뒤 0.2567로 소폭 상승했고 F1@0.5는 `0.6003 → 0.6003`으로 거의 동일해, epoch 2 이후 Validation 개선이 제한적이었다.
 
@@ -278,7 +318,7 @@ ASL은 BCE보다 Macro AUROC `+0.002509`, Macro AP `+0.003321`로 ranking 지표
 - **설정**: 최고 성능 KLUE CLS baseline의 learning rate만 `2e-5 → 1e-5`로 낮추고 model, plain BCE, seed 42, `truncate`, sampling OFF 및 나머지 학습 조건을 유지했다.
 - **결과**: best epoch 2, F1@0.5 `0.596253`, optimized Macro F1 `0.656180`으로 baseline `0.655421` 대비 `+0.000759`였다.
 - **결론**: optimized 지표의 weak positive signal은 있지만 F1@0.5는 `0.600329 → 0.596253`으로 하락했고 클래스별 변화도 혼재했다. LR `1e-5`를 명확히 우수한 설정으로 채택하지 않으며 추가 LR tuning은 종료한다.
-- **다음 방향**: 작은 hyperparameter 조정보다 stronger public pretrained backbone을 우선 검토하고, 이후 label dependency modeling과 pairwise ranking loss 순으로 판단한다.
+- **다음 방향**: stronger public pretrained backbone으로 KF-DeBERTa까지 비교했지만 KLUE 대비 상승 폭이 매우 작고 계산 비용이 컸다. 작은 hyperparameter나 backbone 교체를 반복하기보다 label dependency modeling과 pairwise ranking loss 순으로 구조적 가설을 검토한다.
 
 #### 오심 관찰
 
@@ -296,10 +336,10 @@ ASL은 BCE보다 Macro AUROC `+0.002509`, Macro AP `+0.003321`로 ranking 지표
 * 학습에는 전처리가 완료된 CSV의 `text`와 9개 binary label column만 사용한다.
 * `symptoms`와 문자열 형태의 `label_vector`는 학습 입력으로 사용하지 않는다.
 * 원본 JSON 추론 시에는 `m3.labels`의 text-only 추출 규칙을 재사용한다.
-* KoBERT tokenizer는 512 토큰을 상한으로 적용하며 실제 truncation 비율을 run config에 기록한다.
+* 각 backbone tokenizer는 512 토큰을 상한으로 적용하며 실제 truncation 비율을 run config에 기록한다.
 
 ### 2. 다중 라벨 분류(Multi-label) 모델 설계
-* **모델 구조**: KoBERT 백본 위에 9개 타겟 증상 출력을 위한 선형 분류 헤드(Linear Head) 구성 (`NUM_CLASSES = 9`).
+* **모델 구조**: Hugging Face backbone 위에 9개 타겟 증상 출력을 위한 sequence classification head 구성 (`NUM_CLASSES = 9`). 현재 기준 backbone은 KLUE-RoBERTa이며 backbone benchmark에는 KoBERT, KoELECTRA와 KF-DeBERTa를 포함한다.
 * **손실 함수(Loss)**: 각 증상의 발생 여부가 독립적인 다중 라벨 분류이므로, `CrossEntropyLoss` 대신 반드시 `BCEWithLogitsLoss`를 사용.
 * **출력 확률 추출**: 검증 및 추론 시 모델 로짓(Logits)에 Sigmoid 함수를 적용하여 [0.0, 1.0] 범위의 확률 행렬(`val_probs`)을 산출.
 
