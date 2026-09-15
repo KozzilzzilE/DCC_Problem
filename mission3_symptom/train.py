@@ -1,20 +1,19 @@
-"""Mission 3 KoBERT baseline 학습 진입점."""
+"""Mission 3 KLUE-RoBERTa baseline 학습 진입점."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-from m3.model import DEFAULT_MODEL_NAME
-from m3.training import TrainingConfig, run_training
+from m3.training import BASELINE_MODEL_NAME, TrainingConfig, run_training
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Mission 3 KoBERT 다중 라벨 학습")
+    parser = argparse.ArgumentParser(description="Mission 3 KLUE-RoBERTa 다중 라벨 학습")
     parser.add_argument("--train-csv", required=True, help="학습 CSV 경로")
     parser.add_argument("--val-csv", required=True, help="Validation CSV 경로")
     parser.add_argument("--output-dir", required=True, help="실험 산출물 저장 경로")
-    parser.add_argument("--model-name-or-path", default=DEFAULT_MODEL_NAME)
+    parser.add_argument("--model-name-or-path", default=BASELINE_MODEL_NAME)
     parser.add_argument("--model-revision")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-length", type=int, default=512)
@@ -52,6 +51,23 @@ def parse_args() -> argparse.Namespace:
         choices=("truncate", "head_tail"),
         default="truncate",
         help="512 초과 통화 입력: truncate(앞만) 또는 head_tail(앞 128+꼬리)",
+    )
+    parser.add_argument(
+        "--pooling-type",
+        choices=("cls", "label_attention"),
+        default="cls",
+        help="분류 pooling: 기존 first-token cls 또는 RoBERTa label_attention",
+    )
+    parser.add_argument(
+        "--use-pure-nausea-sampling",
+        action="store_true",
+        help="Training의 pure-nausea(오심=1, 구토=0) row만 가중 재샘플링",
+    )
+    parser.add_argument(
+        "--pure-nausea-weight",
+        type=float,
+        default=1.5,
+        help="pure-nausea(C) Training row의 sampling weight (기본값: 1.5)",
     )
     return parser.parse_args()
 
@@ -109,6 +125,9 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         smoke_test=args.smoke_test,
         checkpoint_metric=args.checkpoint_metric,
         encode_mode=args.encode_mode,
+        pooling_type=args.pooling_type,
+        use_pure_nausea_sampling=args.use_pure_nausea_sampling,
+        pure_nausea_weight=args.pure_nausea_weight,
     )
 
 

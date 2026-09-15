@@ -14,10 +14,16 @@ from __future__ import annotations
 
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import torch
+from torch import nn
+from torch.nn import BCEWithLogitsLoss
+from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
+from transformers.modeling_outputs import SequenceClassifierOutput
+from transformers.models.roberta.modeling_roberta import RobertaForSequenceClassification
 
 from .config import NUM_CLASSES, TARGET_SYMPTOMS
 from .kobert_tokenizer import KoBertTokenizer
@@ -40,6 +46,144 @@ EXPECTED_KOBERT_SPECIAL_TOKEN_IDS = {
 
 # 한글 초성/중성/종성(자모) 유니코드 범위 정규식: 토크나이저가 한글을 자모 단위로 깨뜨리는지 감지
 JAMO_PATTERN = re.compile(r"[\u1100-\u11ff\u3130-\u318f]")
+
+CLS_POOLING = "cls"
+LABEL_ATTENTION_POOLING = "label_attention"
+SUPPORTED_POOLING_TYPES = (CLS_POOLING, LABEL_ATTENTION_POOLING)
+
+
+@dataclass
+class LabelAttentionSequenceClassifierOutput(SequenceClassifierOutput):
+    """표준 sequence-classification 출력에 label별 token attention을 추가합니다."""
+
+    label_attention_weights: Optional[torch.FloatTensor] = None
+
+
+class RobertaForLabelWiseAttentionClassification(RobertaForSequenceClassification):
+    """RoBERTa의 기존 classifier parameter를 재사용하는 label-wise pooling 모델."""
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.config.pooling_type = LABEL_ATTENTION_POOLING
+        self.label_queries = nn.Embedding(config.num_labels, config.hidden_size)
+        # RoBERTa/Hugging Face의 Embedding 초기화 규칙(initializer_range)을 그대로 사용합니다.
+        self._init_weights(self.label_queries)
+
+    def label_attention_pool(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """[B,L,H]를 padding을 제외한 label별 [B,C,H] 표현으로 집계합니다."""
+        if hidden_states.ndim != 3:
+            raise ValueError(
+                "hidden_states는 [batch, sequence_length, hidden_size]여야 합니다: "
+                f"shape={tuple(hidden_states.shape)}"
+            )
+        batch_size, sequence_length, hidden_size = hidden_states.shape
+        if hidden_size != self.config.hidden_size:
+            raise ValueError(
+                f"hidden_size가 config와 다릅니다: {hidden_size} != {self.config.hidden_size}"
+            )
+
+        if attention_mask is None:
+            valid_mask = torch.ones(
+                (batch_size, sequence_length),
+                dtype=torch.bool,
+                device=hidden_states.device,
+            )
+        else:
+            if tuple(attention_mask.shape) != (batch_size, sequence_length):
+                raise ValueError(
+                    "attention_mask는 [batch, sequence_length]여야 합니다: "
+                    f"shape={tuple(attention_mask.shape)}"
+                )
+            valid_mask = attention_mask.to(device=hidden_states.device, dtype=torch.bool)
+
+        if not bool(valid_mask.any(dim=-1).all()):
+            raise ValueError("모든 token이 padding인 입력은 label attention을 계산할 수 없습니다.")
+
+        attention_scores = torch.einsum(
+            "blh,ch->bcl",
+            hidden_states,
+            self.label_queries.weight,
+        )
+        attention_scores = attention_scores.masked_fill(
+            ~valid_mask[:, None, :],
+            torch.finfo(attention_scores.dtype).min,
+        )
+        attention_weights = torch.softmax(attention_scores.float(), dim=-1).to(
+            hidden_states.dtype
+        )
+        label_representations = torch.einsum(
+            "bcl,blh->bch",
+            attention_weights,
+            hidden_states,
+        )
+        return label_representations, attention_weights
+
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        token_type_ids: Optional[torch.LongTensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.FloatTensor] = None,
+        **kwargs,
+    ) -> LabelAttentionSequenceClassifierOutput:
+        outputs = self.roberta(
+            input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids,
+            position_ids=position_ids,
+            inputs_embeds=inputs_embeds,
+            return_dict=True,
+            **kwargs,
+        )
+        label_representations, attention_weights = self.label_attention_pool(
+            outputs.last_hidden_state,
+            attention_mask,
+        )
+
+        x = self.classifier.dropout(label_representations)
+        x = self.classifier.dense(x)
+        x = torch.tanh(x)
+        x = self.classifier.dropout(x)
+        logits = torch.einsum("bch,ch->bc", x, self.classifier.out_proj.weight)
+        logits = logits + self.classifier.out_proj.bias
+
+        loss = None
+        if labels is not None:
+            labels = labels.to(device=logits.device, dtype=logits.dtype)
+            loss = BCEWithLogitsLoss()(logits, labels)
+
+        return LabelAttentionSequenceClassifierOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+            label_attention_weights=attention_weights,
+        )
+
+
+def validate_pooling_type(pooling_type: str) -> str:
+    """pooling 선택값을 검증하고 정상화된 문자열을 반환합니다."""
+    if pooling_type not in SUPPORTED_POOLING_TYPES:
+        raise ValueError(
+            f"지원하지 않는 pooling_type입니다: {pooling_type}. "
+            f"허용값: {SUPPORTED_POOLING_TYPES}"
+        )
+    return pooling_type
+
+
+def validate_label_attention_backbone(model_type: str, source: str) -> None:
+    """첫 ablation에서는 RoBERTa 계열 외 label attention 사용을 명시적으로 차단합니다."""
+    if model_type != "roberta":
+        raise ValueError(
+            "pooling_type='label_attention'은 현재 RoBERTa 계열만 지원합니다: "
+            f"model={source}, model_type={model_type}"
+        )
 
 
 def _console_safe_text(value: object) -> str:
@@ -186,18 +330,30 @@ def build_tokenizer_and_model(
     model_name_or_path: Union[str, Path] = DEFAULT_MODEL_NAME,
     local_files_only: bool = False,
     revision: Optional[str] = None,
-) -> Tuple[object, AutoModelForSequenceClassification]:
+    pooling_type: str = CLS_POOLING,
+) -> Tuple[object, object]:
     """사전학습 백본(KoBERT, KoELECTRA, RoBERTa 등)과 9개 증상 분류 헤드(Linear Head)를 생성합니다.
     
     - KoBERT 모델이면: SentencePiece 기반 `KoBertTokenizer` 로드
     - 그 외 한국어 모델이면: Hugging Face 표준 `AutoTokenizer` 자동 로드
     """
     source = str(model_name_or_path)
+    pooling_type = validate_pooling_type(pooling_type)
     label2id = {symptom: index for index, symptom in enumerate(TARGET_SYMPTOMS)}
     id2label = {index: symptom for index, symptom in enumerate(TARGET_SYMPTOMS)}
     load_options: Dict[str, object] = {"local_files_only": local_files_only}
     if revision is not None:
         load_options["revision"] = revision
+
+    label_attention_config = None
+    if pooling_type == LABEL_ATTENTION_POOLING:
+        label_attention_config = AutoConfig.from_pretrained(source, **load_options)
+        validate_label_attention_backbone(label_attention_config.model_type, source)
+        label_attention_config.num_labels = NUM_CLASSES
+        label_attention_config.label2id = label2id
+        label_attention_config.id2label = id2label
+        label_attention_config.problem_type = "multi_label_classification"
+        label_attention_config.pooling_type = LABEL_ATTENTION_POOLING
 
     # 1. 모델 종류에 따라 최적의 토크나이저 자동 선택 및 로드
     if is_kobert_model(source):
@@ -211,15 +367,23 @@ def build_tokenizer_and_model(
             **load_options,
         )
 
-    # 2. 다중 라벨 분류(Multi-label)용 헤드가 부착된 Sequence Classification 모델 로드
-    model = AutoModelForSequenceClassification.from_pretrained(
-        source,
-        num_labels=NUM_CLASSES,
-        label2id=label2id,
-        id2label=id2label,
-        problem_type="multi_label_classification",
-        **load_options,
-    )
+    # 2. cls 기본 경로는 기존 AutoModelForSequenceClassification 호출을 그대로 유지합니다.
+    if pooling_type == CLS_POOLING:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            source,
+            num_labels=NUM_CLASSES,
+            label2id=label2id,
+            id2label=id2label,
+            problem_type="multi_label_classification",
+            **load_options,
+        )
+    else:
+        assert label_attention_config is not None
+        model = RobertaForLabelWiseAttentionClassification.from_pretrained(
+            source,
+            config=label_attention_config,
+            **load_options,
+        )
 
     # 3. 토크나이저와 모델의 호환성 및 한글 처리 상태 검증
     validate_tokenizer_model_compatibility(tokenizer, model)
@@ -237,10 +401,20 @@ def load_saved_model(model_dir: Union[str, Path]):
     else:
         tokenizer = AutoTokenizer.from_pretrained(source, local_files_only=True)
 
-    model = AutoModelForSequenceClassification.from_pretrained(
-        source,
-        local_files_only=True,
-    )
+    config = AutoConfig.from_pretrained(source, local_files_only=True)
+    pooling_type = validate_pooling_type(getattr(config, "pooling_type", CLS_POOLING))
+    if pooling_type == LABEL_ATTENTION_POOLING:
+        validate_label_attention_backbone(config.model_type, source)
+        model = RobertaForLabelWiseAttentionClassification.from_pretrained(
+            source,
+            config=config,
+            local_files_only=True,
+        )
+    else:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            source,
+            local_files_only=True,
+        )
     if int(model.config.num_labels) != NUM_CLASSES:
         raise ValueError(f"저장 모델의 출력 클래스 수가 9가 아닙니다: {model.config.num_labels}")
     validate_tokenizer_model_compatibility(tokenizer, model)

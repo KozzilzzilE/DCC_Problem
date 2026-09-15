@@ -80,7 +80,7 @@ mission3_symptom/
 
 ## 🚀 빠른 실행 가이드
 
-### KoBERT baseline 학습
+### KLUE-RoBERTa plain BCE baseline 학습
 
 학습 코드는 실행 환경의 경로를 가정하지 않으며, CSV와 출력 경로를 명령행 인자로 받는다. Google Drive 마운트나 파일 다운로드는 학습 모듈의 책임이 아니다.
 
@@ -90,7 +90,7 @@ mission3_symptom/
 python mission3_symptom/train.py \
   --train-csv <mission3_train.csv> \
   --val-csv <mission3_val.csv> \
-  --output-dir mission3_symptom/runs/kobert_correct_tokenizer_plain_bce_seed42 \
+  --output-dir mission3_symptom/runs/klue_roberta_base_bce_seed42 \
   --smoke-test \
   --amp
 ```
@@ -103,8 +103,8 @@ smoke test는 최대 Train 64건, Validation 32건, optimizer step 2회로 제�
 python mission3_symptom/train.py \
   --train-csv <mission3_train.csv> \
   --val-csv <mission3_val.csv> \
-  --output-dir mission3_symptom/runs/kobert_correct_tokenizer_plain_bce_seed42 \
-  --model-name-or-path skt/kobert-base-v1 \
+  --output-dir mission3_symptom/runs/klue_roberta_base_bce_seed42 \
+  --model-name-or-path klue/roberta-base \
   --seed 42 \
   --max-length 512 \
   --train-batch-size 8 \
@@ -112,10 +112,12 @@ python mission3_symptom/train.py \
   --gradient-accumulation-steps 2 \
   --learning-rate 2e-5 \
   --epochs 3 \
+  --loss-type bce \
+  --encode-mode truncate \
   --amp
 ```
 
-`--device auto`가 기본값이며 CUDA를 사용할 수 없으면 CPU를 선택한다. `--amp`는 CUDA에서만 활성화되고 그 외 환경에서는 자동으로 비활성화된다.
+`--device auto`가 기본값이며 사용 가능한 실행 환경을 자동으로 선택한다. `--amp`는 지원되는 환경에서만 활성화된다.
 
 정식 run은 `best_model/`, `run_config.json`, `history.json`, `baseline_metrics.json`, `val_logits.npy`, `val_probs.npy`, `val_labels.npy`를 생성한다. 평가는 기존 `m3.metrics` 및 `m3.threshold.apply_thresholds`를 사용하여 threshold 0.5를 기준으로 수행한다.
 
@@ -151,8 +153,13 @@ VS Code 또는 Jupyter 환경에서 `mission3_symptom/model_train.ipynb`를 열�
 | `WEIGHT_DECAY` | 과적합 완화를 위한 AdamW weight decay |
 | `WARMUP_RATIO` | 전체 optimizer step 중 learning-rate warmup 비율 |
 | `EPOCHS` | 전체 Training 데이터를 반복 학습하는 횟수 |
-| `USE_AMP` | 지원되는 CUDA 환경에서 mixed precision을 사용할지 여부 |
+| `USE_AMP` | 지원되는 환경에서 mixed precision을 사용할지 여부 |
 | `USE_POS_WEIGHT` | Training label에서 계산한 클래스별 `negative / positive` 가중치를 BCE에 적용할지 여부. 기본값은 `False`이며 class imbalance ablation에서만 활성화 |
+| `ENCODE_MODE` | 기본값 `truncate`. Head-tail truncation ablation에서만 `head_tail` 사용 |
+| `USE_PURE_NAUSEA_SAMPLING` | pure-nausea group-aware sampling 활성화 여부. CLI/TrainingConfig 기본값은 `False` |
+| `PURE_NAUSEA_WEIGHT` | C 그룹(오심=1, 구토=0)에만 적용하는 sampling weight. 첫 실험값은 `1.5` |
+
+Pure-nausea sampling은 `--use-pure-nausea-sampling --pure-nausea-weight 1.5`로 활성화한다. 이 옵션은 Training loader에만 `WeightedRandomSampler`를 적용하며 Validation loader에는 영향을 주지 않는다.
 
 최초 실행에서는 `TRAIN_CSV`와 `VAL_CSV`가 실제 CSV를 가리키는지 확인한다. 기본 경로와 다른 위치에 데이터가 있다면 이 두 값만 실행 환경에 맞게 변경한다.
 
@@ -251,6 +258,27 @@ seed 42 KLUE-RoBERTa에서 loss만 plain BCE에서 ASL(`gamma_neg=4`, `gamma_pos
 | ASL | 0.529330 | 0.652710 | **0.885651** | **0.686941** | 3 |
 
 ASL은 BCE보다 Macro AUROC `+0.002509`, Macro AP `+0.003321`로 ranking 지표가 소폭 상승했지만 optimized Macro F1은 `-0.002711` 하락해 전체 성능 개선으로 이어지지 않았다. 오심 optimized F1은 `0.4030 → 0.4092`로 소폭 상승했으나 문제를 해결한 수준은 아니며, 복통과 열상 외 다수 클래스의 optimized F1도 하락했다. ASL의 optimized threshold는 전체 클래스에서 0.59~0.72로 BCE의 0.19~0.51보다 높아져 확률 스케일이 전반적으로 위쪽으로 이동했다. 따라서 현재 standalone 대표 설정은 plain BCE로 유지하며, ASL의 효과를 과도하게 해석하지 않는다.
+
+### Pure-nausea sampling ablation
+
+- **목적**: Training의 pure-nausea 그룹(`오심=1, 구토=0`) 노출을 완만하게 늘려 취약한 오심 분류를 개선할 수 있는지 확인했다.
+- **설정**: KLUE-RoBERTa, plain BCE, seed 42, `encode_mode=truncate`, max length 512 baseline에서 `WeightedRandomSampler`를 사용해 C 그룹에만 weight `1.5`를 적용했다. Training 그룹은 A 22,687건, B 3,172건, C 2,050건, D 1,291건이다.
+- **결과**: best epoch 1, F1@0.5 `0.5855`, optimized Macro F1 `0.6485`였다. optimized F1은 오심 `0.4030 → 0.4081`로 소폭 상승했지만 구토 `0.6066 → 0.5886`, 두통 `0.5525 → 0.5231`로 하락했고, 전체도 `0.655421 → 0.6485`로 감소했다.
+- **결론**: C weight 1.5 sampling은 최종 baseline으로 채택하지 않는다. 구현은 재현 가능한 ablation 옵션으로 유지하되 기본값은 OFF로 유지한다.
+
+### Label-wise Attention ablation
+
+- **가설**: CLS representation 하나가 여러 증상의 token evidence를 충분히 보존하지 못해 multi-label 표본의 FN이 증가하는지 검증했다.
+- **설정**: KLUE-RoBERTa, plain BCE, seed 42, `encode_mode=truncate`, sampling OFF baseline에서 pooling만 label별 learnable query 기반 token attention으로 변경했다. 추가 파라미터는 6,912개(약 0.006%)다.
+- **결과**: best epoch는 모두 2였고, optimized Macro F1은 CLS `0.655421`에서 Label Attention `0.655291`로 `-0.000130` 변했다. positive label 2개 표본의 FN rate는 `39.79% → 41.57%`, 3개 표본은 `44.29% → 45.24%`로 개선되지 않았다.
+- **결론**: 일부 클래스의 co-occurrence recall과 broad FP는 개선됐지만 FN 증가와 trade-off가 있었으므로 최종 모델로 채택하지 않는다. pooling 구조는 현재 주요 병목이 아니라고 판단해 이 방향을 종료한다.
+
+### Learning-rate ablation
+
+- **설정**: 최고 성능 KLUE CLS baseline의 learning rate만 `2e-5 → 1e-5`로 낮추고 model, plain BCE, seed 42, `truncate`, sampling OFF 및 나머지 학습 조건을 유지했다.
+- **결과**: best epoch 2, F1@0.5 `0.596253`, optimized Macro F1 `0.656180`으로 baseline `0.655421` 대비 `+0.000759`였다.
+- **결론**: optimized 지표의 weak positive signal은 있지만 F1@0.5는 `0.600329 → 0.596253`으로 하락했고 클래스별 변화도 혼재했다. LR `1e-5`를 명확히 우수한 설정으로 채택하지 않으며 추가 LR tuning은 종료한다.
+- **다음 방향**: 작은 hyperparameter 조정보다 stronger public pretrained backbone을 우선 검토하고, 이후 label dependency modeling과 pairwise ranking loss 순으로 판단한다.
 
 #### 오심 관찰
 

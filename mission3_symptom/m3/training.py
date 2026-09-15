@@ -1,4 +1,4 @@
-"""Mission 3 KoBERT 학습, 검증 및 실험 산출물 저장."""
+"""Mission 3 KLUE-RoBERTa 학습, 검증 및 실험 산출물 저장."""
 
 from __future__ import annotations
 
@@ -25,9 +25,13 @@ from .dataset import (
     load_symptom_csv,
 )
 from .metrics import eval_macro_f1
-from .model import DEFAULT_MODEL_NAME, build_tokenizer_and_model, load_saved_model, save_model_bundle
+from .model import build_tokenizer_and_model, load_saved_model, save_model_bundle
 from .losses import build_loss
+from .sampling import build_pure_nausea_sampler
 from .threshold import apply_thresholds
+
+
+BASELINE_MODEL_NAME = "klue/roberta-base"
 
 
 @dataclass(frozen=True)
@@ -35,7 +39,7 @@ class TrainingConfig:
     train_csv: str
     val_csv: str
     output_dir: str
-    model_name_or_path: str = DEFAULT_MODEL_NAME
+    model_name_or_path: str = BASELINE_MODEL_NAME
     model_revision: Optional[str] = None
     seed: int = 42
     max_length: int = 512
@@ -66,6 +70,9 @@ class TrainingConfig:
     asl_reduction: str = "mean"
     asl_disable_focal_loss_grad: bool = True
     encode_mode: str = "truncate"
+    use_pure_nausea_sampling: bool = False
+    pure_nausea_weight: float = 1.5
+    pooling_type: str = "cls"
 
 
 def set_seed(seed: int) -> None:
@@ -310,6 +317,10 @@ def _validate_config(config: TrainingConfig) -> None:
         )
     if config.encode_mode not in {"truncate", "head_tail"}:
         raise ValueError(f"지원하지 않는 encode_mode입니다: {config.encode_mode}")
+    if config.pooling_type not in {"cls", "label_attention"}:
+        raise ValueError(f"지원하지 않는 pooling_type입니다: {config.pooling_type}")
+    if not math.isfinite(config.pure_nausea_weight) or config.pure_nausea_weight < 1.0:
+        raise ValueError("pure_nausea_weight는 1.0 이상의 유한한 값이어야 합니다.")
 
 
 def _build_optimizer(model, learning_rate: float, weight_decay: float):
@@ -367,6 +378,80 @@ def _calculate_pos_weights(
     return weights, statistics
 
 
+def _print_sampling_summary(summary: Dict[str, object]) -> None:
+    print("Pure-nausea group-aware sampling (Training rows only):")
+    for group, stats in summary["group_statistics"].items():
+        exposure = stats["relative_exposure"]
+        exposure_text = "n/a" if exposure is None else f"{exposure:.4f}x"
+        print(
+            f"- {group}: count={stats['original_count']}, "
+            f"weight={stats['sampling_weight']:.4f}, "
+            f"expected_probability={stats['expected_sampling_probability']:.6f}, "
+            f"relative_exposure={exposure_text}"
+        )
+    print(
+        f"- sampler: num_samples={summary['num_samples']}, "
+        f"replacement={summary['replacement']}"
+    )
+    print("Expected Training label exposure after sampling:")
+    for symptom, stats in summary["label_exposure"].items():
+        exposure = stats["relative_exposure"]
+        exposure_text = "n/a" if exposure is None else f"{exposure:.4f}x"
+        print(
+            f"- {symptom}: original={stats['original_positive_count']}, "
+            f"expected={stats['expected_positive_count']:.2f}, "
+            f"ratio={exposure_text}"
+        )
+
+
+def _create_train_val_loaders(
+    train_df,
+    val_df,
+    tokenizer,
+    config: TrainingConfig,
+    pin_memory: bool,
+):
+    train_sampler = None
+    sampling_summary: Dict[str, object] = {
+        "enabled": False,
+        "source": "training_rows_only",
+    }
+    if config.use_pure_nausea_sampling:
+        train_sampler, sampling_summary = build_pure_nausea_sampler(
+            train_df,
+            pure_nausea_weight=config.pure_nausea_weight,
+            seed=config.seed,
+        )
+        _print_sampling_summary(sampling_summary)
+
+    train_loader = create_dataloader(
+        train_df,
+        tokenizer,
+        max_length=config.max_length,
+        batch_size=config.train_batch_size,
+        shuffle=train_sampler is None,
+        seed=config.seed,
+        num_workers=config.num_workers,
+        pin_memory=pin_memory,
+        pad_to_multiple_of=8 if pin_memory else None,
+        encode_mode=config.encode_mode,
+        sampler=train_sampler,
+    )
+    val_loader = create_dataloader(
+        val_df,
+        tokenizer,
+        max_length=config.max_length,
+        batch_size=config.val_batch_size,
+        shuffle=False,
+        seed=config.seed,
+        num_workers=config.num_workers,
+        pin_memory=pin_memory,
+        pad_to_multiple_of=8 if pin_memory else None,
+        encode_mode=config.encode_mode,
+    )
+    return train_loader, val_loader, sampling_summary
+
+
 def run_training(config: TrainingConfig) -> Dict[str, object]:
     """설정에 따라 학습하고 best checkpoint 기준 산출물을 저장."""
     _validate_config(config)
@@ -397,6 +482,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         config.model_name_or_path,
         local_files_only=config.local_files_only,
         revision=config.model_revision,
+        pooling_type=config.pooling_type,
     )
 
     train_lengths = calculate_token_length_stats(
@@ -406,29 +492,12 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         val_df["text"].tolist(), tokenizer, config.max_length
     )
     pin_memory = device.type == "cuda"
-    train_loader = create_dataloader(
+    train_loader, val_loader, sampling_summary = _create_train_val_loaders(
         train_df,
-        tokenizer,
-        max_length=config.max_length,
-        batch_size=config.train_batch_size,
-        shuffle=True,
-        seed=config.seed,
-        num_workers=config.num_workers,
-        pin_memory=pin_memory,
-        pad_to_multiple_of=8 if device.type == "cuda" else None,
-        encode_mode=config.encode_mode,
-    )
-    val_loader = create_dataloader(
         val_df,
         tokenizer,
-        max_length=config.max_length,
-        batch_size=config.val_batch_size,
-        shuffle=False,
-        seed=config.seed,
-        num_workers=config.num_workers,
+        config,
         pin_memory=pin_memory,
-        pad_to_multiple_of=8 if device.type == "cuda" else None,
-        encode_mode=config.encode_mode,
     )
 
     model.to(device)
@@ -486,6 +555,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             "train_token_lengths": train_lengths,
             "val_token_lengths": val_lengths,
             "train_pos_weight_statistics": pos_weight_statistics,
+            "train_sampling": sampling_summary,
             "checkpoint_selection_criterion": {
                 "metric": config.checkpoint_metric,
                 "mode": "min" if config.checkpoint_metric == "val_loss" else "max",
