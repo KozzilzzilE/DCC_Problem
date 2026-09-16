@@ -13,7 +13,7 @@ MISSION3_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(MISSION3_DIR))
 
 from m3.config import NUM_CLASSES
-from m3.losses import AsymmetricLoss, LabelDependencyLoss, build_loss
+from m3.losses import AsymmetricLoss, LabelDependencyLoss, PairwiseRankingLoss, build_loss
 from m3.training import TrainingConfig, _validate_config
 
 
@@ -125,6 +125,37 @@ class LossTest(unittest.TestCase):
         bce = torch.nn.BCEWithLogitsLoss()(logits, targets)
         self.assertTrue(torch.allclose(dep_loss, bce, atol=1e-6, rtol=1e-6))
 
+    def test_pairwise_loss_finite_and_backward(self) -> None:
+        logits = torch.randn(4, NUM_CLASSES, requires_grad=True)
+        targets = torch.randint(0, 2, (4, NUM_CLASSES), dtype=torch.float32)
+
+        loss = PairwiseRankingLoss()(logits, targets)
+        loss.backward()
+
+        self.assertEqual(loss.ndim, 0)
+        self.assertTrue(torch.isfinite(loss))
+        self.assertIsNotNone(logits.grad)
+        self.assertTrue(torch.isfinite(logits.grad).all())
+
+    def test_pairwise_loss_zero_alpha_matches_bce(self) -> None:
+        logits = torch.randn(4, NUM_CLASSES)
+        targets = torch.randint(0, 2, logits.shape, dtype=torch.float32)
+
+        pairwise = PairwiseRankingLoss(alpha=0.0)(logits, targets)
+        bce = torch.nn.BCEWithLogitsLoss()(logits, targets)
+        self.assertTrue(torch.allclose(pairwise, bce, atol=1e-6, rtol=1e-6))
+
+    def test_pairwise_prefers_positive_over_negative_logit(self) -> None:
+        targets = torch.tensor([[1.0, 0.0]])
+        better = PairwiseRankingLoss(alpha=1.0)(
+            torch.tensor([[3.0, -3.0]]),
+            targets,
+        )
+        worse = PairwiseRankingLoss(alpha=1.0)(
+            torch.tensor([[-3.0, 3.0]]),
+            targets,
+        )
+        self.assertLess(better.item(), worse.item())
 
 
 if __name__ == "__main__":
