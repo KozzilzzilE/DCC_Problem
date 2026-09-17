@@ -43,6 +43,44 @@ class LabelDependencyLoss(nn.Module):
         return base_loss + self.alpha * dependency_penalty
 
 
+class PairwiseRankingLoss(nn.Module):
+    """BCE에 양성/음성 증상 쌍 ranking 제약을 더한 Loss.
+
+    같은 샘플에서 정답이 1인 증상의 logit이 0인 증상보다 커지도록
+    ``softplus(s_neg - s_pos)`` 평균을 페널티로 부여한다.
+    """
+
+    def __init__(
+        self,
+        alpha: float = 0.1,
+        pos_weight: Optional[torch.Tensor] = None,
+    ) -> None:
+        super().__init__()
+        self.bce = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        self.alpha = float(alpha)
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        if logits.shape != targets.shape:
+            raise ValueError(
+                "Pairwise logits와 targets shape이 같아야 합니다: "
+                f"logits={tuple(logits.shape)}, targets={tuple(targets.shape)}"
+            )
+
+        base_loss = self.bce(logits, targets)
+        logits_float = logits.float()
+        targets_float = targets.to(dtype=logits_float.dtype)
+
+        positive_mask = targets_float.unsqueeze(2)
+        negative_mask = (1.0 - targets_float).unsqueeze(1)
+        pair_mask = positive_mask * negative_mask
+        score_diff = logits_float.unsqueeze(1) - logits_float.unsqueeze(2)
+        pair_loss = torch.nn.functional.softplus(score_diff)
+        pair_count = pair_mask.sum().clamp(min=1.0)
+        ranking_penalty = (pair_loss * pair_mask).sum() / pair_count
+
+        return base_loss + self.alpha * ranking_penalty
+
+
 class AsymmetricLoss(nn.Module):
     """Sigmoid 기반 multi-label Asymmetric Loss.
 
@@ -140,8 +178,9 @@ def build_loss(
     asl_disable_focal_loss_grad: bool = True,
     co_occurrence_matrix: Optional[torch.Tensor] = None,
     dependency_alpha: float = 0.1,
+    pairwise_alpha: float = 0.1,
 ) -> nn.Module:
-    """Config 값으로 BCE, ASL 또는 Dependency Loss를 생성한다."""
+    """Config 값으로 BCE, ASL, Dependency 또는 Pairwise Ranking Loss를 생성한다."""
     if loss_type == "bce":
         return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     if loss_type == "asl":
@@ -161,6 +200,11 @@ def build_loss(
         return LabelDependencyLoss(
             co_occurrence_matrix=co_occurrence_matrix,
             alpha=dependency_alpha,
+            pos_weight=pos_weight,
+        )
+    if loss_type == "pairwise":
+        return PairwiseRankingLoss(
+            alpha=pairwise_alpha,
             pos_weight=pos_weight,
         )
     raise ValueError(f"지원하지 않는 loss_type입니다: {loss_type}")

@@ -64,6 +64,7 @@ class TrainingConfig:
     checkpoint_metric: str = "val_loss"
     loss_type: str = "bce"
     dependency_alpha: float = 0.1
+    pairwise_alpha: float = 0.1
     asl_gamma_neg: float = 4.0
     asl_gamma_pos: float = 1.0
     asl_clip: float = 0.05
@@ -297,11 +298,14 @@ def _validate_config(config: TrainingConfig) -> None:
         raise ValueError("max_steps는 양수여야 합니다.")
     if not 0.0 <= config.warmup_ratio < 1.0:
         raise ValueError("warmup_ratio는 0 이상 1 미만이어야 합니다.")
-    if config.loss_type not in {"bce", "asl", "dependency"}:
+    if config.loss_type not in {"bce", "asl", "dependency", "pairwise"}:
         raise ValueError(f"지원하지 않는 loss_type입니다: {config.loss_type}")
     if config.loss_type == "dependency":
         if config.dependency_alpha < 0:
             raise ValueError("dependency_alpha는 0 이상이어야 합니다.")
+    if config.loss_type == "pairwise":
+        if config.pairwise_alpha < 0:
+            raise ValueError("pairwise_alpha는 0 이상이어야 합니다.")
     if config.loss_type == "asl":
         if config.use_pos_weight:
             raise ValueError("ASL ablation에서는 use_pos_weight를 함께 사용할 수 없습니다.")
@@ -526,6 +530,8 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         co_occ_normalized = co_occ / max(len(train_df), 1)
         co_occurrence_matrix = torch.from_numpy(co_occ_normalized).to(device)
         print("Dependency Loss: Co-occurrence 행렬 계산 완료")
+    if config.loss_type == "pairwise":
+        print(f"Pairwise Ranking Loss 사용 (alpha={config.pairwise_alpha})")
 
     loss_fn = build_loss(
         config.loss_type,
@@ -538,6 +544,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         asl_disable_focal_loss_grad=config.asl_disable_focal_loss_grad,
         co_occurrence_matrix=co_occurrence_matrix,
         dependency_alpha=config.dependency_alpha,
+        pairwise_alpha=config.pairwise_alpha,
     )
     optimizer = _build_optimizer(model, config.learning_rate, config.weight_decay)
     updates_per_epoch = math.ceil(len(train_loader) / config.gradient_accumulation_steps)
