@@ -39,6 +39,10 @@ class BenchmarkTrainer:
             target_dir = os.path.join(self.drive_backup_dir, dst_subfolder)
             os.makedirs(target_dir, exist_ok=True)
             dst_file = os.path.join(target_dir, os.path.basename(src_file))
+            
+            if os.path.abspath(src_file) == os.path.abspath(dst_file):
+                return
+
             try:
                 shutil.copy2(src_file, dst_file)
             except Exception as e:
