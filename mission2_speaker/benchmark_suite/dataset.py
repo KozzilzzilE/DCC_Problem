@@ -83,8 +83,8 @@ class UniversalSpeakerDataset(Dataset):
             # 상위 폴더 구조가 2.라벨링데이터 <-> 1.원천데이터 형태인지 자동 확인
             w_candidate = j_path.replace("2.라벨링데이터", "1.원천데이터").replace("TL_", "TS_").replace(".json", ".wav")
             if not os.path.exists(w_candidate):
-                # 일반적인 audio 폴더 또는 동일 폴더 검색
-                w_candidate = j_path.replace("/label/", "/audio/").replace(".json", ".wav")
+                # 일반적인 audio 폴더 또는 동일 폴더 검색 (운영체제별 슬래시 처리)
+                w_candidate = j_path.replace("/label/", "/audio/").replace("\\label\\", "\\audio\\").replace(".json", ".wav")
                 if not os.path.exists(w_candidate):
                     # 같은 폴더 내 .wav
                     w_candidate = os.path.splitext(j_path)[0] + ".wav"
