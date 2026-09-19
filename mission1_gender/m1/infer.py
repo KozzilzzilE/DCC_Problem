@@ -21,7 +21,7 @@ from .config import FeatureConfig
 from .datasets import RESAMPLE_BRANCHES, crop_or_pad, to_waveform
 from .features import sliding_windows
 from .labels import CallRecord, caller_utterances, iter_calls
-from .models import checkpoint_threshold, load_checkpoint
+from .models import checkpoint_threshold, decision_threshold, load_checkpoint
 
 OUTPUT_COLUMNS = ["audio file name", "gender"]
 MIN_SEGMENT_MS = 100
@@ -108,14 +108,16 @@ def predict_directory(
     device = torch.device(device)
 
     model, branch, cfg, payload = load_checkpoint(ckpt_path, device=device)
-    threshold = checkpoint_threshold(payload)
+    threshold = decision_threshold(payload)          # 대회 규정: 0.5 고정
     if batch_size is None:
         batch_size = suggested_batch_size(branch)
     if verbose:
         trained = payload.get("metrics", {}).get("dev_call_accuracy")
+        stored = (payload.get("extra") or {}).get("decision_threshold")
         print(f"[Mission 1] branch={branch} device={device} feature={cfg.kind}"
-              f" threshold={threshold:.3f} batch_size={batch_size}"
-              + (f" dev_call_acc={trained:.4f}" if trained else ""))
+              f" threshold={threshold:.3f} (규정 고정) batch_size={batch_size}"
+              + (f" dev_call_acc={trained:.4f}" if trained else "")
+              + (f" | ckpt 저장값 {checkpoint_threshold(payload):.3f} 은 무시" if stored is not None else ""))
 
     records = list(iter_calls(label_dir))
 
