@@ -19,7 +19,7 @@ from .aggregate import GENDER_OUTPUT, call_label, gender_to_target
 from .cache import CacheIndex
 from .datasets import samples_from_rows
 from .evaluate import suggested_workers, call_probabilities, predict_segment_probs, truth_from_samples
-from .models import checkpoint_threshold, load_checkpoint
+from .models import decision_threshold, load_checkpoint
 
 # 조각 길이 구간 (초). 관측된 분포가 p50 1.55s / p90 4.71s 라 그 주변을 촘촘히 나눈다.
 BUCKETS = [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 5.0), (5.0, float("inf"))]
@@ -31,6 +31,8 @@ def parse_args(argv=None):
     p.add_argument("--val-cache", type=Path, default=Path("cache/val"))
     p.add_argument("--out", type=Path, default=Path("mission1_gender/reports/analysis.json"))
     p.add_argument("--batch-size", type=int, default=256)
+    p.add_argument("--use-ckpt-threshold", action="store_true",
+                   help="(연구용) 체크포인트 저장 임계값 사용. 기본은 규정대로 0.5 고정")
     p.add_argument("--num-workers", type=int, default=None,
                    help="기본값은 갈래에 맞춰 자동 (resnet 0 / 16k 업샘플 갈래 4)")
     return p.parse_args(argv)
@@ -114,7 +116,7 @@ def main(argv=None) -> int:
 
     for path in args.ckpt:
         model, branch, cfg, payload = load_checkpoint(path, device=device)
-        thresholds[path.stem] = checkpoint_threshold(payload)
+        thresholds[path.stem] = decision_threshold(payload, use_checkpoint=args.use_ckpt_threshold)
         print(f"=== {path.stem} ({branch}) t={thresholds[path.stem]:.3f} ===", flush=True)
 
         probs = predict_segment_probs(

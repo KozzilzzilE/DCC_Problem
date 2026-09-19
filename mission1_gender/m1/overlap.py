@@ -30,7 +30,7 @@ from .evaluate import (
     suggested_workers,
     truth_from_samples,
 )
-from .models import checkpoint_threshold, load_checkpoint
+from .models import decision_threshold, load_checkpoint
 
 
 def parse_args(argv=None):
@@ -40,6 +40,8 @@ def parse_args(argv=None):
     p.add_argument("--reports", type=Path, default=Path("mission1_gender/reports"))
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--refresh", action="store_true", help="저장된 확률을 무시하고 다시 추론")
+    p.add_argument("--use-ckpt-threshold", action="store_true",
+                   help="(연구용) 체크포인트 저장 임계값 사용. 기본은 규정대로 0.5 고정")
     return p.parse_args(argv)
 
 
@@ -51,7 +53,7 @@ def call_probs_for(ckpt: Path, index, samples, calls, args, device) -> tuple[dic
         if set(cp) == set(calls):
             _, _, _, payload = load_checkpoint(ckpt, device="cpu")
             print(f"{ckpt.stem}: 저장된 확률 재사용", flush=True)
-            return cp, checkpoint_threshold(payload)
+            return cp, decision_threshold(payload, use_checkpoint=args.use_ckpt_threshold)
 
     model, branch, cfg, payload = load_checkpoint(ckpt, device=device)
     workers = suggested_workers(branch)
@@ -66,7 +68,7 @@ def call_probs_for(ckpt: Path, index, samples, calls, args, device) -> tuple[dic
     del model
     if device.type == "cuda":
         torch.cuda.empty_cache()
-    return cp, checkpoint_threshold(payload)
+    return cp, decision_threshold(payload, use_checkpoint=args.use_ckpt_threshold)
 
 
 def main(argv=None) -> int:

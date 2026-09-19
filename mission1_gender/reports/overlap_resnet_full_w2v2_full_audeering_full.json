@@ -1,42 +1,42 @@
 {
   "n_calls": 3640,
   "thresholds": {
-    "resnet_full": 0.515,
-    "w2v2_full": 0.515,
-    "audeering_full": 0.49
+    "resnet_full": 0.5,
+    "w2v2_full": 0.5,
+    "audeering_full": 0.5
   },
   "accuracy": {
-    "resnet_full": 0.9808,
-    "w2v2_full": 0.9843,
-    "audeering_full": 0.9816
+    "resnet_full": 0.9791,
+    "w2v2_full": 0.9835,
+    "audeering_full": 0.9821
   },
   "n_wrong": {
-    "resnet_full": 70,
-    "w2v2_full": 57,
-    "audeering_full": 67
+    "resnet_full": 76,
+    "w2v2_full": 60,
+    "audeering_full": 65
   },
   "pairs": {
     "resnet_full+w2v2_full": {
-      "both": 49,
-      "only_a": 21,
-      "only_b": 8,
-      "oracle": 0.9865
+      "both": 54,
+      "only_a": 22,
+      "only_b": 6,
+      "oracle": 0.9852
     },
     "resnet_full+audeering_full": {
-      "both": 53,
-      "only_a": 17,
-      "only_b": 14,
-      "oracle": 0.9854
+      "both": 56,
+      "only_a": 20,
+      "only_b": 9,
+      "oracle": 0.9846
     },
     "w2v2_full+audeering_full": {
-      "both": 50,
-      "only_a": 7,
-      "only_b": 17,
-      "oracle": 0.9863
+      "both": 52,
+      "only_a": 8,
+      "only_b": 13,
+      "oracle": 0.9857
     }
   },
-  "all_wrong": 45,
-  "all_way_oracle": 0.9876,
+  "all_wrong": 49,
+  "all_way_oracle": 0.9865,
   "fixed_mean_ensembles": {
     "resnet_full+w2v2_full": 0.9819,
     "resnet_full+audeering_full": 0.9813,
@@ -49,6 +49,7 @@
     "651e49d83f1c5e4f25eec7cc_20220205",
     "651e49d83f1c5e4f25eec98f_20220205",
     "651e4a554767d37510dad9f6_20220401",
+    "651e4a6ede6495f4e9d36a43_20220406",
     "651e4a8805085d58eeeb1911_20220407",
     "651e4b1829d82455557a2187_20220502",
     "651e4b6d304f68a2e7021a9e_20220503",
@@ -64,6 +65,7 @@
     "651e4e712e98ee7120968eb5_20220704",
     "651e4f853f2c336d2bb0a0ca_20220903",
     "651e4f9dddc447a009945420_20220904",
+    "651e4fb51952d0ca070e68f8_20220906",
     "651e4fcea6a4bdae3d84c849_20220907",
     "651e4ffdc97a3f0ef3c6a2e4_20221001",
     "651e5013d7e77fe70c0b0124_20221002",
@@ -74,8 +76,10 @@
     "651e50c72f06ed4a6e31e109_20221006",
     "651e50c72f06ed4a6e31e2b2_20221006",
     "651e51d797589376a420af9a_20221201",
+    "651e51d797589376a420b287_20221201",
     "651e51ef7838b79d6d2ae697_20221203",
     "651e5258be98814e96ca2d5e_20221205",
+    "651e537c201879a4721c5ebc_20220103",
     "651e537c201879a4721c5f9e_20220103",
     "651e53da81ad054c479599ea_20220202",
     "651e545d85c12f9c1b91f310_20220303",

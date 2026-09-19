@@ -285,8 +285,18 @@ def test_write_threshold_rejects_out_of_range(tmp_path):
         write_threshold(path, 1.2)
 
 
-def test_inference_uses_calibrated_threshold(tmp_path, monkeypatch):
-    """체크포인트의 임계값이 실제 출력 라벨을 바꾸는지 확인한다."""
+def test_decision_threshold_is_fixed_at_half_for_submission():
+    """대회 규정: 결정 임계값 0.5 고정. 체크포인트에 보정값이 있어도 제출 경로는 0.5 를 쓴다."""
+    from m1.models import decision_threshold
+
+    assert decision_threshold({}) == 0.5
+    assert decision_threshold({"extra": {"decision_threshold": 0.515}}) == 0.5
+    # 연구용(벤치마크 --use-ckpt-threshold)으로만 저장값을 쓸 수 있다.
+    assert decision_threshold({"extra": {"decision_threshold": 0.515}}, use_checkpoint=True) == 0.515
+
+
+def test_inference_ignores_stored_threshold(tmp_path, monkeypatch):
+    """체크포인트에 0.7 이 저장돼 있어도 제출 추론은 0.5 로 판정해야 한다 (규정)."""
     from m1 import infer
 
     cfg = FeatureConfig()
@@ -305,16 +315,13 @@ def test_inference_uses_calibrated_threshold(tmp_path, monkeypatch):
     )
 
     def fake_load(path, device="cpu"):
-        return _FirstSampleModel(), "resnet", cfg, {"extra": {"decision_threshold": path}}
+        return _FirstSampleModel(), "resnet", cfg, {"extra": {"decision_threshold": 0.7}}
 
     monkeypatch.setattr(infer, "load_checkpoint", fake_load)
 
-    low = infer.predict_directory(audio_dir, label_dir, 0.5, device="cpu", verbose=False)
-    high = infer.predict_directory(audio_dir, label_dir, 0.7, device="cpu", verbose=False)
+    out = infer.predict_directory(audio_dir, label_dir, "ignored.pt", device="cpu", verbose=False)
 
-    assert low.iloc[0]["gender"] == "여"    # 0.627 >= 0.5
-    assert high.iloc[0]["gender"] == "남"   # 0.627 <  0.7
-
+    assert out.iloc[0]["gender"] == "여"    # 0.627 >= 0.5 — 저장된 0.7 은 무시
 
 
 def test_w2v2_checkpoint_loads_without_hub_access(tmp_path, monkeypatch):
@@ -338,3 +345,33 @@ def test_w2v2_checkpoint_loads_without_hub_access(tmp_path, monkeypatch):
     x = torch.randn(1, 16000)
     with torch.no_grad():
         assert torch.allclose(loaded(x), model.eval()(x), atol=1e-5)
+
+
+def test_mission_folder_standalone_cli(dataset, ckpt, tmp_path):
+    """미션 폴더(mission1_gender/) 안의 inference.py 만으로 실행돼야 한다 (폴더 단독 제출)."""
+    audio_dir, label_dir = dataset
+    output = tmp_path / "outputs" / "mission1.csv"
+    folder = REPO_ROOT / "mission1_gender"
+
+    result = subprocess.run(
+        [sys.executable, "inference.py",
+         "--audio_dir", str(audio_dir), "--label_dir", str(label_dir),
+         "--ckpt_path", str(ckpt), "--output", str(output)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=folder,                      # 폴더 안에서 실행
+        env={**__import__("os").environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"},
+    )
+    assert result.returncode == 0, result.stderr
+    df = pd.read_csv(output)
+    assert list(df.columns) == ["audio file name", "gender"]
+    assert len(df) == 3
+    assert set(df["gender"]) <= {"남", "여"}
+    assert "통화당" in result.stdout      # 추론 시간 요약 줄
+
+
+def test_suggested_batch_size_keeps_16k_branches_inside_8gb():
+    """16 kHz 갈래는 배치 128 이면 8 GB VRAM 을 넘겨 WDDM 페이징으로 10배 느려진다."""
+    from m1.infer import suggested_batch_size
+    assert suggested_batch_size("w2v2") <= 64
+    assert suggested_batch_size("audeering") <= 64
+    assert suggested_batch_size("resnet") == 128
