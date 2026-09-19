@@ -25,9 +25,9 @@ CELLS: list[tuple[str, str]] = [
 담당: 김승윤
 
 음성으로부터 신고자의 성별(남/여)을 분류한다. 같은 전처리 캐시 위에 ResNet50(2D CNN)과
-Wav2Vec2(음성 특화 파인튜닝) 갈래를 올려 비교했고, **제출 모델은 dev(sliding) 기준으로 고른
-`w2v2_full.pt`** 다 (dev 0.9901 / Validation 0.9843). 이 노트북은 그 모델의 학습 이력과
-Validation 평가, 제출 규격 실행을 담는다.
+Wav2Vec2(음성 특화 파인튜닝) 갈래를 올려 비교했고, **제출 모델은 dev 기준으로 고른
+`w2v2_full.pt`** 다 (dev 0.9897 / Validation 0.9835). 결정 임계값은 **대회 규정대로 0.5 고정**이다.
+이 노트북은 그 모델의 학습 이력과 Validation 평가, 제출 규격 실행을 담는다.
 
 **핵심 구조 — 2단 집계**
 
@@ -200,18 +200,19 @@ plt.show()"""),
 갭이 남지만, 실측으로는 스펙트로그램 CNN 보다 앞섰다). feature encoder 는 동결하고
 트랜스포머와 헤드만 학습한다.
 
-체크포인트에 `FeatureConfig`·갈래·보정 임계값·HF config 가 함께 저장돼, 아래처럼
-`load_checkpoint` 하나로 학습과 동일한 전처리·결정 경계가 복원되고 허브 접속도 필요 없다.
-비교용 ResNet50 갈래(`resnet_aug_m80.pt`, Validation 0.9819)는 폴백으로 둔다."""),
+체크포인트에 `FeatureConfig`·갈래·HF config 가 함께 저장돼, 아래처럼 `load_checkpoint`
+하나로 학습과 동일한 전처리가 복원되고 허브 접속도 필요 없다. 결정 임계값은 체크포인트와
+무관하게 0.5 고정이다 (`m1.models.decision_threshold`).
+비교용 ResNet50 갈래(`resnet_aug_m80.pt`, Validation 0.9821)는 폴백으로 둔다."""),
 
-    ("code", """from m1.models import load_checkpoint, checkpoint_threshold
+    ("code", """from m1.models import load_checkpoint, decision_threshold
 
 CKPT = Path("mission1_gender/ckpt/w2v2_full.pt")
 model, branch, ckpt_cfg, payload = load_checkpoint(CKPT, device="cpu")
 n_params = sum(p.numel() for p in model.parameters())
 print("branch      :", branch, "|", payload["extra"].get("model_name"))
 print("파라미터 수 :", "%.1fM" % (n_params / 1e6))
-print("보정 임계값 :", checkpoint_threshold(payload), "(dev 에서 선택, 0.5 가 아님)")
+print("결정 임계값 :", decision_threshold(payload), "(대회 규정 0.5 고정)")
 print("HF config 동봉:", bool(payload["extra"].get("hf_config")), "-> 오프라인 로딩 가능")
 print("head        :", model.head)
 
@@ -226,8 +227,8 @@ with torch.no_grad():
 없다. Validation 폴더는 학습·모델선택에 일절 쓰지 않는다 (대회 규칙).
 
 아래 셀은 체크포인트가 이미 있으면 기록된 학습 이력을 읽어 보여주고, 없으면 그
-자리에서 학습한다. 표의 dev 는 학습 중 `center` 모드(조각당 창 1개) 값이고, 제출 모델
-선정에 쓴 `sliding` dev 는 `m1.calibrate` 가 따로 잰다 (w2v2_full: 0.9901)."""),
+자리에서 학습한다. 표의 dev 는 학습 중 `center` 모드(조각당 창 1개, 임계값 0.5) 값이다.
+제출 경로와 같은 `sliding` 모드 dev 수치는 README 의 제출 모델 선정 표에 있다."""),
 
     ("code", """HISTORY = CKPT.with_suffix(".history.json")
 
@@ -270,23 +271,24 @@ print("조각 -> 통화 집계로 얻은 이득: +%.4f" % gap)"""),
 
     ("code", """from m1.datasets import samples_from_rows
 from m1.evaluate import majority_baseline, predict_segment_probs, score, suggested_workers, truth_from_samples
-from m1.models import checkpoint_threshold, load_checkpoint
+from m1.infer import suggested_batch_size
+from m1.models import decision_threshold, load_checkpoint
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 trained, branch, trained_cfg, payload = load_checkpoint(CKPT, device=device)
-threshold = checkpoint_threshold(payload)
+threshold = decision_threshold(payload)   # 대회 규정: 0.5 고정
 
 val_samples = samples_from_rows(val_index.rows)
 val_truth = truth_from_samples(val_samples)
 
 started = time.perf_counter()
 probs = predict_segment_probs(trained, val_index, val_samples, trained_cfg, branch,
-                              device, batch_size=128, mode="sliding",
+                              device, batch_size=suggested_batch_size(branch), mode="sliding",
                               num_workers=suggested_workers(branch))
 elapsed = time.perf_counter() - started
 
 metrics = score(val_samples, probs, val_truth, threshold)
-print("결정 임계값 (dev 보정)  : %.3f" % threshold)
+print("결정 임계값 (규정 고정)  : %.3f" % threshold)
 print("Validation 통화 Accuracy : %.4f" % metrics.call_accuracy)
 print("Validation 조각 Accuracy : %.4f" % metrics.segment_accuracy)
 print("다수결 기준선            : %.4f" % majority_baseline(val_truth))
@@ -353,7 +355,8 @@ cmd = [sys.executable, "inference.py",
        "--output", "./outputs/mission1.csv"]
 print(" ".join(cmd))
 
-result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+env = {**os.environ, "HF_HUB_OFFLINE": "1"}   # 허브 접속 없이 로딩되는지 함께 확인
+result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
 print("exit code:", result.returncode)
 print(result.stdout[-800:])
 
@@ -370,9 +373,10 @@ print("\\ngender 분포:", df["gender"].value_counts().to_dict())"""),
   평균 15.8개라, 개별 조각의 오류가 soft voting에서 상쇄된다. 조각 하나의 성능을
   올리는 것보다 집계 단위를 통화로 맞춘 설계가 더 크게 기여했다.
 - 8 kHz 전화 음성을 16 kHz 로 올려 넣어도 Wav2Vec2 가 다수결 기준선(0.538)을 크게
-  넘어선다. 스펙트로그램 CNN(ResNet50, 0.9819)보다 0.24%p 앞서고, dev 에서도 같은
-  방향(+0.28%p)이라 노이즈로 보지 않았다. 세 갈래가 같은 통화(1.2%)에서 틀리는 것이
-  이 데이터의 상한이다 — 자세한 오류 분석은 `mission1_gender/README.md`.
+  넘어선다. 임계값 0.5 고정 기준으로 스펙트로그램 CNN(ResNet50, 0.9821)보다 0.14%p
+  앞서고 dev 에서도 같은 방향(+0.31%p)이라, 통계적으로 분리되지는 않아도 일관된 우위로
+  본다. 여러 갈래가 같은 통화에서 틀리는 것이 이 데이터의 상한이다 — 오류 분석과
+  단일 시드 한계는 `mission1_gender/README.md`.
 
 **사회안전 관점의 시사점**
 
