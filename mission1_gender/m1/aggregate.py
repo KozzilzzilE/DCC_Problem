@@ -34,6 +34,9 @@ def call_probability(segment_probs: np.ndarray) -> float | None:
     probs = np.asarray(segment_probs, dtype=np.float64).ravel()
     if probs.size == 0:
         return None
+    if np.isnan(probs).any():
+        # NaN 은 min/max 비교를 통과해 조용히 '남' 으로 떨어진다. 발생 시 즉시 드러내는 편이 낫다.
+        raise ValueError("segment probabilities contain NaN")
     if probs.min() < 0.0 or probs.max() > 1.0:
         raise ValueError(f"probabilities must lie in [0, 1], got [{probs.min()}, {probs.max()}]")
     return float(probs.mean())
