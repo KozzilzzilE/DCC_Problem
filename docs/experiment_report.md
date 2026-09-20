@@ -192,13 +192,14 @@ sequenceDiagram
 
 향후 진행되는 A/B 테스트 실험군별 학습 시간, VRAM 사용량 및 점수를 실시간으로 누적 기록하는 표준 트래킹 테이블입니다:
 
-| 실험 ID | 실험 조건 | 모델 | 실행 환경 | 배치 크기 | 에폭 수 | 에폭당 시간 | 피크 VRAM | Val Macro F1 | 비고 및 코멘트 |
+| 실험 ID | 실험 조건 | 모델 | 실행 환경 | 배치 크기 | 에폭 수 | 에폭당 시간 | 피크 VRAM | Val Accuracy (F1) | 비고 및 코멘트 |
 | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **Exp 0** | 순정 Mel 베이스라인 | ReDimNet-B2 | Local (RTX 3060) | 32 | 10 ep | 기록 예정 | 기록 예정 | 측정 중 | 대조군 기준점 (Baseline) |
+| **Exp 0-A** | **순정 Mel 풀학습 (완료)** | **ReDimNet-B2** | Local (RTX 3060) | 32 | 10 ep | 약 1h 45m | ~3.5 GB | **91.89%** | 🏆 **[신기록]** 이전 단일 최고(90.2%) & 앙상블(91.05%) 돌파! `best_redimnet.pt` 저장 |
+| **Exp 0-B** | **순정 Mel 풀학습 (착수)** | **ECAPA-TDNN** | Local (RTX 3060) | 32 | 10 ep | 진행 예정 | ~3.5 GB | **측정 중** | 🚀 **[현재 진행]** 화자 음색 1D TDNN 풀학습 ➔ 앙상블 3대장 완성 타겟 |
 | **Exp 1** | 3채널 Delta 결합 | ReDimNet-B2 | Local (RTX 3060) | 32 | 10 ep | 기록 예정 | 기록 예정 | 측정 예정 | 톤 변화 가속도 채널 추가 시 부하 측정 |
 | **Exp 2** | 대역 필터 (200~4000Hz) | ReDimNet-B2 | Local (RTX 3060) | 32 | 10 ep | 기록 예정 | 기록 예정 | 측정 예정 | 필터뱅크 집중 배치 효과 검증 |
 | **Exp 3** | 풀패키지 + SpecAugment | ReDimNet-B2 | Local (RTX 3060) | 32 | 10 ep | 기록 예정 | 기록 예정 | 측정 예정 | 최종 특화 전처리 단일 모델 최고점 |
-| **Ensemble** | ResNet + ReDim + ECAPA | 3종 결합 | Local (RTX 3060) | - | 추론 전용 | ~3분 | ~4.5 GB | 목표 93~95%+ | Soft Voting + Threshold Tuning |
+| **Ensemble** | ResNet + ReDim + ECAPA | 3종 결합 | Local (RTX 3060) | - | 추론 전용 | ~3분 | ~4.5 GB | 목표 **93~95%+** | Soft Voting + Threshold Tuning |
 
 ---
 
