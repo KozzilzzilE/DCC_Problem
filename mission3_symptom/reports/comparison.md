@@ -1,5 +1,12 @@
 # Mission 3 — 환자 증상 인식: 클래스별 임계값(Threshold) 최적화 성과
 
+> **주의 — 이 문서의 수치는 실제 학습 결과가 아니다.**
+> 실제 모델 학습 이전에 synthetic validation 데이터로 생성된 산출물이다.
+> 또한 대회 규정상 결정 임계값은 0.5 고정이므로 class-wise threshold 최적화는 제출에 쓸 수 없다.
+> 실제 baseline 성능은 F1@0.5 기준 `0.600329` 이며, 각 run 의 `baseline_metrics.json` 을 참조한다.
+> 자세한 내용은 `reports/README.md` 참고.
+
+
 - **기준선 (기본 임계값 0.5) Macro F1**: `0.8583`
 - **최적화 후 (Class-wise Threshold) Macro F1**: `0.9231` (+0.0647)
 
