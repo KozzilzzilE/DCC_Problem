@@ -6,11 +6,14 @@ from pathlib import Path
 
 import pandas as pd
 import numpy as np
-import librosa
 import torch
 import torch.nn as nn
-from torchvision import models
 from tqdm.auto import tqdm
+
+# librosa 와 torchvision 은 Mission 2 에서만 쓴다. 최상단에서 import 하면 이 둘이 없는
+# 환경에서 스크립트가 import 단계에서 죽어, 텍스트 과제라 둘 다 필요 없는 Mission 3 까지
+# 같이 0점이 된다. torchvision 은 requirements 에 +cu118 로 고정돼 있어 CPU 환경에서
+# 설치가 실패할 수 있으므로 실제로 쓰는 자리에서 import 한다.
 
 # Mission 1 패키지(mission1_gender/m1)를 import 가능하게 한다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "mission1_gender"))
@@ -28,6 +31,8 @@ for _stream in (sys.stdout, sys.stderr):
 class AudioResNet(nn.Module):
     def __init__(self):
         super(AudioResNet, self).__init__()
+        from torchvision import models
+
         self.model = models.resnet50(pretrained=False)
         old_conv = self.model.conv1
         self.model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
@@ -61,6 +66,8 @@ def mission1_inference(audio_dir, label_dir, ckpt_path):
     return predict_directory(audio_dir, label_dir, ckpt_path)
 
 def mission2_inference(audio_dir, label_dir, ckpt_path):
+    import librosa  # Mission 2 전용 의존성 (최상단 import 금지)
+
     print("Mission 2 추론 시작 (소프트 보팅 / Soft Voting 방식)...")
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
