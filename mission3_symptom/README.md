@@ -42,7 +42,7 @@
 ```text
 mission3_symptom/
 ├── m3/                          # 핵심 기능 모듈 패키지
-│   ├── config.py                # 9개 타겟 증상 상수 및 경로 설정
+│   ├── config.py                # 9개 타겟 증상 상수, 경로 설정 및 발화 경계 모드
 │   ├── labels.py                # 대회 규정 강제 라벨 파서 및 데이터 로더
 │   ├── metrics.py               # 이진 F1 및 규정 준수 Macro F1 계산 함수
 │   ├── threshold.py             # 9개 증상별 최적 임계값 그리드 탐색기
@@ -68,8 +68,8 @@ mission3_symptom/
 
 | 모듈 파일 | 핵심 역할 | 주요 함수 / 클래스 | 세부 설명 |
 |:---|:---|:---|:---|
-| **`config.py`** | 글로벌 설정 및 표준 상수 | `TARGET_SYMPTOMS`<br>`NUM_CLASSES = 9`<br>`SYMPTOM_TO_IDX` | 9개 공식 증상 목록, 증상별 정수 인덱스 매핑 및 리포트 저장 경로 정의. |
-| **`labels.py`** | 대회 규칙 강제 전처리 파이프라인 | `load_transcripts_dataframe()`<br>`load_transcripts_dir()`<br>`read_transcript()` | 수만 건의 JSON에서 화자/시간 메타데이터를 원천 배제하고 순수 대화 본문만 추출. 비타겟 증상 필터링 후 9차원 원-핫(이진) 벡터로 변환. Windows/macOS(NFC 정규화)/Colab 다중 인코딩 Fallback 지원. |
+| **`config.py`** | 글로벌 설정 및 표준 상수 | `TARGET_SYMPTOMS`<br>`NUM_CLASSES = 9`<br>`SYMPTOM_TO_IDX`<br>`UTTERANCE_SEP_MODES`<br>`resolve_utterance_sep()` | 9개 공식 증상 목록, 증상별 정수 인덱스 매핑, 리포트 저장 경로 및 발화 경계 표현 모드 정의. |
+| **`labels.py`** | 대회 규칙 강제 전처리 파이프라인 | `load_transcripts_dataframe()`<br>`load_transcripts_dir()`<br>`read_transcript()` | 수만 건의 JSON에서 화자/시간 메타데이터를 원천 배제하고 순수 대화 본문만 추출. `sep_mode` 로 발화 경계 표시 방식을 선택(기본 `space`). 비타겟 증상 필터링 후 9차원 원-핫(이진) 벡터로 변환. Windows/macOS(NFC 정규화)/Colab 다중 인코딩 Fallback 지원. |
 | **`metrics.py`** | 공식 평가지표 계산기 | `eval_macro_f1()`<br>`calculate_binary_f1()` | 증상별 정밀도(Precision)와 재현율(Recall) 기반 이진 F1 계산(ZeroDivision 안전 처리) 및 산술 평균 기반 대회 공식 Macro F1 산출. |
 | **`threshold.py`** | 임계값 최적화 엔진 | `find_best_thresholds()`<br>`apply_thresholds()`<br>`get_threshold_curves()` | 0.05~0.95 구간(0.01 간격) 그리드 탐색을 통해 9개 증상별 F1을 극대화하는 황금 임계값 벡터 산출 및 시각화용 반응 곡선 데이터 생성. |
 | **`report.py`** | 성과 문서 & 추론 설정 자동화 | `generate_comparison_markdown()`<br>`save_thresholds_json()` | 기준선(0.5) 대비 F1 상승폭을 마크다운 리포트(`comparison.md`)로 자동 작성하고, 최종 추론용 `best_thresholds.json` 파일 저장. |
@@ -178,6 +178,26 @@ Pure-nausea sampling은 `--use-pure-nausea-sampling --pure-nausea-weight 1.5`로
 7번은 해당 checkpoint가 생성한 `val_probs`에서 class-wise optimized threshold를 탐색한다. 기본값은 `RUN_THRESHOLD_SEARCH = False`이므로 팀 확인 후 `True`로 변경해 실행한다. 8번은 탐색한 threshold를 적용하여 threshold 0.5 대비 Macro F1, 클래스별 F1과 개선량을 비교한다. 두 단계 모두 기존 reports 파일을 자동으로 저장하거나 수정하지 않는다.
 
 Threshold는 학습 hyperparameter가 아니라 학습 완료 후 probability에 적용하는 post-processing parameter이므로 threshold 탐색을 위해 모델을 다시 학습할 필요는 없다. 다만 모델이나 학습 조건이 바뀌면 probability 분포도 달라질 수 있으므로, 다른 checkpoint에서 얻은 threshold를 그대로 재사용하지 않고 각 정식 run의 `val_probs`를 기준으로 다시 계산하는 것을 원칙으로 한다.
+
+### 발화 경계(턴 구분) 전처리
+
+대회 Q&A 답변(2026-09-20)으로 `speaker` 값을 사용하지 않고 발화 경계만 입력에 남기는 전처리가 허용됐다. 기존 전처리는 `utterances[].text`를 공백으로 이어 붙여 턴 경계를 지웠으므로, 입력 표현은 지금까지 한 번도 변경되지 않은 축이다.
+
+`m3.config.UTTERANCE_SEP_MODES`가 결합 방식을 정의하고 `m3.labels`의 파싱 함수들이 `sep_mode` 인자로 이를 받는다. 기본값은 `space`이며 기존 CSV와 기존 실험 결과의 재현성은 그대로 유지된다.
+
+| 모드 | 결합 결과 | 비고 |
+|---|---|---|
+| `space` | `발화1 발화2` | 기존 baseline. 경계 정보 없음 |
+| `sep` | `발화1 [SEP] 발화2` | tokenizer 기본 어휘의 경계 토큰 재사용. vocab 변경 불필요 |
+| `turn` | `발화1 [TURN] 발화2` | 전용 special token. tokenizer 등록과 embedding resize 가 선행돼야 함 |
+
+개행(`\n`)은 모드로 제공하지 않는다. KLUE-RoBERTa 등 BERT 계열 tokenizer 는 basic tokenization 단계에서 개행을 공백과 동일하게 처리하므로 token 열이 바뀌지 않아 `space` 와 결과가 같다.
+
+구분자는 발화 사이에만 들어가며 전체 텍스트의 앞뒤를 감싸지 않는다. 빈 발화는 결합 전에 제거하므로 구분자가 연속으로 붙어 가짜 턴 경계가 생기지 않는다. 메타데이터 차단은 모드와 무관하게 유지되며 `tests/test_utterance_sep.py`가 세 모드 모두에서 `speaker`, `startAt`, `endAt`, 인적사항이 본문에 섞이지 않는지 검증한다.
+
+CSV 재생성은 `data_preprocessing.ipynb`의 `UTTERANCE_SEP_MODE`만 바꿔 실행한다. 이 노트북은 전처리 로직을 복제하지 않고 `m3.labels`를 그대로 호출하므로 학습 CSV와 추론 경로가 어긋나지 않는다. 출력은 `mission3_train_<mode>.csv`, `mission3_val_<mode>.csv`와 전처리 이력 `mission3_preprocess_<mode>.json`이다.
+
+재학습 전에 노트북 4번 셀로 512 token 초과 비율 변화를 먼저 측정한다. 구분자만큼 입력이 길어지므로 이 값을 재지 않으면 경계 정보의 효과와 절단 증가의 부작용이 섞여 결과를 해석할 수 없다. baseline(`space`)의 Validation 초과 비율은 KLUE-RoBERTa 기준 `98 / 3,640 = 2.69%`다.
 
 ### 현재 정상 Full Training 실험 결과
 
