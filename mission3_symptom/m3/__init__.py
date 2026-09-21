@@ -3,10 +3,13 @@
 from .config import (
     BEST_THRESHOLDS_PATH,
     COMPARISON_REPORT_PATH,
+    DEFAULT_UTTERANCE_SEP_MODE,
     IDX_TO_SYMPTOM,
     NUM_CLASSES,
     SYMPTOM_TO_IDX,
     TARGET_SYMPTOMS,
+    UTTERANCE_SEP_MODES,
+    resolve_utterance_sep,
 )
 from .labels import (
     TranscriptRecord,
@@ -36,6 +39,9 @@ from .truncation import (
 
 __all__ = [
     "TARGET_SYMPTOMS",
+    "UTTERANCE_SEP_MODES",
+    "DEFAULT_UTTERANCE_SEP_MODE",
+    "resolve_utterance_sep",
     "NUM_CLASSES",
     "SYMPTOM_TO_IDX",
     "IDX_TO_SYMPTOM",
