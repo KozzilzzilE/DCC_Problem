@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from m3.config import DEFAULT_UTTERANCE_SEP_MODE, UTTERANCE_SEP_MODES
 from m3.training import BASELINE_MODEL_NAME, TrainingConfig, run_training
 
 
@@ -53,6 +54,12 @@ def parse_args() -> argparse.Namespace:
         choices=("truncate", "head_tail"),
         default="truncate",
         help="512 초과 통화 입력: truncate(앞만) 또는 head_tail(앞 128+꼬리)",
+    )
+    parser.add_argument(
+        "--utterance-sep-mode",
+        choices=tuple(UTTERANCE_SEP_MODES),
+        default=DEFAULT_UTTERANCE_SEP_MODE,
+        help="학습 CSV 의 발화 경계 표현. run_config.json 에 기록되어 추론이 같은 모드를 복원한다",
     )
     parser.add_argument(
         "--pooling-type",
@@ -128,6 +135,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         max_steps=max_steps,
         smoke_test=args.smoke_test,
         checkpoint_metric=args.checkpoint_metric,
+        utterance_sep_mode=args.utterance_sep_mode,
         encode_mode=args.encode_mode,
         pooling_type=args.pooling_type,
         use_pure_nausea_sampling=args.use_pure_nausea_sampling,

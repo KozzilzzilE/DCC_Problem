@@ -26,7 +26,21 @@ from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.models.roberta.modeling_roberta import RobertaForSequenceClassification
 
 from .config import NUM_CLASSES, TARGET_SYMPTOMS
-from .kobert_tokenizer import KoBertTokenizer
+
+# KoBERT tokenizer 는 sentencepiece 에 의존한다. 제출 모델(KLUE-RoBERTa)은 이를 쓰지 않으므로
+# 최상단에서 import 하지 않는다. 평가 환경에 sentencepiece 가 없어도 추론이 죽지 않아야 한다.
+
+
+def _kobert_tokenizer_class():
+    """KoBERT 계열을 실제로 다룰 때만 sentencepiece 의존성을 건드린다."""
+    from .kobert_tokenizer import KoBertTokenizer
+
+    return KoBertTokenizer
+
+
+def _is_kobert_tokenizer(tokenizer) -> bool:
+    """클래스를 import 하지 않고 KoBERT tokenizer 인지 판별한다."""
+    return type(tokenizer).__name__ == "KoBertTokenizer"
 
 
 # 기본 베이스라인 모델 (KoBERT)
@@ -213,7 +227,7 @@ def validate_kobert_tokenizer_model_compatibility(tokenizer, model) -> Dict[str,
     Special Token ID 일치 여부와 어휘 크기, UNK 비율을 철저히 검사합니다.
     """
     # 1. KoBERT 전용 토크나이저 클래스인지 확인
-    if not isinstance(tokenizer, KoBertTokenizer):
+    if not _is_kobert_tokenizer(tokenizer):
         raise TypeError(f"KoBertTokenizer가 아닙니다: {type(tokenizer).__name__}")
 
     # 2. [CLS], [SEP], [PAD] 등의 Special Token ID가 일치하는지 확인
@@ -321,7 +335,7 @@ def validate_generic_tokenizer_model_compatibility(tokenizer, model) -> Dict[str
 
 def validate_tokenizer_model_compatibility(tokenizer, model) -> Dict[str, object]:
     """토크나이저 타입에 맞춰 적합한 검증 로직(KoBERT 전용 vs 범용)을 자동으로 분기 실행합니다."""
-    if isinstance(tokenizer, KoBertTokenizer):
+    if _is_kobert_tokenizer(tokenizer):
         return validate_kobert_tokenizer_model_compatibility(tokenizer, model)
     return validate_generic_tokenizer_model_compatibility(tokenizer, model)
 
@@ -357,7 +371,7 @@ def build_tokenizer_and_model(
 
     # 1. 모델 종류에 따라 최적의 토크나이저 자동 선택 및 로드
     if is_kobert_model(source):
-        tokenizer = KoBertTokenizer.from_pretrained(
+        tokenizer = _kobert_tokenizer_class().from_pretrained(
             source,
             **load_options,
         )
@@ -397,7 +411,7 @@ def load_saved_model(model_dir: Union[str, Path]):
     """
     source = str(Path(model_dir))
     if is_kobert_model(source):
-        tokenizer = KoBertTokenizer.from_pretrained(source, local_files_only=True)
+        tokenizer = _kobert_tokenizer_class().from_pretrained(source, local_files_only=True)
     else:
         tokenizer = AutoTokenizer.from_pretrained(source, local_files_only=True)
 

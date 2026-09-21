@@ -18,12 +18,13 @@ from torch.nn.utils import clip_grad_norm_
 from tqdm.auto import tqdm
 from transformers import get_linear_schedule_with_warmup
 
-from .config import TARGET_SYMPTOMS
+from .config import DEFAULT_UTTERANCE_SEP_MODE, TARGET_SYMPTOMS
 from .dataset import (
     calculate_token_length_stats,
     create_dataloader,
     load_symptom_csv,
 )
+from .labels import verify_utterance_sep_mode
 from .metrics import eval_macro_f1
 from .model import build_tokenizer_and_model, load_saved_model, save_model_bundle
 from .losses import build_loss
@@ -72,6 +73,8 @@ class TrainingConfig:
     asl_reduction: str = "mean"
     asl_disable_focal_loss_grad: bool = True
     encode_mode: str = "truncate"
+    # 학습 CSV 의 발화 경계 표현. run_config.json 에 기록되어 추론이 같은 모드를 복원한다.
+    utterance_sep_mode: str = DEFAULT_UTTERANCE_SEP_MODE
     use_pure_nausea_sampling: bool = False
     pure_nausea_weight: float = 1.5
     pooling_type: str = "cls"
@@ -486,6 +489,11 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         max_samples=config.max_val_samples,
         sample_seed=config.seed,
     )
+    verify_utterance_sep_mode(
+        train_df["text"].head(200), config.utterance_sep_mode, source=config.train_csv)
+    verify_utterance_sep_mode(
+        val_df["text"].head(200), config.utterance_sep_mode, source=config.val_csv)
+
     tokenizer, model = build_tokenizer_and_model(
         config.model_name_or_path,
         local_files_only=config.local_files_only,

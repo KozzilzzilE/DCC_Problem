@@ -17,10 +17,11 @@ Windows / macOS / Colab 환경 간의 인코딩 차이 및 한글 자모 분리(
 from __future__ import annotations
 
 import json
+import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 import numpy as np
 
 from .config import (
@@ -28,6 +29,7 @@ from .config import (
     NUM_CLASSES,
     SYMPTOM_TO_IDX,
     TARGET_SYMPTOMS,
+    UTTERANCE_SEP_MODES,
     resolve_utterance_sep,
 )
 
@@ -101,6 +103,41 @@ def _parse_dialogue_text(raw_utterances: object, separator: str = " ") -> str:
             texts.append(_normalize_text(txt.strip()))
 
     return separator.join(texts)
+
+
+def verify_utterance_sep_mode(
+    texts: "Iterable[str]",
+    sep_mode: str,
+    source: str = "",
+) -> None:
+    """본문이 선언한 발화 경계 모드와 실제로 일치하는지 확인한다.
+
+    학습은 경계를 살린 CSV 로 하고 추론은 공백 CSV 로 하는 식의 불일치는 예외를 내지 않고
+    점수만 조용히 떨어뜨린다. 그래서 본문을 직접 보고 어긋나면 즉시 실패시킨다.
+    """
+    marker = resolve_utterance_sep(sep_mode).strip()
+    sample = [text for text in texts if isinstance(text, str)]
+    if not sample:
+        raise ValueError("검사할 본문이 없습니다.")
+    label = f" ({source})" if source else ""
+
+    if marker:
+        if not any(re.search(re.escape(marker), text) for text in sample):
+            raise ValueError(
+                f"utterance_sep_mode={sep_mode!r} 인데 본문에 구분자 {marker!r} 가 없습니다{label}. "
+                "경계를 살린 CSV 로 다시 만들었는지 확인하세요."
+            )
+        return
+
+    for mode, separator in UTTERANCE_SEP_MODES.items():
+        other = separator.strip()
+        if not other:
+            continue
+        if any(re.search(re.escape(other), text) for text in sample):
+            raise ValueError(
+                f"utterance_sep_mode={sep_mode!r} 인데 본문에 {mode!r} 구분자 {other!r} 가 "
+                f"있습니다{label}."
+            )
 
 
 def read_transcript(

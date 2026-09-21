@@ -110,3 +110,28 @@ class UtteranceSeparatorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SepModeVerificationTest(unittest.TestCase):
+    """학습 CSV 와 선언한 모드가 어긋나면 조용히 점수만 떨어지므로 즉시 실패시킨다."""
+
+    def test_declared_sep_but_text_has_no_marker(self) -> None:
+        from m3.labels import verify_utterance_sep_mode
+        with self.assertRaises(ValueError):
+            verify_utterance_sep_mode(['경계 없는 본문입니다'], 'sep', source='train.csv')
+
+    def test_declared_space_but_text_has_marker(self) -> None:
+        from m3.labels import verify_utterance_sep_mode
+        with self.assertRaises(ValueError):
+            verify_utterance_sep_mode(['앞 [SEP] 뒤'], 'space')
+
+    def test_matching_modes_pass(self) -> None:
+        from m3.labels import verify_utterance_sep_mode
+        verify_utterance_sep_mode(['앞 [SEP] 뒤', '다른 본문'], 'sep')
+        verify_utterance_sep_mode(['경계 없는 본문'], 'space')
+        verify_utterance_sep_mode(['앞 [TURN] 뒤'], 'turn')
+
+    def test_empty_sample_is_rejected(self) -> None:
+        from m3.labels import verify_utterance_sep_mode
+        with self.assertRaises(ValueError):
+            verify_utterance_sep_mode([], 'space')

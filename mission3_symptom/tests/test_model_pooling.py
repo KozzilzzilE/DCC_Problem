@@ -241,8 +241,10 @@ class ModelPoolingTest(unittest.TestCase):
 
     def test_kobert_and_koelectra_cls_still_use_auto_sequence_classifier(self) -> None:
         dummy_model = MagicMock()
+        # KoBERT tokenizer 는 sentencepiece 의존성을 피하려고 지연 import 한다.
+        # 제출 모델(KLUE-RoBERTa)이 없는 패키지 때문에 죽지 않아야 하므로 로더를 대신 patch 한다.
         with patch(
-            "m3.model.KoBertTokenizer.from_pretrained", return_value=MagicMock()
+            "m3.model._kobert_tokenizer_class", return_value=MagicMock()
         ), patch(
             "m3.model.AutoModelForSequenceClassification.from_pretrained",
             return_value=dummy_model,
