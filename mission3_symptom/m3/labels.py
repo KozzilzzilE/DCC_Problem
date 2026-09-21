@@ -23,7 +23,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 
-from .config import NUM_CLASSES, SYMPTOM_TO_IDX, TARGET_SYMPTOMS
+from .config import (
+    DEFAULT_UTTERANCE_SEP_MODE,
+    NUM_CLASSES,
+    SYMPTOM_TO_IDX,
+    TARGET_SYMPTOMS,
+    resolve_utterance_sep,
+)
 
 
 @dataclass(frozen=True)
@@ -76,8 +82,13 @@ def _parse_symptoms(raw_symptoms: object) -> Tuple[Tuple[str, ...], np.ndarray]:
     return tuple(sorted(filtered)), vector
 
 
-def _parse_dialogue_text(raw_utterances: object) -> str:
-    """utterances 배열에서 startAt, endAt, speaker 메타데이터는 모두 버리고 text만 결합."""
+def _parse_dialogue_text(raw_utterances: object, separator: str = " ") -> str:
+    """utterances 배열에서 startAt, endAt, speaker 메타데이터는 모두 버리고 text만 결합.
+
+    `separator` 로 발화 사이에 경계 표시를 남길 수 있다. 빈 발화는 결합 전에 걸러내므로
+    구분자가 연속으로 붙어 가짜 턴 경계가 생기지 않는다. 경계는 발화 사이에만 들어가며
+    전체 텍스트의 앞뒤를 감싸지 않는다.
+    """
     if not isinstance(raw_utterances, list):
         return ""
 
@@ -89,18 +100,24 @@ def _parse_dialogue_text(raw_utterances: object) -> str:
         if isinstance(txt, str) and txt.strip():
             texts.append(_normalize_text(txt.strip()))
 
-    return " ".join(texts)
+    return separator.join(texts)
 
 
-def read_transcript(json_path: Union[str, Path]) -> TranscriptRecord:
-    """단일 JSON 파일을 읽어 규칙이 강제된 TranscriptRecord로 변환."""
+def read_transcript(
+    json_path: Union[str, Path],
+    sep_mode: str = DEFAULT_UTTERANCE_SEP_MODE,
+) -> TranscriptRecord:
+    """단일 JSON 파일을 읽어 규칙이 강제된 TranscriptRecord로 변환.
+
+    `sep_mode` 는 발화 경계 표현 방식이며 기본값은 기존과 동일한 공백 결합이다.
+    """
     path = Path(json_path)
     call_id = path.stem
 
     data = _read_json_robust(path)
 
     # 허용된 text만 추출 (시간/화자/인적사항 등 영구 제거)
-    text = _parse_dialogue_text(data.get("utterances"))
+    text = _parse_dialogue_text(data.get("utterances"), resolve_utterance_sep(sep_mode))
 
     # 학습 타깃 9개 증상 필터링 (골절, 찰과상 등 비타겟 제거)
     raw_syms = data.get("symptom")
@@ -117,6 +134,7 @@ def read_transcript(json_path: Union[str, Path]) -> TranscriptRecord:
 def load_transcripts_dir(
     label_dir: Union[str, Path],
     max_samples: Optional[int] = None,
+    sep_mode: str = DEFAULT_UTTERANCE_SEP_MODE,
 ) -> List[TranscriptRecord]:
     """라벨 폴더 내의 모든 JSON을 일괄 파싱하여 모델에 바로 넣을 수 있는 리스트로 반환."""
     label_dir = Path(label_dir)
@@ -125,10 +143,12 @@ def load_transcripts_dir(
     if max_samples is not None:
         json_files = json_files[:max_samples]
 
+    resolve_utterance_sep(sep_mode)  # 잘못된 모드는 파일을 읽기 전에 즉시 실패시킨다
+
     records: List[TranscriptRecord] = []
     for jf in json_files:
         try:
-            records.append(read_transcript(jf))
+            records.append(read_transcript(jf, sep_mode=sep_mode))
         except Exception:
             continue
 
@@ -138,6 +158,7 @@ def load_transcripts_dir(
 def load_transcripts_dataframe(
     label_dir: Union[str, Path],
     max_samples: Optional[int] = None,
+    sep_mode: str = DEFAULT_UTTERANCE_SEP_MODE,
 ):
     """KoBERT 모델 학습에 바로 넘길 수 있도록 pandas DataFrame 형태로 반환.
     
@@ -149,7 +170,7 @@ def load_transcripts_dataframe(
     """
     import pandas as pd
 
-    records = load_transcripts_dir(label_dir, max_samples=max_samples)
+    records = load_transcripts_dir(label_dir, max_samples=max_samples, sep_mode=sep_mode)
     data = [
         {
             "call_id": r.call_id,
