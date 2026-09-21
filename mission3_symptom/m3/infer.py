@@ -23,7 +23,7 @@ from .config import (
     TARGET_SYMPTOMS,
     UTTERANCE_SEP_MODES,
 )
-from .labels import read_transcript
+from .labels import read_transcript, verify_utterance_sep_mode
 
 # 대회 규정 고정값. 체크포인트나 reports 에 저장된 보정 임계값이 있어도 사용하지 않는다.
 DECISION_THRESHOLD = 0.5
@@ -63,6 +63,22 @@ def symptoms_from_probabilities(
         raise ValueError(f"확률 벡터 길이가 9가 아닙니다: {len(values)}")
     return [TARGET_SYMPTOMS[i] for i, p in enumerate(values) if float(p) >= threshold]
 
+
+def build_inference_config(training_config) -> Dict[str, object]:
+    """학습 설정에서 추론이 반드시 복원해야 할 값만 추린다.
+
+    `best_model/inference_config.json` 으로 저장되어, 부모 run 디렉터리 없이
+    번들만 제출해도 학습과 같은 입력 표현·인코딩을 재현할 수 있게 한다.
+    """
+    return {
+        "utterance_sep_mode": getattr(
+            training_config, "utterance_sep_mode", DEFAULT_UTTERANCE_SEP_MODE),
+        "encode_mode": getattr(training_config, "encode_mode", DEFAULT_ENCODE_MODE),
+        "max_length": int(getattr(training_config, "max_length", DEFAULT_MAX_LENGTH)),
+        "model_name_or_path": getattr(training_config, "model_name_or_path", None),
+        "threshold": DECISION_THRESHOLD,
+        "threshold_note": "대회 규정 고정값. class-wise threshold 는 제출에 사용하지 않는다.",
+    }
 
 @dataclass(frozen=True)
 class InferenceSettings:
@@ -158,7 +174,17 @@ def resolve_settings(ckpt_path: Union[str, Path]) -> InferenceSettings:
 
 def read_texts(label_dir: Union[str, Path], sep_mode: str) -> Tuple[List[str], List[str]]:
     """라벨 폴더에서 `(파일명, 본문)` 을 파일명 순으로 읽는다."""
-    paths = sorted(Path(label_dir).glob("*.json"))
+    directory = Path(label_dir)
+    if not directory.is_dir():
+        raise FileNotFoundError(f"라벨 폴더를 찾을 수 없습니다: {label_dir}")
+
+    # 확장자 대소문자는 평가 데이터가 어떻게 오는지에 달렸다. `.JSON` 이면 못 찾고 죽는
+    # 일이 없도록 소문자 비교로 모으고, 대소문자 구분 없는 파일시스템에서 중복되지 않게 한다.
+    paths = sorted(
+        {p.resolve(): p for p in directory.iterdir()
+         if p.is_file() and p.suffix.lower() == ".json"}.values(),
+        key=lambda p: p.name,
+    )
     if not paths:
         raise FileNotFoundError(f"라벨 JSON 을 찾을 수 없습니다: {label_dir}")
 
@@ -196,11 +222,28 @@ def predict_directory(
         f"대상: {len(names):,}건"
     )
 
+    # 선언한 모드가 실제 본문에 반영됐는지 확인한다. 여기서 어긋나면 설정 복원이 잘못된
+    # 것이지만, 채점은 1회 실행이라 중단시키지 않고 경고만 남긴다.
+    try:
+        verify_utterance_sep_mode(texts[:200], settings.sep_mode, source=str(label_dir))
+    except ValueError as exc:
+        print(f"[경고] {exc}")
+
+    empty = sum(1 for text in texts if not text.strip())
+    if empty:
+        print(f"[경고] 본문이 비어 있는 통화 {empty:,}건은 특수 토큰만으로 추론됩니다.")
+
     tokenizer, model = load_saved_model(settings.model_dir)
-    resolved_device = torch.device(
-        device or ("cuda" if torch.cuda.is_available() else "cpu")
-    )
-    model.to(resolved_device)
+
+    requested = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    try:
+        resolved_device = torch.device(requested)
+        model.to(resolved_device)
+    except (RuntimeError, AssertionError, ValueError) as exc:
+        # CUDA OOM 이나 드라이버 문제로 죽으면 그대로 0점이다. CPU 로 내려서라도 끝낸다.
+        print(f"[경고] {requested} 사용에 실패해 CPU 로 전환합니다: {exc}")
+        resolved_device = torch.device("cpu")
+        model.to(resolved_device)
     model.eval()
 
     # 길이가 비슷한 것끼리 묶어 padding 낭비를 줄이고, 결과는 원래 순서로 되돌린다.

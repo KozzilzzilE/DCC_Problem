@@ -178,3 +178,97 @@ class ReadTextsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SubmissionRobustnessTest(unittest.TestCase):
+    """채점은 1회 실행이다. 여기서 죽거나 조용히 어긋나면 그대로 점수로 직결된다."""
+
+    def test_uppercase_json_extension_is_found(self) -> None:
+        """평가 데이터가 .JSON 으로 오더라도 찾지 못해 죽으면 안 된다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            path = write_transcript(directory, "call-a", ["여보세요"])
+            upper = directory / "CALL-B.JSON"
+            upper.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+
+            names, texts = read_texts(directory, "space")
+            self.assertEqual(len(names), 2, f"대소문자 확장자를 놓쳤다: {names}")
+            self.assertIn("CALL-B.JSON", names)
+
+    def test_missing_label_directory_raises_clear_error(self) -> None:
+        with self.assertRaises(FileNotFoundError):
+            read_texts("/존재하지/않는/폴더", "space")
+
+    def test_best_model_alone_still_restores_settings(self) -> None:
+        """best_model/ 만 제출해도 학습 설정이 복원돼야 한다 (부모 run_config 없이)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            standalone = Path(tmp) / "best_model"
+            standalone.mkdir(parents=True)
+            (standalone / "config.json").write_text("{}", encoding="utf-8")
+            (standalone / "inference_config.json").write_text(
+                json.dumps({
+                    "utterance_sep_mode": "sep",
+                    "encode_mode": "head_tail",
+                    "max_length": 256,
+                }, ensure_ascii=False), encoding="utf-8")
+
+            settings = resolve_settings(standalone)
+            self.assertEqual(settings.sep_mode, "sep")
+            self.assertEqual(settings.encode_mode, "head_tail")
+            self.assertEqual(settings.max_length, 256)
+
+    def test_submission_path_never_reads_optimized_thresholds(self) -> None:
+        """규정상 임계값은 0.5 고정이다.
+
+        reports/best_thresholds.json 은 이름이 그럴듯한 데다 synthetic 값이라,
+        제출 경로가 이걸 읽기 시작하면 규정 위반인 동시에 성능 사고다.
+        """
+        import m3.infer as infer_module
+
+        source = Path(infer_module.__file__).read_text(encoding="utf-8")
+        code = "\n".join(
+            line for line in source.splitlines()
+            if not line.strip().startswith("#") and not line.strip().startswith("(")
+        )
+        for forbidden in ("best_thresholds", "BEST_THRESHOLDS", "find_best_thresholds",
+                          "apply_thresholds", "optimized_thresholds"):
+            self.assertNotIn(
+                forbidden, code.split('"""')[-1],
+                f"제출 경로가 {forbidden} 를 참조하면 안 된다",
+            )
+
+
+class InferenceConfigBuilderTest(unittest.TestCase):
+    """학습이 번들에 남기는 설정이 추론이 읽는 것과 실제로 맞물리는지 확인한다."""
+
+    def test_round_trips_through_resolve_settings(self) -> None:
+        from types import SimpleNamespace
+        from m3.infer import build_inference_config
+
+        training_config = SimpleNamespace(
+            utterance_sep_mode="turn", encode_mode="head_tail",
+            max_length=384, model_name_or_path="klue/roberta-base",
+        )
+        payload = build_inference_config(training_config)
+        self.assertEqual(payload["threshold"], DECISION_THRESHOLD)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = Path(tmp) / "best_model"
+            bundle.mkdir(parents=True)
+            (bundle / "config.json").write_text("{}", encoding="utf-8")
+            (bundle / "inference_config.json").write_text(
+                json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+            settings = resolve_settings(bundle)
+            self.assertEqual(settings.sep_mode, "turn")
+            self.assertEqual(settings.encode_mode, "head_tail")
+            self.assertEqual(settings.max_length, 384)
+
+    def test_defaults_when_fields_are_absent(self) -> None:
+        from types import SimpleNamespace
+        from m3.infer import build_inference_config
+
+        payload = build_inference_config(SimpleNamespace())
+        self.assertEqual(payload["utterance_sep_mode"], "space")
+        self.assertEqual(payload["encode_mode"], "truncate")
+        self.assertEqual(payload["max_length"], 512)

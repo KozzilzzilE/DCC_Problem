@@ -24,6 +24,7 @@ from .dataset import (
     create_dataloader,
     load_symptom_csv,
 )
+from .infer import build_inference_config
 from .labels import verify_utterance_sep_mode
 from .metrics import eval_macro_f1
 from .model import build_tokenizer_and_model, load_saved_model, save_model_bundle
@@ -667,6 +668,11 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         if is_best:
             best_epoch = epoch
             save_model_bundle(model, tokenizer, best_model_dir)
+            # best_model/ 만 따로 제출해도 추론이 학습 설정을 복원할 수 있어야 한다.
+            # 부모 run 디렉터리의 run_config.json 이 함께 가지 않으면 sep_mode 가
+            # 조용히 기본값으로 떨어져 점수만 깎인다.
+            _write_json(
+                best_model_dir / "inference_config.json", build_inference_config(config))
             score_str = f"loss={current_loss:.4f}" if config.checkpoint_metric == "val_loss" else f"macro_f1={current_f1:.4f}"
             print(f"  -> Best Checkpoint 갱신 (Epoch {epoch}, {config.checkpoint_metric}: {score_str})")
 

@@ -62,9 +62,12 @@ def _read_json_robust(path: Path) -> Dict[str, Any]:
         except (UnicodeDecodeError, json.JSONDecodeError):
             continue
 
-    # 최후의 fallback: 디코딩 에러 무시
+    # 최후의 fallback: 디코딩 에러를 치환한다. 본문이 '?' 로 깨진 채 모델에 들어가면
+    # 예외 없이 예측만 나빠지므로, 이 경로를 탔다는 사실 자체를 반드시 남긴다.
     with open(path, "r", encoding="utf-8", errors="replace") as f:
-        return json.load(f)
+        data = json.load(f)
+    print(f"[경고] 인코딩을 판별하지 못해 치환 모드로 읽었습니다. 본문이 손상됐을 수 있습니다: {path}")
+    return data
 
 
 def _parse_symptoms(raw_symptoms: object) -> Tuple[Tuple[str, ...], np.ndarray]:
