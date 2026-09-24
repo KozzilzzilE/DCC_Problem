@@ -1,9 +1,11 @@
-# Mission 3 — 환자 증상 다중 라벨 분류 (평가 지표 및 임계값 최적화)
+# Mission 3 — 환자 증상 다중 라벨 분류 (평가 지표 및 결정 임계값 0.5 고정)
 
-담당: 권오현 (데이터 전처리, 평가 지표 구현 및 임계값 최적화)  
+담당: 권오현 (데이터 전처리, 평가 지표 구현 및 임계값 분석)  
 담당: 김완수 (텍스트 데이터 정제 및 KoBERT 모델링)
 
-119 신고 전화 대화 전사(Transcript) 텍스트로부터 환자의 주요 증상(9개 타겟 증상)을 다중 라벨(Multi-label)로 분류하고, **Macro F1-score**를 극대화하기 위한 클래스별 최적 임계값(Threshold)을 탐색.
+119 신고 전화 대화 전사(Transcript) 텍스트로부터 환자의 주요 증상(9개 타겟 증상)을 다중 라벨(Multi-label)로 분류하고, 결정 임계값 0.5 에서의 **Macro F1-score**(F1@0.5)를 높인다.
+
+> 대회 공지(2026-09-25, Decision Threshold FAQ Q1~Q5): 최종 확률을 0/1 로 바꾸는 임계값은 Train/Validation 과 무관하게 **모든 클래스 0.5 고정**이다. Train 분할·OOF·Validation 어디서 고른 값이든 0.5 가 아닌 임계값과 클래스별 임계값은 threshold tuning 이라 금지이고, 확률을 더 잘 내도록 하는 학습·calibration(calibration 을 고려한 loss 설계 포함)은 허용된다.
 
 ---
 
@@ -25,7 +27,7 @@
 
 ---
 
-## 🎯 접근 전략 — 클래스별 임계값(Class-wise Threshold) 최적화
+## 🎯 접근 전략 — 결정 임계값 0.5 고정, 불균형은 학습 손실로 대응
 
 1. **지표 특성 (Macro F1)**:
    $$\text{Macro F1} = \frac{1}{9} \sum_{c=1}^{9} \text{F1}_c$$
@@ -33,7 +35,8 @@
 2. **기본 0.5 임계값의 한계**:
    - 불균형 데이터에서는 모델이 양성 예측을 소극적으로 하여 Recall이 급락하고 F1이 0에 수렴하는 문제 발생.
 3. **해결책**:
-   - 검증셋(Validation)에서 각 증상별로 0.05~0.95 구간을 $0.01$ 단위로 그리드 탐색하여 **증상별 최적 임계값 벡터**를 산출하고, 이를 `best_thresholds.json`으로 저장하여 최종 `inference.py` 추론에 적용.
+   - 임계값을 옮기지 않고, 학습 손실의 양성 가중(`--use-pos-weight --pos-weight-power 0.5`)으로 모델이 내는 확률 자체를 0.5 에서 제대로 판정되게 학습한다 (공지 Q4 의 calibration 을 고려한 loss 설계). 아래 "임계값 0.5 고정 기준 권장 레시피" 절 참고.
+   - 초기에는 Validation 에서 증상별 최적 임계값을 그리드 탐색해 `best_thresholds.json` 으로 저장했으나, 이는 공지 Q2·Q5 가 금지한 threshold tuning 이라 **제출에 쓰지 않는다**. `m3.threshold` 의 탐색 함수와 그 결과는 분석 기록으로만 남긴다.
 
 ---
 
@@ -45,8 +48,8 @@ mission3_symptom/
 │   ├── config.py                # 9개 타겟 증상 상수, 경로 설정 및 발화 경계 모드
 │   ├── labels.py                # 대회 규정 강제 라벨 파서 및 데이터 로더
 │   ├── metrics.py               # 이진 F1 및 규정 준수 Macro F1 계산 함수
-│   ├── threshold.py             # 9개 증상별 최적 임계값 그리드 탐색기
-│   ├── report.py                # 성과 리포트(MD) 및 최적 임계값(JSON) 생성기
+│   ├── threshold.py             # 0.5 판정(apply_thresholds) + 임계값 분석 도구 (탐색 결과는 제출 미사용)
+│   ├── report.py                # 성과 리포트(MD) 및 임계값 분석 JSON 생성기 (분석 전용)
 │   ├── dataset.py               # CSV 검증, text-only Dataset 및 DataLoader
 │   ├── kobert_tokenizer.py       # KoBERT SentencePiece tokenizer 및 BERT 입력 형식
 │   ├── model.py                 # Hugging Face backbone 기반 9-label 모델 생성 및 저장
@@ -55,7 +58,7 @@ mission3_symptom/
 │   ├── infer.py                 # 제출 추론 (단일 run 또는 ensemble.json 번들, 임계값 0.5 고정)
 │   └── __init__.py              # m3 통합 인터페이스 export
 ├── reports/
-│   ├── comparison.md            # 기본 0.5 vs 최적 임계값 전/후 F1 성과 리포트
+│   ├── comparison.md            # (synthetic, 분석 전용) 0.5 vs 클래스별 임계값 비교 — 제출 미사용
 ├── extract_labels.ipynb         # ★ 1단계: 원본 zip(001~013)에서 JSON 라벨 32,840건 고속 추출 노트북
 ├── data_preprocessing.ipynb     # ★ 2단계: 규정 준수 텍스트 정제 & 9개 타겟 증상 CSV 생성 전처리 노트북
 ├── model_train.ipynb            # ★ 3단계: 실제 baseline 결과 검증 및 시각화 노트북
@@ -125,7 +128,7 @@ python mission3_symptom/train.py \
 
 정식 run은 `best_model/`, `run_config.json`, `history.json`, `baseline_metrics.json`, `val_logits.npy`, `val_probs.npy`, `val_labels.npy`를 생성한다. 평가는 기존 `m3.metrics` 및 `m3.threshold.apply_thresholds`를 사용하여 threshold 0.5를 기준으로 수행한다.
 
-> `reports/best_thresholds.json`과 `reports/comparison.md`는 실제 모델 학습 이전에 synthetic validation 데이터로 생성된 기존 결과이므로 실제 Full Training 성능으로 해석하지 않는다. 실제 threshold 결과는 각 정식 run의 `threshold_metrics.json`과 `optimized_thresholds.json`으로 별도 관리하며 기존 reports 파일을 수정하지 않는다.
+> `reports/best_thresholds.json`과 `reports/comparison.md`는 실제 모델 학습 이전에 synthetic validation 데이터로 생성된 기존 결과이므로 실제 Full Training 성능으로 해석하지 않는다. 클래스별 임계값 파일(`best_thresholds.json`, run 의 `optimized_thresholds.json`·`threshold_metrics.json`)은 분석 기록이며, 제출 경로(`m3/infer.py`)는 어떤 임계값 파일도 읽지 않고 0.5 만 쓴다 (공지 Q2·Q5).
 
 ### 주피터 노트북 실행 (`model_train.ipynb`)
 VS Code 또는 Jupyter 환경에서 `mission3_symptom/model_train.ipynb`를 열고 순서대로 셀을 실행하면:
@@ -133,9 +136,9 @@ VS Code 또는 Jupyter 환경에서 `mission3_symptom/model_train.ipynb`를 열�
 2. 실제 Validation logits, probabilities, labels 로드
 3. threshold 0.5 Macro F1 및 클래스별 F1 재계산
 4. epoch별 loss와 Validation Macro F1 시각화
-5. 기존 threshold 탐색 함수와의 연결 상태 확인
+5. 결정 임계값 0.5 고정 규정 확인 (클래스별 임계값 탐색 셀은 공지에 따라 제거)
 
-필수 산출물이 없으면 synthetic 데이터로 대체하지 않고 오류를 발생시킨다. Threshold 탐색은 기본적으로 비활성화되어 있으며 기존 reports 파일을 수정하지 않는다.
+필수 산출물이 없으면 synthetic 데이터로 대체하지 않고 오류를 발생시킨다.
 
 ### `model_train.ipynb` 실험 방법
 
@@ -179,9 +182,7 @@ Pure-nausea sampling은 `--use-pure-nausea-sampling --pure-nausea-weight 1.5`로
 
 3번 Full Training이 전체 Train/Validation 데이터를 사용하는 정식 학습이다. 4번은 해당 run의 저장 결과를 불러오고, 5번은 공통 기준인 threshold 0.5의 실제 Validation 성능을 재검증한다. 6번은 epoch별 loss와 Macro F1을 시각화한다.
 
-7번은 해당 checkpoint가 생성한 `val_probs`에서 class-wise optimized threshold를 탐색한다. 기본값은 `RUN_THRESHOLD_SEARCH = False`이므로 팀 확인 후 `True`로 변경해 실행한다. 8번은 탐색한 threshold를 적용하여 threshold 0.5 대비 Macro F1, 클래스별 F1과 개선량을 비교한다. 두 단계 모두 기존 reports 파일을 자동으로 저장하거나 수정하지 않는다.
-
-Threshold는 학습 hyperparameter가 아니라 학습 완료 후 probability에 적용하는 post-processing parameter이므로 threshold 탐색을 위해 모델을 다시 학습할 필요는 없다. 다만 모델이나 학습 조건이 바뀌면 probability 분포도 달라질 수 있으므로, 다른 checkpoint에서 얻은 threshold를 그대로 재사용하지 않고 각 정식 run의 `val_probs`를 기준으로 다시 계산하는 것을 원칙으로 한다.
+7번은 결정 임계값 규정을 적어 둔 셀이다. 예전의 클래스별 임계값 탐색(7번)·적용(8번) 셀은 공지 Q2·Q5 에 따라 노트북에서 제거했다. 제출 판정 임계값은 9개 클래스 모두 0.5 고정(`m3/infer.py` 의 `DECISION_THRESHOLD`)이며, run 마다 임계값을 다시 계산하는 절차는 없다. 임계값 분석이 필요하면 `m3.threshold` 로 따로 할 수 있으나 그 결과는 제출·체크포인트 선택·보고 지표에 쓰지 않는다.
 
 ### 발화 경계(턴 구분) 전처리
 
@@ -219,7 +220,7 @@ CSV 재생성은 `data_preprocessing.ipynb`의 `UTTERANCE_SEP_MODE`만 바꿔 �
 
 - 기존 `--use-pos-weight` 는 Training 라벨의 negative/positive 를 그대로 써서 모든 클래스를 과보정했다. `--pos-weight-power 0.5` 로 제곱근을 쓰면 9개 클래스가 모두 오르고, 클래스별 임계값을 따로 골라도 더 얻을 것이 없다. 시드 42~45 에서 0.6453~0.6496 으로 재현된다.
 - 발화 경계(`sep`) 입력은 같은 레시피에서 −0.0033 (95% CI −0.008~+0.002) 로 이득이 없어 공백 결합을 유지한다.
-- 가중치는 Training 라벨 개수로만 계산하고 power 는 9개 클래스 공통 스칼라 하나다. 판정 임계값은 0.5 그대로다.
+- 가중치는 Training 라벨 개수로만 계산하고 power 는 9개 클래스 공통 스칼라 하나다. 판정 임계값은 0.5 그대로다. 공지 Q4 가 허용한 "calibration 을 고려한 loss 설계"에 해당하며, 임계값을 옮기거나 클래스별로 다르게 두지 않는다.
 
 1. 트랜스포머 학습:
 
@@ -259,7 +260,7 @@ runs/submit_bundle/
 }
 ```
 
-4. 제출 추론 — run 디렉터리를 주면 단일 모델, 번들 디렉터리를 주면 앙상블·블렌드다.
+4. 제출 추론 — `best_model` 디렉터리(또는 run 디렉터리)를 주면 단일 모델, 번들 디렉터리를 주면 앙상블·블렌드다. 단일 모델을 제출할 때는 run 폴더 전체가 아니라 `best_model` 폴더만 넣는다 (run 폴더의 `val_*.npy`·분석 파일은 제출물이 아니다).
 
 ```bash
 # 저장소 루트에서 (주최 측 실행 형태)
@@ -274,6 +275,8 @@ python inference.py --label_dir <json 폴더> --ckpt_path runs/<run 또는 번�
 로컬 Validation 추론 시간은 단일 모델 27.5초, 단일+TF-IDF 42초, 4-seed+TF-IDF 101초였다. TF-IDF 멤버는 scikit-learn 버전이 다르면 경고를 낸다 (학습 1.9.0).
 
 ### 현재 정상 Full Training 실험 결과
+
+> 이 절의 `Optimized Macro F1`, `Optimized threshold`, cross-fitted 수치는 Validation 에서 클래스별 임계값을 고른 **분석 기록**이다. 공지 Q2·Q5 에 따라 제출에는 적용하지 않으며, 제출 성능은 `F1 @ 0.5` 열이다.
 
 초기 AutoTokenizer 기반 KoBERT run은 encoder와 맞지 않는 tokenizer가 선택된 상태였으므로 정상 성능 비교에서 제외한다. 이름이 `_smoke`로 끝나는 run과 `reports/`의 synthetic 결과도 아래 Full Training benchmark에 포함하지 않는다.
 
@@ -292,7 +295,7 @@ Pos_weight는 threshold 0.5에서 recall과 Macro F1을 높였지만 ranking/AP�
 
 #### Backbone benchmark
 
-네 backbone은 모델과 그에 맞는 tokenizer만 변경했다. 동일 Training 29,200건/Validation 3,640건, plain BCE, seed 42, 3 epochs, learning rate `2e-5`, max length 512, physical batch 8, gradient accumulation 2(effective batch 16), weight decay 0.01, warmup ratio 0.1, AMP, minimum `val_loss` checkpoint 선택과 동일한 class-wise threshold 탐색을 사용했다. 공개 pretrained checkpoint는 초기화에만 사용했으며, 제공 Training 데이터만 supervised fine-tuning에 사용하고 Validation은 평가와 threshold 선택에만 사용했다.
+네 backbone은 모델과 그에 맞는 tokenizer만 변경했다. 동일 Training 29,200건/Validation 3,640건, plain BCE, seed 42, 3 epochs, learning rate `2e-5`, max length 512, physical batch 8, gradient accumulation 2(effective batch 16), weight decay 0.01, warmup ratio 0.1, AMP, minimum `val_loss` checkpoint 선택과 동일한 class-wise threshold 분석(제출 미적용)을 사용했다. 공개 pretrained checkpoint는 초기화에만 사용했으며, 제공 Training 데이터만 supervised fine-tuning에 사용하고 Validation은 체크포인트 선택과 평가(F1@0.5 및 분석용 optimized 지표)에만 사용했다.
 
 | Model | Best Epoch | F1 @ 0.5 | Optimized Macro F1 |
 |---|---:|---:|---:|
@@ -303,7 +306,7 @@ Pos_weight는 threshold 0.5에서 recall과 Macro F1을 높였지만 ranking/AP�
 
 Backbone 교체는 초기 세 모델에서 `KoBERT → KoELECTRA → KLUE-RoBERTa` 순으로 비교적 분명한 상승을 만들었다. KF-DeBERTa는 단일 Validation run에서 가장 높은 point estimate를 기록했지만, optimized Macro F1은 KLUE-RoBERTa보다 `0.000339` 높은 수준에 그쳤다. 같은 Validation에서 threshold를 선택하고 평가한 결과이므로 이 작은 차이를 명확한 성능 우위로 해석하지 않는다.
 
-#### KF-DeBERTa Full Training 및 threshold 최적화
+#### KF-DeBERTa Full Training 및 threshold 분석 (제출 미적용)
 
 Run `kf_deberta_base_plain_bce_seed42_val_loss`는 `kakaobank/kf-deberta-base` revision `363b171d71443b0874b0bf9cea053eb5b1650633`을 사용했다. Standard CLS classification path에서 Label Attention, `pos_weight`, ASL과 weighted sampling을 모두 끄고 plain BCE로 학습했다. 나머지 조건은 backbone benchmark와 동일하며 입력은 `truncate` 방식으로 최대 512 token까지만 사용했다.
 
@@ -315,7 +318,7 @@ Run `kf_deberta_base_plain_bce_seed42_val_loss`는 `kakaobank/kf-deberta-base` r
 
 Epoch 3에서 train loss는 계속 감소했지만 Validation loss가 다시 증가했고 Macro F1@0.5도 epoch 2를 넘지 못했다. 따라서 minimum Validation loss 기준으로 저장된 epoch 2 checkpoint가 이 run의 적절한 선택이며, epoch 2 이후에는 가벼운 과적합 조짐이 관찰된 것으로 해석한다.
 
-Best checkpoint의 class-wise threshold 최적화 결과는 다음과 같다. 이는 모델 표현을 다시 학습한 결과가 아니라, 같은 Validation probability에 적용하는 **decision boundary 후처리**다.
+Best checkpoint의 class-wise threshold 분석 결과는 다음과 같다. 이는 같은 Validation probability 로 계산한 **분석용 사후 계산**이며, 결정 임계값은 규정상 0.5 고정이라 제출에는 적용하지 않는다.
 
 | 증상 | F1 @ 0.5 | Optimized threshold | Optimized F1 | Delta |
 |---|---:|---:|---:|---:|
@@ -330,7 +333,7 @@ Best checkpoint의 class-wise threshold 최적화 결과는 다음과 같다. �
 | 호흡곤란 | 0.6460 | 0.27 | 0.6702 | +0.0241 |
 | **Macro F1** | **0.606132** | class-wise | **0.655760** | **+0.049628** |
 
-오심은 threshold `0.19`에서 F1이 `0.1452 → 0.3964`로 가장 크게 변했다. 이는 오심의 낮은 score scale에 맞춘 후처리가 필요하다는 근거이며, backbone 자체가 오심 표현 문제를 해결했다는 의미는 아니다.
+오심은 threshold `0.19`에서 F1이 `0.1452 → 0.3964`로 가장 크게 변했다. 이는 오심의 score scale 이 0.5 기준에서 낮다는 분석 근거이며, 제출 임계값은 0.5 고정이므로 학습 단계(pos_weight power 등)에서 다룬다. backbone 자체가 오심 표현 문제를 해결했다는 의미는 아니다.
 
 KF-DeBERTa의 `BertTokenizer`는 vocabulary 130,000개를 사용했고 Validation의 512 token 초과 비율은 `55 / 3,640 = 1.51%`였다. KLUE-RoBERTa의 `98 / 3,640 = 2.69%`보다 truncation 노출은 낮았지만, 이 tokenizer상의 이점이 Macro F1의 명확한 상승으로 이어지지는 않았다.
 
@@ -342,7 +345,7 @@ KF-DeBERTa의 optimized Macro F1 `0.6557598681`은 KLUE-RoBERTa seed 42의 `0.65
 
 따라서 KF-DeBERTa는 유효한 비교 후보이자 약간 높은 단일 Validation 점수를 기록한 모델로 남기되, **성능 차이의 불확실성, 계산 비용, 기존 실험의 재현성과 운용 효율을 함께 고려해 KLUE-RoBERTa를 현재 기준 backbone(selected baseline backbone)으로 유지한다.** 더 강한 backbone으로 교체하는 것만으로 현재 `0.655~0.657` 부근의 Validation Macro F1 병목이 크게 해소되지는 않았으며, 이는 향후 label dependency와 같은 구조적 가설을 검토할 근거가 된다. 아직 실행하지 않은 후속 실험의 성능은 가정하지 않는다.
 
-#### KLUE-RoBERTa baseline threshold 결과
+#### KLUE-RoBERTa baseline threshold 분석 결과 (제출 미적용)
 
 KLUE의 best checkpoint는 epoch 2(`val_loss=0.2549`)였다. Train loss는 epoch 3까지 감소했지만 val loss는 epoch 2에서 최소인 뒤 0.2567로 소폭 상승했고 F1@0.5는 `0.6003 → 0.6003`으로 거의 동일해, epoch 2 이후 Validation 개선이 제한적이었다.
 
@@ -417,7 +420,7 @@ ASL은 BCE보다 Macro AUROC `+0.002509`, Macro AP `+0.003321`로 ranking 지표
 #### 오심 관찰
 
 - 세 backbone의 optimized 오심 F1은 KoBERT 0.3930, KoELECTRA 0.4006, KLUE-RoBERTa 0.4030으로 거의 개선되지 않아 현재 가장 큰 class-level bottleneck으로 남았다.
-- KLUE에서도 threshold 0.5 F1은 0.0529였고 threshold를 0.19로 낮춘 뒤 0.4030이 됐다.
+- KLUE에서도 threshold 0.5 F1은 0.0529였고 분석상 threshold를 0.19로 낮추면 0.4030이 된다 (제출 불가, 공지 Q5). 0.5 고정에서 이를 회복한 방법은 권장 레시피의 pos_weight power 0.5 다 (오심 F1@0.5 0.387).
 - 원인을 전처리, label noise 또는 구토와의 의미 중첩으로 단정하지 않고 세 모델의 오심/구토 FP/FN 원문을 우선 분석한다.
 
 오심/구토 Validation 오류에 대한 수동 검토와 loss ablation 결과를 함께 고려해 후속 실험의 우선순위를 정한다.
@@ -437,10 +440,9 @@ ASL은 BCE보다 Macro AUROC `+0.002509`, Macro AP `+0.003321`로 ranking 지표
 * **손실 함수(Loss)**: 각 증상의 발생 여부가 독립적인 다중 라벨 분류이므로, `CrossEntropyLoss` 대신 반드시 `BCEWithLogitsLoss`를 사용.
 * **출력 확률 추출**: 검증 및 추론 시 모델 로짓(Logits)에 Sigmoid 함수를 적용하여 [0.0, 1.0] 범위의 확률 행렬(`val_probs`)을 산출.
 
-### 3. 검증 평가 및 최적 임계값 모듈 연동
-* **기준 성능**: 실제 검증셋 예측 확률에 threshold 0.5를 적용하여 Macro F1과 클래스별 F1을 기록.
-* **임계값 연결**: 저장된 `val_probs.npy`와 `val_labels.npy`를 기존 `m3.threshold.find_best_thresholds()`에 전달할 수 있도록 구성.
-* **실행 보류**: 실제 임계값 최적화와 reports 갱신은 별도 확인 후 수행.
+### 3. 검증 평가 (결정 임계값 0.5 고정)
+* **기준 성능**: 실제 검증셋 예측 확률에 threshold 0.5를 적용하여 Macro F1과 클래스별 F1을 기록. 이것이 제출 성능이다.
+* **임계값 분석**: `m3.threshold.find_best_thresholds()` 결과는 분석 전용이며 추론·제출 경로에 전달하지 않는다 (공지 Q2·Q3·Q5).
 
 ---
 
@@ -448,3 +450,4 @@ ASL은 BCE보다 Macro AUROC `+0.002509`, Macro AP `+0.003321`로 ranking 지표
 1. **입력 제약 엄수**: 대회 규정상 대화 본문 텍스트(`utterances[].text`)만 모델 입력으로 사용 가능. 화자, 발화 시간, 인적사항 등 메타데이터 사용 시 규정 위반이므로 `m3.labels` 모듈 사용 필수.
 2. **비타겟 증상 노이즈**: 골절, 찰과상, 화상 등 9개 외 증상은 타겟에서 제외되어 0으로 처리되므로, 본문에 통증 호소가 강하더라도 정답 라벨이 0이 되는 데이터 노이즈 특성에 유의.
 3. **평가 지표 특성(Macro F1)**: 대회 공식 지표는 클래스별 단순 평균이므로 Accuracy가 아니라 Macro F1과 클래스별 F1을 함께 확인해야 함.
+4. **결정 임계값 0.5 고정**: 모든 클래스에 0.5 (공지 Q1·Q5). Train 분할·OOF·Validation 어디서 고른 값이든 0.5 가 아닌 임계값은 금지 (Q2·Q3). 확률 보정·calibration 고려 loss 는 허용 (Q4).

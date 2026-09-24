@@ -124,7 +124,7 @@ power 0.5 대 plain BCE (seed 42, 짝 부트스트랩 1,000회): **+0.0529, 95% 
 
 | 번들 | macro F1@0.5 | 오심 F1 | Validation 추론 시간 |
 |---|---:|---:|---:|
-| `runs/klue_roberta_base_bce_posw0.5_seed42_local` (단일) | 0.6496 | 0.387 | 27.5초 |
+| `runs/klue_roberta_base_bce_posw0.5_seed42_local/best_model` (단일) | 0.6496 | 0.387 | 27.5초 |
 | `runs/submit_s42_tfidf` (단일 + TF-IDF) | 0.6536 | 0.401 | 42초 |
 | `runs/submit_4seed_tfidf` (4-seed + TF-IDF) | 0.6546 | 0.395 | 101초 |
 
@@ -132,7 +132,19 @@ power 0.5 대 plain BCE (seed 42, 짝 부트스트랩 1,000회): **+0.0529, 95% 
 
 ---
 
-## 8. 하지 않은 것과 이유
+## 8. 대회 공지(2026-09-25, Decision Threshold FAQ)와의 대응
+
+| 공지 | 이 레시피 |
+|---|---|
+| Q1·Q5: 모든 클래스 0.5 고정 | 단일·번들 제출 경로 모두 `m3/infer.py` 의 0.5 하나로 판정. 클래스별 값·`threshold` 키는 `ensemble.json` 에서 거부 |
+| Q2: Train 분할·OOF 로 고른 0.5 아닌 임계값 금지 | 임계값을 고르는 단계가 없다. 2절·5절의 클래스별 결정점 계산은 0.5 에서 잃는 양을 재기 위한 분석이다 (Q3 가 허용한 성능 분석) |
+| Q3: OOF 는 학습·앙상블·분석·확률 보정 용도 허용 | TF-IDF 의 C 확인에 Training OOF 를 썼다. 임계값 결정에는 쓰지 않았다 |
+| Q4: 확률 보정·calibration 고려 loss 허용 | pos_weight power 는 학습 손실 설계다. 모델이 내는 확률 자체가 바뀌고 판정선은 0.5 그대로다 |
+| 이전 FAQ: Validation 으로 하이퍼파라미터·앙상블 가중치 선택 허용 | power {1.0, 0.5}, TF-IDF 가중치 w 를 Validation 으로 골랐다 (9개 클래스 공통 스칼라) |
+
+---
+
+## 9. 하지 않은 것과 이유
 
 | 방법 | 이유 |
 |---|---|
