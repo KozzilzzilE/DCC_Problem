@@ -51,6 +51,8 @@ mission3_symptom/
 │   ├── kobert_tokenizer.py       # KoBERT SentencePiece tokenizer 및 BERT 입력 형식
 │   ├── model.py                 # Hugging Face backbone 기반 9-label 모델 생성 및 저장
 │   ├── training.py              # 학습, 검증 및 실험 산출물 저장
+│   ├── tfidf_member.py          # Training 전용 TF-IDF+LR 보조 멤버 (제출 블렌드용)
+│   ├── infer.py                 # 제출 추론 (단일 run 또는 ensemble.json 번들, 임계값 0.5 고정)
 │   └── __init__.py              # m3 통합 인터페이스 export
 ├── reports/
 │   ├── comparison.md            # 기본 0.5 vs 최적 임계값 전/후 F1 성과 리포트
@@ -58,6 +60,8 @@ mission3_symptom/
 ├── data_preprocessing.ipynb     # ★ 2단계: 규정 준수 텍스트 정제 & 9개 타겟 증상 CSV 생성 전처리 노트북
 ├── model_train.ipynb            # ★ 3단계: 실제 baseline 결과 검증 및 시각화 노트북
 ├── train.py                     # 공통 backbone 학습 CLI
+├── train_tfidf_member.py        # Training 전용 TF-IDF+LR 멤버 학습 CLI
+├── inference.py                 # 미션 폴더 단독 제출 진입점
 ├── tests/                       # 데이터 및 label shape 단위 테스트
 └── README.md                    # 현재 문서
 ```
@@ -198,6 +202,60 @@ Threshold는 학습 hyperparameter가 아니라 학습 완료 후 probability에
 CSV 재생성은 `data_preprocessing.ipynb`의 `UTTERANCE_SEP_MODE`만 바꿔 실행한다. 이 노트북은 전처리 로직을 복제하지 않고 `m3.labels`를 그대로 호출하므로 학습 CSV와 추론 경로가 어긋나지 않는다. 출력은 `mission3_train_<mode>.csv`, `mission3_val_<mode>.csv`와 전처리 이력 `mission3_preprocess_<mode>.json`이다.
 
 재학습 전에 노트북 4번 셀로 512 token 초과 비율 변화를 먼저 측정한다. 구분자만큼 입력이 길어지므로 이 값을 재지 않으면 경계 정보의 효과와 절단 증가의 부작용이 섞여 결과를 해석할 수 없다. baseline(`space`)의 Validation 초과 비율은 KLUE-RoBERTa 기준 `98 / 3,640 = 2.69%`다.
+
+### 임계값 0.5 고정 기준 권장 레시피 (2026-09-24)
+
+제출 지표는 **macro F1@0.5** 다. 아래 "현재 정상 Full Training 실험 결과" 절의 `Optimized Macro F1` 은 클래스별 임계값을 Validation 에서 고른 연구 기록이라 제출 성능이 아니다. 전체 수치와 근거는 `reports/calibration_eval.md` 에 있다.
+
+| 설정 (KLUE-RoBERTa-base, 로컬 Validation 3,640건) | macro F1@0.5 | 오심 F1@0.5 |
+|---|---:|---:|
+| plain BCE (기존 기준선) | 0.5967 | 0.032 |
+| `--use-pos-weight` (negative/positive) | 0.6189 | 0.363 |
+| **`--use-pos-weight --pos-weight-power 0.5`** | **0.6496** | 0.387 |
+| 위 + Training 전용 TF-IDF 블렌드 (w=0.3) | 0.6536 | 0.401 |
+| power 0.5 시드 42~45 평균 + TF-IDF 블렌드 | 0.6546 | 0.395 |
+
+- 기존 `--use-pos-weight` 는 Training 라벨의 negative/positive 를 그대로 써서 모든 클래스를 과보정했다. `--pos-weight-power 0.5` 로 제곱근을 쓰면 9개 클래스가 모두 오르고, 클래스별 임계값을 따로 골라도 더 얻을 것이 없다. 시드 42~45 에서 0.6453~0.6496 으로 재현된다.
+- 발화 경계(`sep`) 입력은 같은 레시피에서 −0.0033 (95% CI −0.008~+0.002) 로 이득이 없어 공백 결합을 유지한다.
+- 가중치는 Training 라벨 개수로만 계산하고 power 는 9개 클래스 공통 스칼라 하나다. 판정 임계값은 0.5 그대로다.
+
+1. 트랜스포머 학습:
+
+```bash
+python mission3_symptom/train.py \
+  --train-csv <mission3_train.csv> --val-csv <mission3_val.csv> \
+  --output-dir mission3_symptom/runs/klue_posw0.5_seed42 \
+  --model-name-or-path klue/roberta-base --seed 42 --max-length 512 \
+  --train-batch-size 8 --val-batch-size 16 --gradient-accumulation-steps 2 \
+  --learning-rate 2e-5 --epochs 3 --loss-type bce --encode-mode truncate --amp \
+  --use-pos-weight --pos-weight-power 0.5 --checkpoint-metric val_macro_f1
+```
+
+2. (선택) TF-IDF 보조 멤버 학습 — **Training CSV 만** 넣는다. Validation 을 넣으면 Validation 을 학습에 쓴 것이 된다.
+
+```bash
+python mission3_symptom/train_tfidf_member.py \
+  --train-csv <mission3_train.csv> \
+  --output mission3_symptom/runs/tfidf_lr_c0.15/tfidf_lr.joblib
+```
+
+3. (선택) 번들 — 디렉터리에 `ensemble.json` 을 두고 `--ckpt_path` 로 그 디렉터리를 준다. 경로는 이 파일 위치 기준 상대경로도 된다. 트랜스포머 멤버는 균등 평균, TF-IDF 는 9개 클래스 공통 가중치 하나로 섞고 0.5 로 판정한다. 클래스별 가중치나 `threshold` 키는 거부된다.
+
+```json
+{
+  "members": ["../klue_posw0.5_seed42", "../klue_posw0.5_seed43"],
+  "tfidf_member": "../tfidf_lr_c0.15/tfidf_lr.joblib",
+  "tfidf_weight": 0.3
+}
+```
+
+4. 제출 추론 — run 디렉터리를 주면 단일 모델, 번들 디렉터리를 주면 앙상블·블렌드다.
+
+```bash
+python inference.py --label_dir <json 폴더> --ckpt_path runs/<run 또는 번들> --output ./outputs/mission3.csv
+```
+
+로컬 Validation 추론 시간은 단일 모델 27.5초, 단일+TF-IDF 42초, 4-seed+TF-IDF 101초였다. TF-IDF 멤버는 scikit-learn 버전이 다르면 경고를 낸다 (학습 1.9.0).
 
 ### 현재 정상 Full Training 실험 결과
 

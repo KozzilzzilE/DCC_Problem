@@ -30,3 +30,4 @@
 | `truncation_eval.md` | 512 토큰 절단 복구 실험 (개선 없음) |
 | `label_dependency_eval.md` | Label Dependency Loss 검증 (개선 없음) |
 | `pairwise_eval.md` | Pairwise Ranking Loss 검증 (개선 없음) |
+| `calibration_eval.md` | 임계값 0.5 고정 기준 pos_weight 거듭제곱·발화 경계·오심·TF-IDF 블렌드 검증 (F1@0.5 0.5967 → 0.6496, 블렌드 0.6536~0.6546) |
