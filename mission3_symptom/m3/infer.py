@@ -6,6 +6,9 @@
     (`reports/best_thresholds.json` 포함)는 제출 경로에서 읽지 않는다.
   - **학습-추론 일치**: 발화 경계 표현(`utterance_sep_mode`), 인코딩(`encode_mode`),
     `max_length` 를 run_config 에서 복원한다. 이게 어긋나면 예외 없이 점수만 떨어진다.
+  - **앙상블·블렌드**: `--ckpt_path` 가 `ensemble.json` 을 가리키면 트랜스포머 멤버 확률을
+    균등 평균하고, Training 전용 TF-IDF 멤버와 9개 클래스 공통 가중치 하나로 섞는다.
+    판정은 단일 모델과 같은 0.5 고정 임계값이며, 클래스별 가중치·임계값은 받지 않는다.
 
 출력 CSV: `label file name`, `symptom`  (symptom 은 `"['두통', '복통']"` 형태의 String)
 """
@@ -13,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
@@ -24,6 +28,7 @@ from .config import (
     UTTERANCE_SEP_MODES,
 )
 from .labels import read_transcript, verify_utterance_sep_mode
+from .tfidf_member import load_tfidf_member
 
 # 대회 규정 고정값. 체크포인트나 reports 에 저장된 보정 임계값이 있어도 사용하지 않는다.
 DECISION_THRESHOLD = 0.5
@@ -197,14 +202,94 @@ def read_texts(label_dir: Union[str, Path], sep_mode: str) -> Tuple[List[str], L
     return names, texts
 
 
-def predict_directory(
+ENSEMBLE_MANIFEST_NAME = "ensemble.json"
+_MANIFEST_KEYS = {"members", "tfidf_member", "tfidf_weight", "note"}
+
+
+@dataclass(frozen=True)
+class EnsembleSpec:
+    """`ensemble.json` 이 선언한 제출 번들. 클래스별 값이 들어갈 자리는 없다."""
+
+    manifest_path: Path
+    members: Tuple[Path, ...]
+    tfidf_path: Optional[Path]
+    tfidf_weight: float
+
+
+def find_ensemble_manifest(ckpt_path: Union[str, Path]) -> Optional[Path]:
+    """`ckpt_path` 가 앙상블 번들(디렉터리 또는 `ensemble.json`)이면 그 경로, 아니면 None."""
+    path = Path(ckpt_path)
+    if path.is_file() and path.name == ENSEMBLE_MANIFEST_NAME:
+        return path
+    if path.is_dir() and (path / ENSEMBLE_MANIFEST_NAME).is_file():
+        return path / ENSEMBLE_MANIFEST_NAME
+    return None
+
+
+def _resolve_relative(base: Path, value: str) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else base / path
+
+
+def load_ensemble_spec(manifest_path: Union[str, Path]) -> EnsembleSpec:
+    """`ensemble.json` 을 읽고 검증한다. 경로는 manifest 파일 위치 기준 상대경로도 받는다.
+
+    형식:
+        {"members": ["../run_a", "../run_b"],        # 트랜스포머 run 디렉터리, 균등 평균
+         "tfidf_member": "../tfidf/tfidf_lr.joblib",  # 선택
+         "tfidf_weight": 0.3,                          # tfidf_member 와 함께, 0 초과 1 미만 실수 하나
+         "note": "..."}                                # 선택
+    임계값은 받지 않는다 (대회 규정 0.5 고정). 모르는 키가 있으면 거부한다.
+    """
+    manifest_path = Path(manifest_path)
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{ENSEMBLE_MANIFEST_NAME} 은 JSON 객체여야 합니다: {manifest_path}")
+    unknown = sorted(set(data) - _MANIFEST_KEYS)
+    if unknown:
+        raise ValueError(
+            f"{ENSEMBLE_MANIFEST_NAME} 에 허용되지 않은 키가 있습니다: {unknown} "
+            f"(허용: {sorted(_MANIFEST_KEYS)}; 임계값은 대회 규정상 0.5 고정)"
+        )
+
+    members = data.get("members")
+    if not isinstance(members, list) or not members or not all(isinstance(m, str) and m for m in members):
+        raise ValueError(f"members 는 비어 있지 않은 run 경로 목록이어야 합니다: {members!r}")
+    base = manifest_path.parent
+    resolved = []
+    for member in members:
+        path = _resolve_relative(base, member)
+        resolve_model_dir(path)  # 없으면 FileNotFoundError
+        resolved.append(path)
+
+    tfidf = data.get("tfidf_member")
+    weight = data.get("tfidf_weight")
+    if tfidf is None:
+        if weight is not None:
+            raise ValueError("tfidf_weight 는 tfidf_member 와 함께만 쓸 수 있습니다.")
+        return EnsembleSpec(manifest_path, tuple(resolved), None, 0.0)
+
+    if not isinstance(tfidf, str) or not tfidf:
+        raise ValueError(f"tfidf_member 는 파일 경로여야 합니다: {tfidf!r}")
+    if isinstance(weight, bool) or not isinstance(weight, (int, float)):
+        raise ValueError(f"tfidf_weight 는 9개 클래스 공통 실수 하나여야 합니다: {weight!r}")
+    weight = float(weight)
+    if not math.isfinite(weight) or not 0.0 < weight < 1.0:
+        raise ValueError(f"tfidf_weight 는 0 초과 1 미만이어야 합니다: {weight}")
+    tfidf_path = _resolve_relative(base, tfidf)
+    if not tfidf_path.is_file():
+        raise FileNotFoundError(f"TF-IDF 멤버 파일을 찾을 수 없습니다: {tfidf_path}")
+    return EnsembleSpec(manifest_path, tuple(resolved), tfidf_path, weight)
+
+
+def transformer_probabilities(
     label_dir: Union[str, Path],
     ckpt_path: Union[str, Path],
     batch_size: int = DEFAULT_BATCH_SIZE,
     device: Optional[str] = None,
 ):
-    """라벨 폴더 전체를 추론해 제출 규격 DataFrame 을 돌려준다."""
-    import pandas as pd
+    """트랜스포머 run 하나로 `(파일명 목록, (n, 9) 확률)` 을 만든다. 판정은 하지 않는다."""
+    import numpy as np
     import torch
 
     from .dataset import encode_text
@@ -248,7 +333,7 @@ def predict_directory(
 
     # 길이가 비슷한 것끼리 묶어 padding 낭비를 줄이고, 결과는 원래 순서로 되돌린다.
     order = sorted(range(len(texts)), key=lambda index: len(texts[index]))
-    predictions: List[Optional[str]] = [None] * len(texts)
+    probabilities = np.full((len(texts), NUM_CLASSES), np.nan, dtype=np.float64)
 
     with torch.no_grad():
         for start in range(0, len(order), batch_size):
@@ -265,17 +350,80 @@ def predict_directory(
             batch = tokenizer.pad(features, padding=True, return_tensors="pt")
             batch = {key: value.to(resolved_device) for key, value in batch.items()}
             logits = model(**batch).logits
-            probabilities = torch.sigmoid(logits.float()).cpu().numpy()
-            for offset, index in enumerate(chunk):
-                predictions[index] = format_symptoms(
-                    symptoms_from_probabilities(probabilities[offset])
-                )
+            probabilities[chunk] = torch.sigmoid(logits.float()).cpu().numpy()
 
-    missing = [names[i] for i, value in enumerate(predictions) if value is None]
+    # 여러 멤버를 차례로 올릴 때 이전 모델이 GPU 메모리를 잡고 있지 않게 한다.
+    del model
+    if resolved_device.type == "cuda":
+        torch.cuda.empty_cache()
+
+    missing = [names[i] for i in range(len(names)) if np.isnan(probabilities[i]).any()]
     if missing:
         raise RuntimeError(f"예측이 누락된 파일이 있습니다: {missing[:5]}")
+    return names, probabilities
+
+
+def ensemble_probabilities(
+    spec: EnsembleSpec,
+    label_dir: Union[str, Path],
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    device: Optional[str] = None,
+):
+    """멤버 확률 균등 평균 -> (선택) TF-IDF 전역 가중 블렌드. 판정은 하지 않는다."""
+    description = f"트랜스포머 {len(spec.members)}개 균등 평균"
+    if spec.tfidf_path is not None:
+        description += f" + TF-IDF 멤버 (전역 가중치 {spec.tfidf_weight})"
+    print(f"앙상블 번들: {spec.manifest_path}\n구성: {description}, 임계값 {DECISION_THRESHOLD:.3f} (대회 규정 고정)")
+
+    names: Optional[List[str]] = None
+    total = None
+    for member in spec.members:
+        member_names, probs = transformer_probabilities(
+            label_dir, member, batch_size=batch_size, device=device)
+        if names is None:
+            names, total = list(member_names), probs.astype("float64")
+        elif list(member_names) != names:
+            raise RuntimeError(f"멤버마다 파일 순서가 다릅니다: {member}")
+        else:
+            total = total + probs
+    blended = total / len(spec.members)
+
+    if spec.tfidf_path is not None:
+        # TF-IDF 멤버는 공백 결합 본문으로 학습했으므로 트랜스포머의 경계 모드와 무관하게 space 로 읽는다.
+        tfidf_names, texts = read_texts(label_dir, "space")
+        if list(tfidf_names) != names:
+            raise RuntimeError("TF-IDF 멤버와 트랜스포머 멤버의 파일 순서가 다릅니다.")
+        member = load_tfidf_member(spec.tfidf_path)
+        blended = (1.0 - spec.tfidf_weight) * blended + spec.tfidf_weight * member.predict_proba(texts)
+    return names, blended
+
+
+def predict_directory(
+    label_dir: Union[str, Path],
+    ckpt_path: Union[str, Path],
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    device: Optional[str] = None,
+):
+    """라벨 폴더 전체를 추론해 제출 규격 DataFrame 을 돌려준다.
+
+    `ckpt_path` 가 run 디렉터리면 단일 모델, `ensemble.json` 번들이면 앙상블·블렌드다.
+    어느 쪽이든 판정은 `symptoms_from_probabilities` 의 0.5 고정 임계값 하나로 한다.
+    """
+    import pandas as pd
+
+    manifest = find_ensemble_manifest(ckpt_path)
+    if manifest is None:
+        names, probabilities = transformer_probabilities(
+            label_dir, ckpt_path, batch_size=batch_size, device=device)
+    else:
+        names, probabilities = ensemble_probabilities(
+            load_ensemble_spec(manifest), label_dir, batch_size=batch_size, device=device)
+
+    if len(probabilities) != len(names):
+        raise RuntimeError(f"확률 행 수({len(probabilities)})와 파일 수({len(names)})가 다릅니다.")
+    predictions = [format_symptoms(symptoms_from_probabilities(row)) for row in probabilities]
 
     return pd.DataFrame(
-        {OUTPUT_COLUMNS[0]: names, OUTPUT_COLUMNS[1]: predictions},
+        {OUTPUT_COLUMNS[0]: list(names), OUTPUT_COLUMNS[1]: predictions},
         columns=OUTPUT_COLUMNS,
     )
