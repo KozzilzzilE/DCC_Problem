@@ -231,6 +231,17 @@ def _resolve_relative(base: Path, value: str) -> Path:
     return path if path.is_absolute() else base / path
 
 
+def _warn_if_outside(base: Path, path: Path, what: str) -> None:
+    """제출은 `--ckpt_path` 폴더 하나다. 그 밖을 가리키면 폴더만 옮겼을 때 깨진다."""
+    try:
+        path.resolve().relative_to(base.resolve())
+    except ValueError:
+        print(
+            f"[경고] {what} 이(가) 번들 밖을 가리킵니다: {path}. "
+            "번들 폴더만 제출하면 찾을 수 없으니, 제출 전에 번들 안으로 복사하세요."
+        )
+
+
 def load_ensemble_spec(manifest_path: Union[str, Path]) -> EnsembleSpec:
     """`ensemble.json` 을 읽고 검증한다. 경로는 manifest 파일 위치 기준 상대경로도 받는다.
 
@@ -242,7 +253,7 @@ def load_ensemble_spec(manifest_path: Union[str, Path]) -> EnsembleSpec:
     임계값은 받지 않는다 (대회 규정 0.5 고정). 모르는 키가 있으면 거부한다.
     """
     manifest_path = Path(manifest_path)
-    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     if not isinstance(data, dict):
         raise ValueError(f"{ENSEMBLE_MANIFEST_NAME} 은 JSON 객체여야 합니다: {manifest_path}")
     unknown = sorted(set(data) - _MANIFEST_KEYS)
@@ -260,6 +271,7 @@ def load_ensemble_spec(manifest_path: Union[str, Path]) -> EnsembleSpec:
     for member in members:
         path = _resolve_relative(base, member)
         resolve_model_dir(path)  # 없으면 FileNotFoundError
+        _warn_if_outside(base, path, f"멤버 {member}")
         resolved.append(path)
 
     tfidf = data.get("tfidf_member")
@@ -279,6 +291,7 @@ def load_ensemble_spec(manifest_path: Union[str, Path]) -> EnsembleSpec:
     tfidf_path = _resolve_relative(base, tfidf)
     if not tfidf_path.is_file():
         raise FileNotFoundError(f"TF-IDF 멤버 파일을 찾을 수 없습니다: {tfidf_path}")
+    _warn_if_outside(base, tfidf_path, f"TF-IDF 멤버 {tfidf}")
     return EnsembleSpec(manifest_path, tuple(resolved), tfidf_path, weight)
 
 
@@ -333,7 +346,8 @@ def transformer_probabilities(
 
     # 길이가 비슷한 것끼리 묶어 padding 낭비를 줄이고, 결과는 원래 순서로 되돌린다.
     order = sorted(range(len(texts)), key=lambda index: len(texts[index]))
-    probabilities = np.full((len(texts), NUM_CLASSES), np.nan, dtype=np.float64)
+    probabilities = np.zeros((len(texts), NUM_CLASSES), dtype=np.float64)
+    filled = np.zeros(len(texts), dtype=bool)
 
     with torch.no_grad():
         for start in range(0, len(order), batch_size):
@@ -351,15 +365,24 @@ def transformer_probabilities(
             batch = {key: value.to(resolved_device) for key, value in batch.items()}
             logits = model(**batch).logits
             probabilities[chunk] = torch.sigmoid(logits.float()).cpu().numpy()
+            filled[chunk] = True
 
     # 여러 멤버를 차례로 올릴 때 이전 모델이 GPU 메모리를 잡고 있지 않게 한다.
     del model
     if resolved_device.type == "cuda":
         torch.cuda.empty_cache()
 
-    missing = [names[i] for i in range(len(names)) if np.isnan(probabilities[i]).any()]
+    missing = [names[i] for i in np.flatnonzero(~filled)]
     if missing:
         raise RuntimeError(f"예측이 누락된 파일이 있습니다: {missing[:5]}")
+    bad = ~np.isfinite(probabilities)
+    if bad.any():
+        rows = np.flatnonzero(bad.any(axis=1))
+        print(
+            f"[경고] 모델 출력에 NaN/inf 가 있는 파일 {len(rows):,}건: {[names[i] for i in rows[:5]]} "
+            "-> 해당 클래스 확률을 0 으로 처리합니다 (0.5 미만이라 음성)."
+        )
+        probabilities = np.nan_to_num(probabilities, nan=0.0, posinf=1.0, neginf=0.0)
     return names, probabilities
 
 

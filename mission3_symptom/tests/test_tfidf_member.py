@@ -177,6 +177,32 @@ class TrainTfidfCliTest(unittest.TestCase):
                 with self.assertRaises(FileExistsError):
                     cli.main()
 
+    def test_cli_rejects_json_output_path(self) -> None:
+        # 출처 기록(.json)이 모델 파일 자체를 덮어쓰면 안 된다.
+        import train_tfidf_member as cli
+
+        texts, labels = toy_corpus()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            csv_path = self._write_csv(root, texts, labels)
+            argv = ["train_tfidf_member.py", "--train-csv", str(csv_path), "--output", str(root / "member.json"), "--min-df", "1"]
+            with patch.object(sys, "argv", argv):
+                with self.assertRaisesRegex(ValueError, "json"):
+                    cli.main()
+
+    def test_cli_refuses_to_overwrite_existing_sidecar(self) -> None:
+        import train_tfidf_member as cli
+
+        texts, labels = toy_corpus()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            csv_path = self._write_csv(root, texts, labels)
+            (root / "tfidf_lr.json").write_text("{}", encoding="utf-8")
+            argv = ["train_tfidf_member.py", "--train-csv", str(csv_path), "--output", str(root / "tfidf_lr.joblib"), "--min-df", "1"]
+            with patch.object(sys, "argv", argv):
+                with self.assertRaises(FileExistsError):
+                    cli.main()
+
 
 if __name__ == "__main__":
     unittest.main()

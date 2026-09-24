@@ -1,7 +1,7 @@
 """Mission 3 (환자 증상 인식) — 미션 폴더 단독 실행용 추론 진입점.
 
     python inference.py --label_dir <json 폴더> \
-                        --ckpt_path runs/<run 이름> --output ./outputs/mission3.csv
+                        --ckpt_path runs/<run 이름 또는 번들> --output ./outputs/mission3.csv
 
 이 파일이 있는 폴더(mission3_symptom/)만 제출해도 동작하도록 만들었다.
   - 같은 폴더의 m3 패키지만 import 한다. 루트 inference.py 처럼 librosa/torchvision 같은
@@ -36,7 +36,7 @@ def parse_args(argv=None):
                    help="받기만 하고 사용하지 않는다. Mission 3 는 대화 본문만 입력으로 허용된다")
     p.add_argument("--label_dir", required=True, help="json 라벨 폴더 (utterances[].text 만 사용)")
     p.add_argument("--ckpt_path", required=True,
-                   help="run 디렉터리(best_model 포함) 또는 best_model 디렉터리")
+                   help="run 디렉터리(best_model 포함), best_model 디렉터리, 또는 ensemble.json 번들 디렉터리")
     p.add_argument("--output", required=True, help="결과 CSV 경로 (예: ./outputs/mission3.csv)")
     p.add_argument("--batch_size", type=int, default=16, help="추론 배치 크기")
     return p.parse_args(argv)

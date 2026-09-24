@@ -209,11 +209,13 @@ CSV 재생성은 `data_preprocessing.ipynb`의 `UTTERANCE_SEP_MODE`만 바꿔 �
 
 | 설정 (KLUE-RoBERTa-base, 로컬 Validation 3,640건) | macro F1@0.5 | 오심 F1@0.5 |
 |---|---:|---:|
-| plain BCE (기존 기준선) | 0.5967 | 0.032 |
-| `--use-pos-weight` (negative/positive) | 0.6189 | 0.363 |
-| **`--use-pos-weight --pos-weight-power 0.5`** | **0.6496** | 0.387 |
+| plain BCE (기존 기준선, val_loss 기준 체크포인트) | 0.5967 | 0.032 |
+| `--use-pos-weight` (negative/positive, val_macro_f1 기준) | 0.6189 | 0.363 |
+| **`--use-pos-weight --pos-weight-power 0.5`** (val_macro_f1 기준, val_loss 기준과 같은 epoch) | **0.6496** | 0.387 |
 | 위 + Training 전용 TF-IDF 블렌드 (w=0.3) | 0.6536 | 0.401 |
 | power 0.5 시드 42~45 평균 + TF-IDF 블렌드 | 0.6546 | 0.395 |
+
+체크포인트 선택 기준이 행마다 다르다. plain BCE 를 val_macro_f1 기준으로 맞추면 epoch 3 의 0.6021 이고, 그래도 power 0.5 가 +0.0475 높다. TF-IDF 의 C 와 w 는 Validation 을 보며 고른 하이퍼파라미터라 이 두 행은 약간 낙관적이다 (자세한 경위는 보고서 6절).
 
 - 기존 `--use-pos-weight` 는 Training 라벨의 negative/positive 를 그대로 써서 모든 클래스를 과보정했다. `--pos-weight-power 0.5` 로 제곱근을 쓰면 9개 클래스가 모두 오르고, 클래스별 임계값을 따로 골라도 더 얻을 것이 없다. 시드 42~45 에서 0.6453~0.6496 으로 재현된다.
 - 발화 경계(`sep`) 입력은 같은 레시피에서 −0.0033 (95% CI −0.008~+0.002) 로 이득이 없어 공백 결합을 유지한다.
@@ -239,12 +241,20 @@ python mission3_symptom/train_tfidf_member.py \
   --output mission3_symptom/runs/tfidf_lr_c0.15/tfidf_lr.joblib
 ```
 
-3. (선택) 번들 — 디렉터리에 `ensemble.json` 을 두고 `--ckpt_path` 로 그 디렉터리를 준다. 경로는 이 파일 위치 기준 상대경로도 된다. 트랜스포머 멤버는 균등 평균, TF-IDF 는 9개 클래스 공통 가중치 하나로 섞고 0.5 로 판정한다. 클래스별 가중치나 `threshold` 키는 거부된다.
+3. (선택) 번들 — 폴더 하나에 `ensemble.json` 과 그것이 쓰는 파일을 **모두** 넣고 `--ckpt_path` 로 그 폴더를 준다. 제출되는 것은 이 폴더 하나이므로 멤버 경로는 `./` 로 시작하는 폴더 안 경로로 적는다 (폴더 밖을 가리키면 추론 시 경고가 나온다). 멤버는 각 run 의 `best_model` 폴더만 복사해도 된다 (안의 `inference_config.json` 이 경계 모드·인코딩·max_length 를 복원한다). 트랜스포머 멤버는 균등 평균, TF-IDF 는 9개 클래스 공통 가중치 하나로 섞고 0.5 로 판정한다. 클래스별 가중치나 `threshold` 키는 거부된다.
+
+```text
+runs/submit_bundle/
+├── ensemble.json
+├── seed42/          # runs/klue_posw0.5_seed42/best_model 복사본
+├── seed43/
+└── tfidf/tfidf_lr.joblib
+```
 
 ```json
 {
-  "members": ["../klue_posw0.5_seed42", "../klue_posw0.5_seed43"],
-  "tfidf_member": "../tfidf_lr_c0.15/tfidf_lr.joblib",
+  "members": ["./seed42", "./seed43"],
+  "tfidf_member": "./tfidf/tfidf_lr.joblib",
   "tfidf_weight": 0.3
 }
 ```
@@ -252,6 +262,12 @@ python mission3_symptom/train_tfidf_member.py \
 4. 제출 추론 — run 디렉터리를 주면 단일 모델, 번들 디렉터리를 주면 앙상블·블렌드다.
 
 ```bash
+# 저장소 루트에서 (주최 측 실행 형태)
+python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_path mission3_symptom/runs/<run 또는 번들> --output ./outputs/mission3.csv
+```
+
+```bash
+# 또는 mission3_symptom/ 폴더 안에서 단독 실행
 python inference.py --label_dir <json 폴더> --ckpt_path runs/<run 또는 번들> --output ./outputs/mission3.csv
 ```
 

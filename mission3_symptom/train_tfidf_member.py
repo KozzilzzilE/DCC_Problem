@@ -44,8 +44,13 @@ def main(argv=None) -> int:
     from m3.tfidf_member import fit_tfidf_member, save_tfidf_member
 
     output = Path(args.output)
-    if output.exists() and not args.overwrite:
-        raise FileExistsError(f"이미 있습니다: {output} (--overwrite 로 덮어쓰기)")
+    sidecar = output.with_suffix(".json")
+    if sidecar == output:
+        raise ValueError(f"--output 은 .json 이 아닌 모델 경로(.joblib)여야 합니다: {output}")
+    if not args.overwrite:
+        for path in (output, sidecar):
+            if path.exists():
+                raise FileExistsError(f"이미 있습니다: {path} (--overwrite 로 덮어쓰기)")
 
     frame = load_symptom_csv(args.train_csv)
     texts = frame["text"].astype(str).tolist()
@@ -70,7 +75,7 @@ def main(argv=None) -> int:
         "positives": {symptom: int(labels[:, i].sum()) for i, symptom in enumerate(TARGET_SYMPTOMS)},
         "note": "Training CSV 로만 적합. Validation/Test 는 transform 만 한다.",
     }
-    output.with_suffix(".json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    sidecar.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"저장: {output}  (Training {member.train_rows:,}행, C={member.C}, min_df={member.min_df})")
     return 0
 

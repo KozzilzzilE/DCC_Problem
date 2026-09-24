@@ -12,8 +12,8 @@
 
 | 설정 | macro F1@0.5 | 오심 F1@0.5 |
 |---|---:|---:|
-| plain BCE (기존 기준선) | 0.5967 | 0.032 |
-| `--use-pos-weight` (negative/positive, 기존 옵션) | 0.6189 | 0.363 |
+| plain BCE (기존 기준선, val_loss 기준 체크포인트) | 0.5967 | 0.032 |
+| `--use-pos-weight` (negative/positive, 기존 옵션, val_macro_f1 기준) | 0.6189 | 0.363 |
 | **`--use-pos-weight --pos-weight-power 0.5`** | **0.6496** | 0.387 |
 | 위 + Training 전용 TF-IDF 블렌드 (w=0.3) | 0.6536 | 0.401 |
 | power 0.5 시드 42~45 평균 + TF-IDF 블렌드 | **0.6546** | 0.395 |
@@ -57,7 +57,8 @@
 - power 1.0 은 모든 클래스를 과보정한다. 이 모델의 클래스별 Validation 최적 임계값이 0.59~0.83 으로 전부 0.5 위에 있었다.
 - power 0.5 는 9개 클래스 모두 기준선보다 높고, 클래스별 결정점 cross-fit 이득이 **−0.0007** 로 사라졌다. 순위 품질(same-set optimized F1 0.6570)은 기준선과 같다.
 - power 는 {1.0, 0.5} 중 Validation macro F1@0.5 로 골랐다 (FAQ 3번의 하이퍼파라미터 선택). power 1.0 의 과보정 방향을 보고 0.5 를 정했고, 사전 오프라인 추정에서도 0.5 가 최적이었다.
-- 체크포인트는 `--checkpoint-metric val_macro_f1` 로 골랐다. 세 run 모두 val_loss 최소 epoch 와 같은 epoch 2 였다.
+- 체크포인트 선택 기준은 run 마다 다르다. plain BCE s42 는 팀 기본값인 `val_loss` 최소(epoch 2), power 1.0 s42 와 power 0.5 s42 는 `--checkpoint-metric val_macro_f1`(각각 epoch 3, epoch 2)이다. power 0.5 의 epoch 2 는 val_loss 최소 epoch 와 같으므로 plain BCE 대비 +0.0529 는 val_loss 기준으로 맞춘 비교다. val_macro_f1 기준으로 맞추면 plain BCE 는 epoch 3 의 0.6021 이고 차이는 +0.0475 다. val_loss 기준으로 맞추면 power 1.0 은 epoch 2 의 0.6083 이다.
+- power 0.5 의 다른 run(시드 43·44·45, `[SEP]`)도 모두 val_loss 최소 epoch 와 val_macro_f1 최고 epoch 가 같았다.
 
 ### 3.1 시드 재현
 
@@ -102,7 +103,7 @@ power 0.5 대 plain BCE (seed 42, 짝 부트스트랩 1,000회): **+0.0529, 95% 
 
 ## 6. Training 전용 TF-IDF 블렌드
 
-`m3/tfidf_member.py`: char_wb 2-4gram + 공백 토큰 1-2gram TF-IDF, 클래스별 LogisticRegression(`C=0.15`, `class_weight='balanced'`). C 는 Training 5-fold OOF 로 골랐다. **Training CSV 로만 적합**하고 Validation/Test 는 transform 만 한다. 트랜스포머 확률과 **9개 클래스 공통 가중치 하나(w=0.3)** 로 섞고 0.5 로 판정한다.
+`m3/tfidf_member.py`: char_wb 2-4gram + 공백 토큰 1-2gram TF-IDF, 클래스별 LogisticRegression(`C=0.15`, `class_weight='balanced'`). **Training CSV 로만 적합**하고 Validation/Test 는 transform 만 한다. 트랜스포머 확률과 **9개 클래스 공통 가중치 하나(w=0.3)** 로 섞고 0.5 로 판정한다.
 
 | 기준 모델 | macro F1@0.5 | 오심 F1@0.5 | 오심 AP |
 |---|---|---|---|
@@ -115,6 +116,7 @@ power 0.5 대 plain BCE (seed 42, 짝 부트스트랩 1,000회): **+0.0529, 95% 
 - 단일 모델에서는 매번 오르고 다른 클래스 손실은 최대 0.004 다. seed 42 기준 짝 부트스트랩 macro 차이 95% CI [+0.001, +0.008].
 - 4-seed 평균 위에서는 이득이 줄고 CI 가 0 을 포함한다 (macro [−0.001, +0.006]).
 - 이득의 대부분은 balanced LR 이 확률을 끌어올려 작동점이 옮겨지는 효과다. 가중치는 전 클래스 공통이라 클래스별 임계값 조정에 해당하지 않는다.
+- **하이퍼파라미터 선택 경위.** C=0.15 는 처음에 Validation 오심 지표를 보며 탐색했고, 이후 Training 5-fold OOF 에서 오심 AUROC/AP 가 가장 높은 값으로 확인했다 (OOF macro 기준으로는 C=0.5 가 약간 높았다). w 는 {0~0.6} 중 seed 42·43 run 의 Validation macro F1@0.5 로 골랐다. 둘 다 9개 클래스 공통 스칼라이며 FAQ 3번이 허용한 하이퍼파라미터 선택이지만, seed 42·43 행의 개선폭은 선택에 쓴 데이터에서 잰 값이라 낙관적이다. w 를 정한 뒤 학습한 seed 44·45 에서는 macro +0.0040, +0.0027 이었다.
 
 ---
 
@@ -126,7 +128,7 @@ power 0.5 대 plain BCE (seed 42, 짝 부트스트랩 1,000회): **+0.0529, 95% 
 | `runs/submit_s42_tfidf` (단일 + TF-IDF) | 0.6536 | 0.401 | 42초 |
 | `runs/submit_4seed_tfidf` (4-seed + TF-IDF) | 0.6546 | 0.395 | 101초 |
 
-`runs/` 는 git 에 올라가지 않는다. 번들은 `ensemble.json` 과 그것이 가리키는 run 디렉터리·TF-IDF 파일로 구성된다. 형식은 README 의 "권장 레시피" 절을 따른다.
+`runs/` 는 git 에 올라가지 않는다. 번들은 `ensemble.json` 과 그것이 가리키는 멤버 `best_model` 폴더·TF-IDF 파일을 **한 폴더 안에** 담는다. 제출은 `--ckpt_path` 폴더 하나이므로, 폴더 밖을 가리키는 번들은 로컬에서는 돌아도 제출하면 깨진다 (추론 시 경고). 위 두 번들은 자기완결 구조로 다시 만들어, 번들 폴더만 다른 위치로 복사해 실행해도 같은 점수가 나오는 것을 확인했다. 형식은 README 의 "권장 레시피" 절을 따른다.
 
 ---
 

@@ -83,5 +83,40 @@ class PosWeightPowerTest(unittest.TestCase):
         self.assertEqual(power_config.pos_weight_power, 0.5)
 
 
+class RunTrainingWiringTest(unittest.TestCase):
+    def test_run_training_feeds_power_into_loss(self) -> None:
+        """run_training 이 설정의 power 로 계산한 pos_weight 를 손실에 넘기는지 고정한다."""
+        import tempfile
+        from unittest.mock import MagicMock
+
+        from m3 import training
+
+        class _Stop(Exception):
+            pass
+
+        frame = pd.DataFrame({"text": ["a"] * 5, **{s: [1, 0, 0, 0, 0] for s in TARGET_SYMPTOMS}})
+        captured = {}
+
+        def fake_build_loss(loss_type, pos_weight=None, **kwargs):
+            captured["pos_weight"] = pos_weight
+            raise _Stop
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(training, "load_symptom_csv", return_value=frame), \
+                patch.object(training, "verify_utterance_sep_mode"), \
+                patch.object(training, "build_tokenizer_and_model", return_value=(MagicMock(), MagicMock())), \
+                patch.object(training, "calculate_token_length_stats", return_value={}), \
+                patch.object(training, "_create_train_val_loaders", return_value=(None, None, None)), \
+                patch.object(training, "build_loss", side_effect=fake_build_loss):
+            config = TrainingConfig(
+                train_csv="train.csv", val_csv="val.csv", output_dir=str(Path(tmp) / "out"),
+                use_pos_weight=True, pos_weight_power=0.5, device="cpu",
+            )
+            with self.assertRaises(_Stop):
+                training.run_training(config)
+
+        self.assertTrue(torch.allclose(captured["pos_weight"].cpu(), torch.full((NUM_CLASSES,), 2.0)))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,9 @@
   - 입력은 공백으로 이어 붙인 `utterances[].text` 뿐이다 (발화 경계 토큰 없음).
   - vectorizer 와 LR 은 Training CSV 로만 적합한다. Validation/Test 는 transform 만 한다.
   - 클래스별 LR 은 `class_weight='balanced'` 이고 정규화 강도 C 는 모든 클래스 공통이다.
-    기본 C=0.15 는 Training 5-fold OOF 에서 고른 값이다 (Validation 미사용).
+    기본 C=0.15 는 처음에 Validation 오심 지표를 보며 탐색했고(하이퍼파라미터 선택),
+    이후 Training 5-fold OOF 에서 오심 AUROC/AP 가 가장 높은 값으로 확인했다.
+    OOF 의 macro 기준으로는 C=0.5 가 약간 더 높았다.
 """
 
 from __future__ import annotations

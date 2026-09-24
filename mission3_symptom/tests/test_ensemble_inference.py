@@ -218,5 +218,118 @@ class EnsembleEndToEndTest(unittest.TestCase):
         self.assertEqual(list(frame.columns), ["label file name", "symptom"])
 
 
+class ReviewFollowUpTest(unittest.TestCase):
+    """PR 전 리뷰에서 확인된 문제들의 회귀 테스트."""
+
+    def test_manifest_with_utf8_bom_loads(self) -> None:
+        # Windows PowerShell 5.1 의 Out-File -Encoding utf8 은 BOM 을 붙인다.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_run(root, "a")
+            bundle = root / "bundle"
+            bundle.mkdir()
+            manifest = bundle / ENSEMBLE_MANIFEST_NAME
+            manifest.write_text(json.dumps({"members": ["../a"]}), encoding="utf-8-sig")
+
+            spec = load_ensemble_spec(manifest)
+
+        self.assertEqual(len(spec.members), 1)
+
+    def test_self_contained_bundle_can_be_moved_alone(self) -> None:
+        import shutil
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bundle = root / "bundle"
+            make_run(bundle, "seed42")
+            (bundle / "tfidf").mkdir()
+            (bundle / "tfidf" / "m.joblib").write_bytes(b"x")
+            write_manifest(bundle, {"members": ["./seed42"], "tfidf_member": "./tfidf/m.joblib", "tfidf_weight": 0.3})
+            (root / "elsewhere").mkdir()
+            moved = Path(shutil.move(str(bundle), str(root / "elsewhere" / "submission")))
+
+            spec = load_ensemble_spec(moved / ENSEMBLE_MANIFEST_NAME)
+
+        self.assertEqual(spec.members[0].name, "seed42")
+        self.assertEqual(spec.tfidf_path.name, "m.joblib")
+
+    def test_warns_when_bundle_points_outside_itself(self) -> None:
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_run(root, "a")
+            manifest = write_manifest(root / "bundle", {"members": ["../a"]})
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                load_ensemble_spec(manifest)
+
+        self.assertIn("번들 밖", buffer.getvalue())
+
+    def test_blend_probabilities_are_exactly_weighted(self) -> None:
+        from m3.infer import ensemble_probabilities
+
+        transformer = np.linspace(0.05, 0.85, NUM_CLASSES)
+        tfidf = np.linspace(0.9, 0.1, NUM_CLASSES)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_run(root, "a")
+            (root / "m.joblib").write_bytes(b"x")
+            manifest = write_manifest(root / "bundle", {
+                "members": ["../a"], "tfidf_member": "../m.joblib", "tfidf_weight": 0.3})
+            label_dir = root / "labels"
+            write_labels(label_dir)
+            names = sorted(p.name for p in label_dir.glob("*.json"))
+            with patch.object(infer, "transformer_probabilities",
+                              return_value=(names, np.tile(transformer, (len(names), 1)))), \
+                    patch.object(infer, "load_tfidf_member", return_value=FakeTfidf(tfidf)):
+                _, blended = ensemble_probabilities(load_ensemble_spec(manifest), label_dir)
+
+        np.testing.assert_allclose(blended, np.tile(0.7 * transformer + 0.3 * tfidf, (len(names), 1)))
+
+    def test_nan_logit_class_is_dropped_like_before_not_a_crash(self) -> None:
+        """기존 단일 모델 경로는 NaN 확률 클래스를 0.5 미만으로 보고 버렸다. 그대로여야 한다."""
+        import contextlib
+        import io
+        from types import SimpleNamespace
+
+        import torch
+
+        class StubTokenizer:
+            def __call__(self, text, **kwargs):
+                return {"input_ids": [1, 2, 3], "attention_mask": [1, 1, 1]}
+
+            def pad(self, features, padding=True, return_tensors="pt"):
+                return {k: torch.tensor([f[k] for f in features]) for k in features[0]}
+
+        class StubModel:
+            def to(self, device):
+                return self
+
+            def eval(self):
+                return self
+
+            def __call__(self, **batch):
+                logits = torch.full((batch["input_ids"].shape[0], NUM_CLASSES), 5.0)
+                logits[:, 0] = float("nan")
+                return SimpleNamespace(logits=logits)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = make_run(root, "run")
+            (run_dir / "run_config.json").write_text(json.dumps({"utterance_sep_mode": "space"}), encoding="utf-8")
+            label_dir = root / "labels"
+            write_labels(label_dir)
+            buffer = io.StringIO()
+            with patch("m3.model.load_saved_model", return_value=(StubTokenizer(), StubModel())), \
+                    contextlib.redirect_stdout(buffer):
+                frame = predict_directory(label_dir, run_dir, device="cpu")
+
+        expected = str([s for s in TARGET_SYMPTOMS if s != TARGET_SYMPTOMS[0]])
+        self.assertTrue((frame["symptom"] == expected).all())
+        self.assertIn("NaN", buffer.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
