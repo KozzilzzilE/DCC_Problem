@@ -2,6 +2,8 @@
 
 ## 1. 대회 규정: 결정 임계값 0.5 고정
 
+> 대회 공지(2026-09-25, Decision Threshold FAQ Q1~Q5): 최종 확률을 0/1 로 바꾸는 임계값은 Train/Validation 과 무관하게 **모든 클래스 0.5 고정**이다. Train 분할·OOF·Validation 어디서 고른 값이든 0.5 가 아닌 임계값과 클래스별 임계값은 threshold tuning 이라 금지이고, 확률을 더 잘 내도록 하는 학습·calibration(calibration 을 고려한 loss 설계 포함)은 허용된다.
+
 주최 측 규정으로 제출 시 결정 임계값은 **0.5 고정**이다. 따라서 이 폴더의 문서에 나오는
 `optimized Macro F1`, `class-wise threshold` 수치는 **제출 성능이 아니라 연구 기록**이다.
 제출 성능을 인용할 때는 각 run 의 `baseline_metrics.json` 에 있는 `val_macro_f1`
@@ -30,3 +32,4 @@
 | `truncation_eval.md` | 512 토큰 절단 복구 실험 (개선 없음) |
 | `label_dependency_eval.md` | Label Dependency Loss 검증 (개선 없음) |
 | `pairwise_eval.md` | Pairwise Ranking Loss 검증 (개선 없음) |
+| `calibration_eval.md` | 임계값 0.5 고정 기준 pos_weight 거듭제곱·발화 경계·오심·TF-IDF 블렌드 검증 (F1@0.5 0.5967 → 0.6496, 블렌드 0.6536~0.6546) |

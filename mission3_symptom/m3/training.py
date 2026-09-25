@@ -57,6 +57,9 @@ class TrainingConfig:
     device: str = "auto"
     amp: bool = False
     use_pos_weight: bool = False
+    # pos_weight = (negative / positive) ** power. 1.0 은 기존 동작, 0 은 plain BCE 와 같다.
+    # 임계값 0.5 고정에서는 1.0 이 모든 클래스를 과보정해 0.5 가 로컬 실측 최적이었다.
+    pos_weight_power: float = 1.0
     local_files_only: bool = False
     max_train_samples: Optional[int] = None
     max_val_samples: Optional[int] = None
@@ -310,6 +313,10 @@ def _validate_config(config: TrainingConfig) -> None:
     if config.loss_type == "pairwise":
         if config.pairwise_alpha < 0:
             raise ValueError("pairwise_alpha는 0 이상이어야 합니다.")
+    if not math.isfinite(config.pos_weight_power) or config.pos_weight_power < 0:
+        raise ValueError("pos_weight_power는 0 이상의 유한한 값이어야 합니다.")
+    if config.pos_weight_power != 1.0 and not config.use_pos_weight:
+        raise ValueError("pos_weight_power를 바꾸려면 use_pos_weight를 함께 켜야 합니다.")
     if config.loss_type == "asl":
         if config.use_pos_weight:
             raise ValueError("ASL ablation에서는 use_pos_weight를 함께 사용할 수 없습니다.")
@@ -361,7 +368,9 @@ def _build_optimizer(model, learning_rate: float, weight_decay: float):
 def _calculate_pos_weights(
     train_df,
     device: torch.device,
+    power: float = 1.0,
 ) -> Tuple[torch.Tensor, Dict[str, Dict[str, object]]]:
+    """Training 라벨 개수로만 `(negative / positive) ** power` 를 계산한다."""
     positive_counts = train_df[TARGET_SYMPTOMS].sum(axis=0).astype(np.int64)
     zero_positive = [
         symptom for symptom in TARGET_SYMPTOMS if int(positive_counts[symptom]) == 0
@@ -373,11 +382,14 @@ def _calculate_pos_weights(
         )
 
     negative_counts = len(train_df) - positive_counts
-    weight_values = negative_counts / positive_counts
+    ratios = negative_counts / positive_counts
+    weight_values = ratios ** float(power)
     statistics = {
         symptom: {
             "positive_count": int(positive_counts[symptom]),
             "negative_count": int(negative_counts[symptom]),
+            "negative_over_positive": float(ratios[symptom]),
+            "pos_weight_power": float(power),
             "pos_weight": float(weight_values[symptom]),
         }
         for symptom in TARGET_SYMPTOMS
@@ -521,8 +533,10 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
     pos_weight_statistics = None
     pos_weights = None
     if config.use_pos_weight:
-        pos_weights, pos_weight_statistics = _calculate_pos_weights(train_df, device)
-        print("Training label 기반 pos_weight:")
+        pos_weights, pos_weight_statistics = _calculate_pos_weights(
+            train_df, device, power=config.pos_weight_power
+        )
+        print(f"Training label 기반 pos_weight (power={config.pos_weight_power}):")
         for symptom in TARGET_SYMPTOMS:
             stats = pos_weight_statistics[symptom]
             print(

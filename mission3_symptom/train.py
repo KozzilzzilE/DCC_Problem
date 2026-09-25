@@ -30,6 +30,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--use-pos-weight", action="store_true")
+    parser.add_argument(
+        "--pos-weight-power",
+        type=float,
+        default=1.0,
+        help="pos_weight = (negative/positive) ** power. 1.0 은 기존 동작, 0.5 가 임계값 0.5 고정 기준 실측 최적",
+    )
     parser.add_argument("--loss-type", choices=("bce", "asl", "dependency", "pairwise"), default="bce")
     parser.add_argument("--dependency-alpha", type=float, default=0.1, help="Weight for Label Dependency Loss")
     parser.add_argument("--pairwise-alpha", type=float, default=0.1, help="Weight for Pairwise Ranking Loss")
@@ -121,6 +127,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         device=args.device,
         amp=args.amp,
         use_pos_weight=args.use_pos_weight,
+        pos_weight_power=args.pos_weight_power,
         loss_type=args.loss_type,
         dependency_alpha=args.dependency_alpha,
         pairwise_alpha=args.pairwise_alpha,
