@@ -133,7 +133,7 @@ def score(
     truth: dict[str, str],
     threshold: float = 0.5,
 ) -> CallMetrics:
-    """truth: call_id -> 'M' | 'F'. threshold 는 체크포인트에 보정된 값을 넘긴다."""
+    """truth: call_id -> 'M' | 'F'. threshold 는 대회 규정상 0.5 고정 (보정값은 연구용 분석에서만)."""
     call_probs = call_probabilities(samples, segment_probs)
 
     confusion = {"남->남": 0, "남->여": 0, "여->남": 0, "여->여": 0}

@@ -3,12 +3,12 @@
     python -m m1.overlap --ckpt a.pt --ckpt b.pt --ckpt c.pt
 
 각 체크포인트의 통화 확률은 reports/call_probs_<stem>.json 에 저장/재사용하고,
-임계값은 체크포인트에 보정된 값을 쓴다. 튜닝 없는 고정 평균 앙상블과 oracle
-(매 통화마다 맞는 모델을 고를 수 있을 때의 상한)만 보고한다.
+임계값은 대회 규정대로 0.5 고정이다 (--use-ckpt-threshold 는 연구용). 튜닝 없는 고정 평균
+앙상블과 oracle(매 통화마다 맞는 모델을 고를 수 있을 때의 상한)만 보고한다.
 
-실측 (2026-09-07, resnet / w2v2 / audeering):
-  셋 다 오답 46 통화(1.26%) -> 3-way oracle 0.9874. 고정 평균은 어느 조합도
-  w2v2 단독(0.9835)을 넘지 못했다. 그 46 통화가 이 데이터의 오답 바닥이다.
+실측 (임계값 0.5, resnet_full / w2v2_full / audeering_full):
+  셋 다 오답 49 통화(1.35%) -> 3-way oracle 0.9865. 고정 평균은 어느 조합도
+  w2v2 단독(0.9835)을 넘지 못했다 (최고 0.9827). 그 49 통화가 이 데이터의 오답 바닥이다.
 """
 from __future__ import annotations
 
