@@ -227,7 +227,7 @@ sequenceDiagram
 | **Exp 0-C** | **순정 Mel 풀학습 (완료)** | **AudioResNet-50** | Local (RTX 3060) | 32 | 10 ep | 약 22.0시간 | ~4.8 GB | **91.20%** | 🏢 **[비전 앵커]** 90.20% ➔ 91.20% (+1.00%p 상승) / `best_resnet50.pt` 저장 |
 | **Exp 0-D** | **3대장 Soft Voting 앙상블** | **ResNet + ReDim + ECAPA** | Local (RTX 3060) | - | 추론 전용 | ~3분 | ~4.8 GB | **측정 대기** | 🚀 **[다음 즉시 실행 가능]** 3대 모델 가중 평균 ➔ **목표 93~95%+** |
 | **Exp 1** | 3채널 Delta 결합 | ReDimNet / ECAPA | Local (RTX 3060) | 32 | 10 ep | 기록 예정 | 기록 예정 | 측정 예정 | 톤 변화 가속도 채널 추가 시 점수 비교 |
-| **Exp 2** | 대역 필터 (200~4000Hz) | ReDimNet / ECAPA | Local (RTX 3060) | 32 | 10 ep | 기록 예정 | 기록 예정 | 측정 예정 | 전화망 필터뱅크 집중 배치 효과 검증 |
+| **Exp 2** | **특화 전처리 (200~4000Hz + RMS)** | **3대 챔피언 공통** | Local (RTX 3060) | 32 | **3 ep (FT)** | ~3시간 | ~4.8 GB | 📉 **~0.5%p 하락** | ❌ **[가설 4 기각]** 멜-빈 왜곡 및 환경소음 상실로 실패 ([분석 보고서](issues/11_specialized_preprocessing_failure.md) 참고) |
 | **Exp 3** | 풀패키지 + SpecAugment | ReDimNet / ECAPA | Local (RTX 3060) | 32 | 10 ep | 기록 예정 | 기록 예정 | 측정 예정 | 최종 특화 전처리 단일 모델 최고점 |
 
 ---
