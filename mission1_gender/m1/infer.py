@@ -18,14 +18,25 @@ from scipy.signal import resample_poly
 
 from .aggregate import call_label, call_probability
 from .config import FeatureConfig
-from .datasets import crop_or_pad, to_waveform
+from .datasets import RESAMPLE_BRANCHES, crop_or_pad, to_waveform
 from .features import sliding_windows
 from .labels import CallRecord, caller_utterances, iter_calls
-from .models import checkpoint_threshold, load_checkpoint
+from .models import checkpoint_threshold, decision_threshold, load_checkpoint
 
 OUTPUT_COLUMNS = ["audio file name", "gender"]
 MIN_SEGMENT_MS = 100
 STRIDE_RATIO = 0.5
+EMPTY_CACHE_EVERY = 200   # 이 배치 수마다 torch.cuda.empty_cache() (m1.evaluate 와 동일)
+
+
+def suggested_batch_size(branch: str) -> int:
+    """갈래별 기본 추론 배치. 8 GB GPU 에서 VRAM 을 넘기지 않는 값.
+
+    w2v2 는 16 kHz 창(48,896 샘플)이라 배치 128 이면 예약 메모리가 9.2 GB 로 8 GB 를
+    넘어 Windows WDDM 이 시스템 RAM 으로 페이징한다 — OOM 없이 조용히 10배 느려진다
+    (통화당 616 ms). 배치 32 는 3.2 GB, 통화당 58 ms. ResNet 은 8 kHz 멜이라 128 도 안전.
+    """
+    return 32 if branch in RESAMPLE_BRANCHES else 128
 
 
 def _load_call_audio(wav_path: Path, target_sr: int) -> np.ndarray | None:
@@ -82,10 +93,13 @@ def predict_directory(
     label_dir: str | Path,
     ckpt_path: str | Path,
     device: str | torch.device | None = None,
-    batch_size: int = 128,
+    batch_size: int | None = None,
     verbose: bool = True,
 ) -> pd.DataFrame:
-    """label_dir 의 통화마다 한 행씩, [audio file name, gender] DataFrame 을 만든다."""
+    """label_dir 의 통화마다 한 행씩, [audio file name, gender] DataFrame 을 만든다.
+
+    batch_size 가 None 이면 갈래별 기본값(suggested_batch_size)을 쓴다.
+    """
     audio_dir = Path(audio_dir)
     label_dir = Path(label_dir)
 
@@ -94,12 +108,16 @@ def predict_directory(
     device = torch.device(device)
 
     model, branch, cfg, payload = load_checkpoint(ckpt_path, device=device)
-    threshold = checkpoint_threshold(payload)
+    threshold = decision_threshold(payload)          # 대회 규정: 0.5 고정
+    if batch_size is None:
+        batch_size = suggested_batch_size(branch)
     if verbose:
         trained = payload.get("metrics", {}).get("dev_call_accuracy")
+        stored = (payload.get("extra") or {}).get("decision_threshold")
         print(f"[Mission 1] branch={branch} device={device} feature={cfg.kind}"
-              f" threshold={threshold:.3f}"
-              + (f" dev_call_acc={trained:.4f}" if trained else ""))
+              f" threshold={threshold:.3f} (규정 고정) batch_size={batch_size}"
+              + (f" dev_call_acc={trained:.4f}" if trained else "")
+              + (f" | ckpt 저장값 {checkpoint_threshold(payload):.3f} 은 무시" if stored is not None else ""))
 
     records = list(iter_calls(label_dir))
 
@@ -108,10 +126,15 @@ def predict_directory(
     # (call_id, seg_idx) -> 창 확률의 합/개수. 조각 단위로 먼저 평균한다.
     sums: dict[tuple[str, int], float] = {}
     counts: dict[tuple[str, int], int] = {}
+    flushes = 0
 
     def flush() -> None:
+        nonlocal flushes
         if not batch:
             return
+        flushes += 1
+        if device.type == "cuda" and flushes % EMPTY_CACHE_EVERY == 0:
+            torch.cuda.empty_cache()
         waveform = torch.from_numpy(np.stack(batch)).to(device)
         with torch.autocast(device_type=device.type, enabled=device.type == "cuda"):
             logits = model(waveform)

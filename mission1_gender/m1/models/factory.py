@@ -15,8 +15,10 @@ from ..config import FeatureConfig
 
 CHECKPOINT_VERSION = 1
 
-# 조각 확률을 통화 단위로 평균했을 때의 기본 결정 경계.
-# m1.calibrate 로 dev 에서 보정한 값이 체크포인트에 있으면 그쪽이 우선한다.
+# 조각 확률을 통화 단위로 평균했을 때의 결정 경계. **대회 규정으로 0.5 고정.**
+# m1.calibrate 가 dev 에서 고른 값이 체크포인트에 남아 있어도 제출 경로(infer)와
+# 비교표(benchmark/analysis/overlap 기본값)는 이 값을 쓴다. 저장값은 연구용
+# (--use-ckpt-threshold) 으로만 읽는다.
 DEFAULT_THRESHOLD = 0.5
 
 
@@ -94,8 +96,15 @@ def load_checkpoint(path: str | Path, device: str | torch.device = "cpu") -> tup
     return model, branch, cfg, payload
 
 
+def decision_threshold(payload: dict, use_checkpoint: bool = False) -> float:
+    """실제 판정에 쓸 임계값. 규정상 0.5 고정이며, use_checkpoint=True 일 때만 저장값."""
+    if use_checkpoint:
+        return checkpoint_threshold(payload)
+    return DEFAULT_THRESHOLD
+
+
 def checkpoint_threshold(payload: dict) -> float:
-    """체크포인트에 보정된 임계값이 있으면 그 값, 없으면 0.5."""
+    """체크포인트에 기록된 보정 임계값(연구 기록). 없으면 0.5. 판정에는 decision_threshold 를 쓴다."""
     value = (payload or {}).get("extra", {}).get("decision_threshold")
     if value is None:
         return DEFAULT_THRESHOLD

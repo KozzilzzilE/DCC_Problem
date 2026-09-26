@@ -1,4 +1,8 @@
-"""결정 임계값 보정 — dev 에서 정해 체크포인트에 저장한다.
+"""(연구용) 결정 임계값 보정 — dev 에서 정해 체크포인트에 기록한다.
+
+**대회 규정으로 결정 임계값은 0.5 고정이다.** 여기서 기록한 값은 제출 경로(m1.infer)와
+비교표 기본값이 무시하며, benchmark/analysis/overlap 에 --use-ckpt-threshold 를 줄 때만
+읽힌다. 보정 이득이 얼마나 되는지를 기록으로 남기는 용도다.
 
     python -m m1.calibrate --ckpt mission1_gender/ckpt/resnet_full.pt
 

@@ -21,7 +21,7 @@ from ._console import ensure_utf8_stdout
 from .cache import CacheIndex
 from .datasets import samples_from_rows
 from .evaluate import suggested_workers, majority_baseline, predict_segment_probs, score, truth_from_samples
-from .models import checkpoint_threshold, load_checkpoint
+from .models import decision_threshold, load_checkpoint
 
 COLUMNS = [
     ("label", "체크포인트"),
@@ -48,6 +48,8 @@ def parse_args(argv=None):
                    help="기본값은 갈래에 맞춰 자동 (resnet 0 / 16k 업샘플 갈래 4)")
     p.add_argument("--eval-mode", choices=("center", "sliding"), default="sliding")
     p.add_argument("--latency-calls", type=int, default=200)
+    p.add_argument("--use-ckpt-threshold", action="store_true",
+                   help="(연구용) 체크포인트에 저장된 보정 임계값으로 채점. 기본은 규정대로 0.5 고정")
     return p.parse_args(argv)
 
 
@@ -121,7 +123,7 @@ def evaluate_checkpoint(path: Path, args, device) -> dict:
         batch_size=args.batch_size, mode=args.eval_mode, num_workers=args.num_workers if args.num_workers is not None else suggested_workers(branch),
     )
     val_seconds = time.perf_counter() - started
-    threshold = checkpoint_threshold(payload)
+    threshold = decision_threshold(payload, use_checkpoint=args.use_ckpt_threshold)
     metrics = score(samples, probs, truth, threshold)
 
     history_path = path.with_suffix(".history.json")
