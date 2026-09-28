@@ -40,6 +40,36 @@
 
 ---
 
+## 제출 추론 — 이 폴더만으로 실행
+
+이 폴더(`mission3_symptom/`) 안의 `inference.py` 가 미션 단독 진입점이다. 같은 폴더의 `m3` 만 import 한다. 입력은 `utterances[].text` 뿐이고 `--audio_dir` 는 받기만 한다.
+
+```bash
+cd mission3_symptom
+python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_path runs/submit_s42_tfidf --output ./outputs/mission3.csv
+```
+
+`--ckpt_path` 는 파일 하나가 아니라 번들 폴더다 (`ensemble.json` + `seed42/` + `tfidf/`). 가중치는 `.gitignore` 의 `runs/` 아래라 git 에 없다. 승윤이 올린 `submit_s42_tfidf.zip` 을 여기 풀어 넣는다. 추론 시 허브 접속이 없어야 하므로 `HF_HUB_OFFLINE=1` 을 붙인다. 결정 임계값은 0.5 고정이다.
+
+저장소 루트 `inference.py` 는 output 파일명에 `mission3` 이 있으면 같은 `m3.infer` 를 호출한다.
+
+## 계산 효율성 (채점 안내)
+
+| 항목 | 제출 `submit_s42_tfidf` |
+|---|---|
+| 모델 | KLUE-RoBERTa-base + TF-IDF 블렌드 w=0.3, seed 42 |
+| Validation Macro F1@0.5 | **0.6536** |
+| 결정 임계값 | 9클래스 모두 **0.5** |
+| Total 파라미터 | 110,625,033 |
+| Active 파라미터 (추론) | 110,625,033 — dense, 전 파라미터 사용. TF-IDF는 sklearn 보조 멤버 |
+| 학습·추론 환경 | NVIDIA GeForce RTX 5060 (8 GB), torch 2.13.0+cu130, AMP |
+| Validation 추론 batch size | **16** (`inference.py --batch_size`) |
+| Validation 전체 추론 시간 (3,640통화) | **약 42초** (단일 KLUE + TF-IDF) |
+
+42초는 로컬 RTX 5060에서 폴더 `inference.py`로 잰 벽시계다. 단일 KLUE만이면 27.5초, 4-seed+TF-IDF는 101초라 제출에는 쓰지 않는다.
+
+---
+
 ## 📁 구조
 
 ```text
@@ -61,10 +91,12 @@ mission3_symptom/
 │   ├── comparison.md            # (synthetic, 분석 전용) 0.5 vs 클래스별 임계값 비교 — 제출 미사용
 ├── extract_labels.ipynb         # ★ 1단계: 원본 zip(001~013)에서 JSON 라벨 32,840건 고속 추출 노트북
 ├── data_preprocessing.ipynb     # ★ 2단계: 규정 준수 텍스트 정제 & 9개 타겟 증상 CSV 생성 전처리 노트북
-├── model_train.ipynb            # ★ 3단계: 실제 baseline 결과 검증 및 시각화 노트북
+├── model_train.ipynb            # ★ 3단계: 제출 레시피 학습 로그 (KLUE + pos_weight 0.5 + TF-IDF)
 ├── train.py                     # 공통 backbone 학습 CLI
 ├── train_tfidf_member.py        # Training 전용 TF-IDF+LR 멤버 학습 CLI
 ├── inference.py                 # 미션 폴더 단독 제출 진입점
+├── requirements.txt             # 이 폴더 단독 제출용 패키지
+├── runs/submit_s42_tfidf/       # 제출 가중치 (git 없음, zip을 여기에 품)
 ├── tests/                       # 데이터 및 label shape 단위 테스트
 └── README.md                    # 현재 문서
 ```
