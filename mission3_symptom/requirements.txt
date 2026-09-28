@@ -1,0 +1,35 @@
+# Mission 3 (환자 증상 다중 라벨) 실행 환경 — 이 폴더 단독 제출 기준
+#
+# torch 는 채점 머신의 GPU 에 맞는 CUDA 빌드를 받아야 하므로 아래에서 버전을 고정하지 않는다.
+# (루트 requirements 와 같이 cu118 핀은 RTX 50 에서 설치가 안 된다.)
+# 학습·검증에 쓴 조합: torch 2.13.0+cu130 (RTX 5060), Python 3.x
+#
+# 설치 (이 폴더에서):
+#   python -m venv venv
+#   venv\Scripts\python -m pip install torch --index-url https://download.pytorch.org/whl/cu130
+#     (RTX 30/40 이면 cu121, CPU 전용이면 --index-url 생략)
+#   venv\Scripts\python -m pip install -r requirements.txt
+#
+# torchvision / torchaudio / librosa 는 Mission 3 추론에 쓰지 않는다 (텍스트만).
+# 사전학습 토크나이저·가중치는 runs/submit_s42_tfidf 에 동봉하므로 추론 시 허브 접속이 없다.
+#   $env:HF_HUB_OFFLINE="1"
+# TF-IDF 멤버는 scikit-learn 1.9.0 으로 학습됐다. 1.9.1 이면 버전 경고가 난다.
+
+# --- GPU 스택 (위 index-url 로 별도 설치) ---
+# torch==2.13.0+cu130
+
+# --- 핵심 ---
+transformers==5.16.1
+accelerate==1.14.0
+numpy==2.4.6
+scipy==1.18.0
+pandas==3.0.5
+scikit-learn==1.9.0
+safetensors==0.8.0
+
+# --- 리포트 / 노트북 ---
+matplotlib==3.11.1
+tqdm==4.70.0
+
+# --- 테스트 ---
+pytest==9.1.1
