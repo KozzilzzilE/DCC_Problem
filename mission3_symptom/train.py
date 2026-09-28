@@ -84,6 +84,17 @@ def parse_args() -> argparse.Namespace:
         default=1.5,
         help="pure-nausea(C) Training row의 sampling weight (기본값: 1.5)",
     )
+    parser.add_argument(
+        "--llrd-decay",
+        type=float,
+        default=1.0,
+        help="layer-wise LR decay. 헤드는 learning-rate, 인코더 층마다 이 값을 곱한다 (1.0 은 끔)",
+    )
+    parser.add_argument(
+        "--gradient-checkpointing",
+        action="store_true",
+        help="activation 재계산으로 GPU 메모리 절약 (large 백본용, 대신 느려짐)",
+    )
     return parser.parse_args()
 
 
@@ -147,6 +158,8 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         pooling_type=args.pooling_type,
         use_pure_nausea_sampling=args.use_pure_nausea_sampling,
         pure_nausea_weight=args.pure_nausea_weight,
+        llrd_decay=args.llrd_decay,
+        gradient_checkpointing=args.gradient_checkpointing,
     )
 
 
