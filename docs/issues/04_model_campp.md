@@ -1,0 +1,15 @@
+# [Issue / Model] CAM++ 문맥 마스킹 고성능 화자 모델 벤치마크
+
+## 1. 모델 개요
+- 모델명: CAM++ (Context-Aware Masking Dense TDNN)
+- 카테고리: Dense TDNN + 2D Conv Frontend + Contextual Attention
+- 파라미터 수: 약 7.2M
+- 선정 근거: 3D-Speaker 프로젝트의 핵심 아키텍처. 2D 프론트엔드로 국소 주파수 단서를 보존하고 문맥 마스킹(CAM)으로 노이즈를 필터링함.
+
+## 2. 입력 및 전처리 프로토콜
+- 입력 특징: Log Mel-Filterbank (80 Mels)
+- 윈도우 길이: 3.0초
+
+## 3. 실험 목표 및 가설
+- 가설: 119 신고 전화의 주변 소음(사이렌, 바람 소리 등) 속에서 문맥 마스킹을 통해 화자 음성 신호만 선별적으로 강화할 수 있을 것이다.
+- 목표 정확도: 88.5% ~ 91.5%

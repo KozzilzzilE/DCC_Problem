@@ -22,13 +22,13 @@ from ._console import ensure_utf8_stdout
 from .cache import CacheIndex
 from .config import FeatureConfig, TrainConfig
 from .datasets import SegmentWindowDataset, Sample, samples_from_rows, split_calls
-from .evaluate import majority_baseline, predict_segment_probs, score, truth_from_samples
+from .evaluate import EMPTY_CACHE_EVERY, majority_baseline, predict_segment_probs, score, truth_from_samples
 from .models import build_model, save_checkpoint
 
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Mission 1 성별 분류 학습")
-    p.add_argument("--branch", choices=("resnet", "w2v2"), default="resnet")
+    p.add_argument("--branch", choices=("resnet", "w2v2", "audeering"), default="resnet")
     p.add_argument("--cache", type=Path, default=Path("cache/train"))
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--epochs", type=int, default=8)
@@ -47,6 +47,12 @@ def parse_args(argv=None):
     p.add_argument("--eval-mode", choices=("center", "sliding"), default="center")
     p.add_argument("--no-amp", action="store_true")
     p.add_argument("--w2v2-model", type=str, default=None)
+    p.add_argument("--kd-probs", type=Path, default=None,
+                   help="교사 확률 npz (call_id, seg_idx, prob). 주면 지식 증류로 학습")
+    p.add_argument("--kd-alpha", type=float, default=0.5,
+                   help="타깃 = (1-alpha)*정답 + alpha*교사확률")
+    p.add_argument("--spec-augment", action="store_true",
+                   help="resnet 갈래에 SpecAugment (주파수 8, 시간 24, 각 2개 마스크)")
     p.add_argument("--log", type=Path, default=None, help="epoch 별 지표 JSON 경로")
     return p.parse_args(argv)
 
@@ -72,15 +78,33 @@ def build_splits(
     return samples_from_rows(train_rows), samples_from_rows(dev_rows)
 
 
+def load_soft_targets(path: Path, samples, alpha: float) -> list[float]:
+    """교사 확률을 (call_id, seg_idx) 로 맞춰 hard 라벨과 섞는다."""
+    data = np.load(path, allow_pickle=False)
+    teacher = {(str(c), int(s)): float(p) for c, s, p in zip(data["call_id"], data["seg_idx"], data["prob"])}
+    out, missing = [], 0
+    for s in samples:
+        key = (s.row.call_id, s.row.seg_idx)
+        if key in teacher:
+            out.append((1.0 - alpha) * float(s.target) + alpha * teacher[key])
+        else:
+            out.append(float(s.target)); missing += 1
+    if missing:
+        print(f"  경고: 교사 확률이 없는 조각 {missing}개는 hard 라벨 사용", flush=True)
+    return out
+
+
 def run_epoch(model, loader, criterion, optimizer, scaler, device, amp) -> tuple[float, float]:
     model.train()
     total_loss = 0.0
     seen = 0
     correct = 0
 
-    for waveform, target in loader:
+    for step, (waveform, target) in enumerate(loader, start=1):
         waveform = waveform.to(device, non_blocking=True)
         target = target.to(device, non_blocking=True)
+        if device.type == "cuda" and step % EMPTY_CACHE_EVERY == 0:
+            torch.cuda.empty_cache()  # WDDM 페이징 방지 (evaluate.py 참고)
 
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast(device_type=device.type, enabled=amp):
@@ -98,7 +122,7 @@ def run_epoch(model, loader, criterion, optimizer, scaler, device, amp) -> tuple
         batch = target.numel()
         total_loss += loss.item() * batch
         seen += batch
-        correct += ((logits.detach().float() >= 0).float() == target).sum().item()
+        correct += ((logits.detach().float() >= 0).float() == (target >= 0.5).float()).sum().item()
 
     return total_loss / max(1, seen), correct / max(1, seen)
 
@@ -142,13 +166,21 @@ def main(argv=None) -> int:
     print(f"dev  : {len(dev_samples)} segments / {len(dev_truth)} calls", flush=True)
     print(f"dev majority baseline (call-level): {majority_baseline(dev_truth):.4f}", flush=True)
 
-    kwargs = {"model_name": args.w2v2_model} if args.branch == "w2v2" else {}
+    kwargs = {"model_name": args.w2v2_model} if args.branch in ("w2v2", "audeering") else {}
+    if args.spec_augment and args.branch == "resnet":
+        kwargs.update(freq_mask=8, time_mask=24, n_masks=2)
     model = build_model(args.branch, cfg, **kwargs).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"parameters: {n_params/1e6:.1f}M", flush=True)
 
+    soft_targets = None
+    if args.kd_probs is not None:
+        soft_targets = load_soft_targets(args.kd_probs, train_samples, args.kd_alpha)
+        print(f"knowledge distillation: alpha={args.kd_alpha} from {args.kd_probs}", flush=True)
+
     train_loader = DataLoader(
-        SegmentWindowDataset(index, train_samples, cfg, branch=args.branch, train=True, seed=args.seed),
+        SegmentWindowDataset(index, train_samples, cfg, branch=args.branch, train=True, seed=args.seed,
+                             soft_targets=soft_targets),
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
@@ -214,6 +246,9 @@ def main(argv=None) -> int:
                     "n_params": n_params,
                     "n_train_segments": len(train_samples),
                     "model_name": args.w2v2_model,
+                    "spec_augment": bool(args.spec_augment),
+                    "kd_probs": str(args.kd_probs) if args.kd_probs else None,
+                    "kd_alpha": args.kd_alpha if args.kd_probs else None,
                 },
             )
             print(f"  -> saved {args.out} (dev call acc {best:.4f})", flush=True)

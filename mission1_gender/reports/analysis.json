@@ -1,0 +1,101 @@
+{
+  "length": {
+    "resnet_full": [
+      {
+        "bucket": "0-1s",
+        "n": 19524,
+        "share": 0.336,
+        "accuracy": 0.8712,
+        "mean_seconds": 0.65
+      },
+      {
+        "bucket": "1-2s",
+        "n": 16666,
+        "share": 0.2868,
+        "accuracy": 0.8474,
+        "mean_seconds": 1.44
+      },
+      {
+        "bucket": "2-3s",
+        "n": 8577,
+        "share": 0.1476,
+        "accuracy": 0.8832,
+        "mean_seconds": 2.45
+      },
+      {
+        "bucket": "3-5s",
+        "n": 8432,
+        "share": 0.1451,
+        "accuracy": 0.9137,
+        "mean_seconds": 3.85
+      },
+      {
+        "bucket": "5s+",
+        "n": 4902,
+        "share": 0.0844,
+        "accuracy": 0.9278,
+        "mean_seconds": 6.68
+      }
+    ],
+    "w2v2_full": [
+      {
+        "bucket": "0-1s",
+        "n": 19524,
+        "share": 0.336,
+        "accuracy": 0.8903,
+        "mean_seconds": 0.65
+      },
+      {
+        "bucket": "1-2s",
+        "n": 16666,
+        "share": 0.2868,
+        "accuracy": 0.8659,
+        "mean_seconds": 1.44
+      },
+      {
+        "bucket": "2-3s",
+        "n": 8577,
+        "share": 0.1476,
+        "accuracy": 0.9089,
+        "mean_seconds": 2.45
+      },
+      {
+        "bucket": "3-5s",
+        "n": 8432,
+        "share": 0.1451,
+        "accuracy": 0.9323,
+        "mean_seconds": 3.85
+      },
+      {
+        "bucket": "5s+",
+        "n": 4902,
+        "share": 0.0844,
+        "accuracy": 0.9423,
+        "mean_seconds": 6.68
+      }
+    ]
+  },
+  "per_model": {
+    "resnet_full": {
+      "branch": "resnet"
+    },
+    "w2v2_full": {
+      "branch": "w2v2"
+    }
+  },
+  "overlap": {
+    "n_calls": 3640,
+    "wrong_a": 76,
+    "wrong_b": 60,
+    "wrong_both": 54,
+    "wrong_only_a": 22,
+    "wrong_only_b": 6,
+    "overlap_ratio": 0.9,
+    "accuracy_a": 0.9791,
+    "accuracy_b": 0.9835,
+    "oracle_accuracy": 0.9852,
+    "mean_ensemble_accuracy": 0.9819,
+    "model_a": "resnet_full",
+    "model_b": "w2v2_full"
+  }
+}

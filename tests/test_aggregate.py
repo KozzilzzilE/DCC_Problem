@@ -59,3 +59,9 @@ def test_soft_voting_beats_hard_majority():
 def test_probabilities_outside_unit_interval_rejected():
     with pytest.raises(ValueError):
         call_probability(np.array([0.5, 1.7]))
+
+
+def test_nan_probability_rejected():
+    """NaN 이 범위 검사를 통과해 조용히 '남' 이 되면 안 된다."""
+    with pytest.raises(ValueError, match="NaN"):
+        call_probability(np.array([0.5, np.nan]))
