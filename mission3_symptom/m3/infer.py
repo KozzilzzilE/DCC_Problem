@@ -36,6 +36,11 @@ DECISION_THRESHOLD = 0.5
 OUTPUT_COLUMNS = ["label file name", "symptom"]
 
 DEFAULT_BATCH_SIZE = 16
+# fp32 가 기본이다. fp16(autocast)은 번들 ensemble.json 의 "precision" 이나 --precision 으로만 켜고
+# CUDA 에서만 적용된다. RTX 5060 측정: 멤버 하나 forward 22초 -> 7.4초, 4멤버 번들 101초 -> 42초,
+# Validation 3,640건 제출 행은 fp32 와 전부 같았다(멤버 seed42 단독은 32,760 칸 중 0~1 칸 차이).
+SUPPORTED_PRECISIONS = ("fp32", "fp16")
+DEFAULT_PRECISION = "fp32"
 DEFAULT_MAX_LENGTH = 512
 DEFAULT_ENCODE_MODE = "truncate"
 
@@ -203,7 +208,13 @@ def read_texts(label_dir: Union[str, Path], sep_mode: str) -> Tuple[List[str], L
 
 
 ENSEMBLE_MANIFEST_NAME = "ensemble.json"
-_MANIFEST_KEYS = {"members", "tfidf_member", "tfidf_weight", "note"}
+_MANIFEST_KEYS = {"members", "tfidf_member", "tfidf_weight", "note", "precision"}
+
+
+def validate_precision(value) -> str:
+    if not isinstance(value, str) or value not in SUPPORTED_PRECISIONS:
+        raise ValueError(f"precision 은 {list(SUPPORTED_PRECISIONS)} 중 하나여야 합니다: {value!r}")
+    return value
 
 
 @dataclass(frozen=True)
@@ -214,6 +225,7 @@ class EnsembleSpec:
     members: Tuple[Path, ...]
     tfidf_path: Optional[Path]
     tfidf_weight: float
+    precision: str = DEFAULT_PRECISION
 
 
 def find_ensemble_manifest(ckpt_path: Union[str, Path]) -> Optional[Path]:
@@ -249,6 +261,7 @@ def load_ensemble_spec(manifest_path: Union[str, Path]) -> EnsembleSpec:
         {"members": ["../run_a", "../run_b"],        # 트랜스포머 run 디렉터리, 균등 평균
          "tfidf_member": "../tfidf/tfidf_lr.joblib",  # 선택
          "tfidf_weight": 0.3,                          # tfidf_member 와 함께, 0 초과 1 미만 실수 하나
+         "precision": "fp16",                          # 선택, 기본 fp32. fp16 은 CUDA 에서만 적용
          "note": "..."}                                # 선택
     임계값은 받지 않는다 (대회 규정 0.5 고정). 모르는 키가 있으면 거부한다.
     """
@@ -274,12 +287,14 @@ def load_ensemble_spec(manifest_path: Union[str, Path]) -> EnsembleSpec:
         _warn_if_outside(base, path, f"멤버 {member}")
         resolved.append(path)
 
+    precision = validate_precision(data["precision"]) if "precision" in data else DEFAULT_PRECISION
+
     tfidf = data.get("tfidf_member")
     weight = data.get("tfidf_weight")
     if tfidf is None:
         if weight is not None:
             raise ValueError("tfidf_weight 는 tfidf_member 와 함께만 쓸 수 있습니다.")
-        return EnsembleSpec(manifest_path, tuple(resolved), None, 0.0)
+        return EnsembleSpec(manifest_path, tuple(resolved), None, 0.0, precision)
 
     if not isinstance(tfidf, str) or not tfidf:
         raise ValueError(f"tfidf_member 는 파일 경로여야 합니다: {tfidf!r}")
@@ -292,7 +307,105 @@ def load_ensemble_spec(manifest_path: Union[str, Path]) -> EnsembleSpec:
     if not tfidf_path.is_file():
         raise FileNotFoundError(f"TF-IDF 멤버 파일을 찾을 수 없습니다: {tfidf_path}")
     _warn_if_outside(base, tfidf_path, f"TF-IDF 멤버 {tfidf}")
-    return EnsembleSpec(manifest_path, tuple(resolved), tfidf_path, weight)
+    return EnsembleSpec(manifest_path, tuple(resolved), tfidf_path, weight, precision)
+
+
+def inference_order(texts: Sequence[str]) -> List[int]:
+    """긴 본문부터 처리하는 순서 (같은 길이는 입력 순서).
+
+    짧은 것부터 하면 배치 텐서가 계속 커져 PyTorch 캐시가 이전 블록을 재사용하지 못한다.
+    8GB 카드에서 실제 사용 0.7GB 에 예약 4.5GB, 배치 32 에서는 8GB 를 넘겨 20배 이상 느려졌다.
+    가장 큰 배치를 먼저 잡으면 예약이 0.9GB 로 유지된다.
+    """
+    return sorted(range(len(texts)), key=lambda index: (-len(texts[index]), index))
+
+
+def autocast_dtype(precision: str, device) -> Optional[object]:
+    """fp16 은 CUDA 에서만. CPU 에서는 항상 fp32 다."""
+    import torch
+
+    validate_precision(precision)
+    if precision == "fp16" and device.type == "cuda":
+        return torch.float16
+    return None
+
+
+def _is_cuda_failure(exc: BaseException) -> bool:
+    """CPU 로 내려서라도 끝낼 만한 GPU 쪽 실패인가 (allocator OOM, cuBLAS 할당 실패, 커널 없음 등)."""
+    import torch
+
+    if isinstance(exc, torch.cuda.OutOfMemoryError):
+        return True
+    message = str(exc)
+    return isinstance(exc, RuntimeError) and any(
+        key in message for key in ("CUDA", "CUBLAS", "cuDNN", "CUDNN", "out of memory"))
+
+
+def _forward_rows(model, make_batch, indices: List[int], device, dtype):
+    """묶음 하나의 확률. GPU 메모리가 부족하면 반으로 나눠 다시 한다 (한 건도 안 되면 예외를 올린다)."""
+    import numpy as np
+    import torch
+
+    batch = logits = None
+    try:
+        batch = make_batch(indices, device)
+        with torch.autocast(device_type=device.type, dtype=dtype, enabled=dtype is not None):
+            logits = model(**batch).logits
+        return torch.sigmoid(logits.float()).cpu().numpy()
+    except torch.cuda.OutOfMemoryError:
+        if len(indices) == 1:
+            raise
+    # 재시도는 except 블록을 벗어난 뒤에 한다. 블록 안에서는 traceback 이 실패한 forward 의
+    # 프레임(입력·활성값)을 붙잡고 있어 empty_cache 로도 메모리가 풀리지 않는다 (PyTorch FAQ).
+    batch = logits = None
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    middle = len(indices) // 2
+    return np.concatenate([
+        _forward_rows(model, make_batch, indices[:middle], device, dtype),
+        _forward_rows(model, make_batch, indices[middle:], device, dtype),
+    ])
+
+
+def predict_all(model, make_batch, order: List[int], batch_size: int, device, dtype):
+    """`order` 순서로 배치를 돌려 `(행 수, 9)` 확률과 마지막으로 쓴 device 를 돌려준다.
+
+    채점은 1회 실행이라 GPU 쪽 실패로 죽으면 0점이다. 배치를 나눠도 한 건이 안 들어가거나
+    CUDA 실행 오류(cuBLAS 할당 실패, 이 GPU 용 커널 없음 등)가 나면 모델을 CPU 로 내려 fp32 로
+    끝까지 채운다. CPU 에서 난 오류나 CUDA 와 무관한 오류는 그대로 올린다.
+    Windows 드라이버가 공유 메모리로 넘겨 느려지는 경우는 예외가 아니라서 여기서 잡히지 않는다.
+    """
+    import numpy as np
+    import torch
+
+    probabilities = np.zeros((len(order), NUM_CLASSES), dtype=np.float64)
+    filled = np.zeros(len(order), dtype=bool)
+    with torch.inference_mode():
+        for start in range(0, len(order), batch_size):
+            chunk = order[start : start + batch_size]
+            failure = None
+            try:
+                rows = _forward_rows(model, make_batch, chunk, device, dtype)
+            except Exception as exc:  # noqa: BLE001 - CUDA 실패만 아래에서 처리하고 나머지는 다시 올린다
+                if device.type != "cuda" or not _is_cuda_failure(exc):
+                    raise
+                failure = f"{type(exc).__name__}: {exc}"
+            if failure is not None:
+                # except 블록 밖에서 옮겨야 실패한 시도의 GPU 메모리가 풀린다.
+                print(f"[경고] GPU 에서 추론하지 못해 CPU 로 전환합니다 (fp32): {failure}")
+                device, dtype = torch.device("cpu"), None
+                model.to(device)
+                torch.cuda.empty_cache()
+                rows = _forward_rows(model, make_batch, chunk, device, dtype)
+            rows = np.asarray(rows)
+            if rows.shape != (len(chunk), NUM_CLASSES):
+                raise RuntimeError(
+                    f"모델 출력 행 수가 배치와 다릅니다: {rows.shape} (기대 {(len(chunk), NUM_CLASSES)})")
+            probabilities[chunk] = rows
+            filled[chunk] = True
+    if not filled.all():
+        raise RuntimeError(f"예측이 누락된 행이 있습니다: {np.flatnonzero(~filled)[:5].tolist()}")
+    return probabilities, device
 
 
 def transformer_probabilities(
@@ -300,6 +413,7 @@ def transformer_probabilities(
     ckpt_path: Union[str, Path],
     batch_size: int = DEFAULT_BATCH_SIZE,
     device: Optional[str] = None,
+    precision: str = DEFAULT_PRECISION,
 ):
     """트랜스포머 run 하나로 `(파일명 목록, (n, 9) 확률)` 을 만든다. 판정은 하지 않는다."""
     import numpy as np
@@ -343,38 +457,33 @@ def transformer_probabilities(
         resolved_device = torch.device("cpu")
         model.to(resolved_device)
     model.eval()
+    dtype = autocast_dtype(precision, resolved_device)
+    if dtype is not None:
+        precision_label = "fp16 (autocast)"
+    elif precision == "fp16":
+        precision_label = "fp32 (fp16 요청됐지만 CUDA 가 아니라 fp32 로 실행)"
+    else:
+        precision_label = "fp32"
+    print(f"정밀도: {precision_label}  배치: {batch_size}")
 
-    # 길이가 비슷한 것끼리 묶어 padding 낭비를 줄이고, 결과는 원래 순서로 되돌린다.
-    order = sorted(range(len(texts)), key=lambda index: len(texts[index]))
-    probabilities = np.zeros((len(texts), NUM_CLASSES), dtype=np.float64)
-    filled = np.zeros(len(texts), dtype=bool)
+    def make_batch(indices: List[int], target_device):
+        features = [
+            encode_text(tokenizer, texts[index], settings.max_length, encode_mode=settings.encode_mode)
+            for index in indices
+        ]
+        batch = tokenizer.pad(features, padding=True, return_tensors="pt")
+        return {key: value.to(target_device) for key, value in batch.items()}
 
-    with torch.no_grad():
-        for start in range(0, len(order), batch_size):
-            chunk = order[start : start + batch_size]
-            features = [
-                encode_text(
-                    tokenizer,
-                    texts[index],
-                    settings.max_length,
-                    encode_mode=settings.encode_mode,
-                )
-                for index in chunk
-            ]
-            batch = tokenizer.pad(features, padding=True, return_tensors="pt")
-            batch = {key: value.to(resolved_device) for key, value in batch.items()}
-            logits = model(**batch).logits
-            probabilities[chunk] = torch.sigmoid(logits.float()).cpu().numpy()
-            filled[chunk] = True
+    # 길이가 비슷한 것끼리 묶어 padding 낭비를 줄이고(긴 것부터: 메모리 재사용), 결과는 원래 순서로 되돌린다.
+    probabilities, resolved_device = predict_all(
+        model, make_batch, inference_order(texts), batch_size, resolved_device, dtype)
 
     # 여러 멤버를 차례로 올릴 때 이전 모델이 GPU 메모리를 잡고 있지 않게 한다.
     del model
-    if resolved_device.type == "cuda":
+    # CPU 로 내려간 멤버도 앞서 GPU 에 잡아 둔 블록이 있을 수 있으니 반환 device 와 무관하게 비운다.
+    if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    missing = [names[i] for i in np.flatnonzero(~filled)]
-    if missing:
-        raise RuntimeError(f"예측이 누락된 파일이 있습니다: {missing[:5]}")
     bad = ~np.isfinite(probabilities)
     if bad.any():
         rows = np.flatnonzero(bad.any(axis=1))
@@ -391,6 +500,7 @@ def ensemble_probabilities(
     label_dir: Union[str, Path],
     batch_size: int = DEFAULT_BATCH_SIZE,
     device: Optional[str] = None,
+    precision: Optional[str] = None,
 ):
     """멤버 확률 균등 평균 -> (선택) TF-IDF 전역 가중 블렌드. 판정은 하지 않는다."""
     description = f"트랜스포머 {len(spec.members)}개 균등 평균"
@@ -402,7 +512,8 @@ def ensemble_probabilities(
     total = None
     for member in spec.members:
         member_names, probs = transformer_probabilities(
-            label_dir, member, batch_size=batch_size, device=device)
+            label_dir, member, batch_size=batch_size, device=device,
+            precision=precision or spec.precision)
         if names is None:
             names, total = list(member_names), probs.astype("float64")
         elif list(member_names) != names:
@@ -426,6 +537,7 @@ def predict_directory(
     ckpt_path: Union[str, Path],
     batch_size: int = DEFAULT_BATCH_SIZE,
     device: Optional[str] = None,
+    precision: Optional[str] = None,
 ):
     """라벨 폴더 전체를 추론해 제출 규격 DataFrame 을 돌려준다.
 
@@ -437,10 +549,12 @@ def predict_directory(
     manifest = find_ensemble_manifest(ckpt_path)
     if manifest is None:
         names, probabilities = transformer_probabilities(
-            label_dir, ckpt_path, batch_size=batch_size, device=device)
+            label_dir, ckpt_path, batch_size=batch_size, device=device,
+            precision=validate_precision(precision) if precision is not None else DEFAULT_PRECISION)
     else:
         names, probabilities = ensemble_probabilities(
-            load_ensemble_spec(manifest), label_dir, batch_size=batch_size, device=device)
+            load_ensemble_spec(manifest), label_dir, batch_size=batch_size, device=device,
+            precision=validate_precision(precision) if precision is not None else None)
 
     if len(probabilities) != len(names):
         raise RuntimeError(f"확률 행 수({len(probabilities)})와 파일 수({len(names)})가 다릅니다.")

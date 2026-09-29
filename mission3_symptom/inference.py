@@ -39,6 +39,8 @@ def parse_args(argv=None):
                    help="run 디렉터리(best_model 포함), best_model 디렉터리, 또는 ensemble.json 번들 디렉터리")
     p.add_argument("--output", required=True, help="결과 CSV 경로 (예: ./outputs/mission3.csv)")
     p.add_argument("--batch_size", type=int, default=16, help="추론 배치 크기")
+    p.add_argument("--precision", choices=("fp32", "fp16"), default=None,
+                   help="지정하지 않으면 번들(ensemble.json 의 precision, 기본 fp32)을 따른다. fp16 은 CUDA 에서만")
     return p.parse_args(argv)
 
 
@@ -48,7 +50,8 @@ def main(argv=None) -> int:
     from m3.infer import predict_directory  # 폴더 안의 m3 패키지
 
     started = time.perf_counter()
-    df = predict_directory(args.label_dir, args.ckpt_path, batch_size=args.batch_size)
+    df = predict_directory(args.label_dir, args.ckpt_path, batch_size=args.batch_size,
+                           precision=args.precision)
     elapsed = time.perf_counter() - started
 
     out = Path(args.output)
