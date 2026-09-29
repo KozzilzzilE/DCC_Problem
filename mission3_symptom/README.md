@@ -204,6 +204,16 @@ CSV 재생성은 `data_preprocessing.ipynb`의 `UTTERANCE_SEP_MODE`만 바꿔 �
 
 재학습 전에 노트북 4번 셀로 512 token 초과 비율 변화를 먼저 측정한다. 구분자만큼 입력이 길어지므로 이 값을 재지 않으면 경계 정보의 효과와 절단 증가의 부작용이 섞여 결과를 해석할 수 없다. baseline(`space`)의 Validation 초과 비율은 KLUE-RoBERTa 기준 `98 / 3,640 = 2.69%`다.
 
+### 개선 레시피: TAPT + LLRD (2026-09-29)
+
+아래 "임계값 0.5 고정 기준 권장 레시피"(pos_weight power 0.5)에 두 가지를 더하면 같은 시드 짝 비교로 원본 대비 **+0.0068 [+0.0025, +0.0111]** (시드 42~45 네 쌍 모두 상승, epoch 을 고정해도 유지)이다. 전체 비교와 근거, 효과가 없던 시도(다른 백본, RoBERTa-large, TF-IDF 변형 등)는 `reports/improvement_eval.md` 에 있다.
+
+1. TAPT — Training CSV 의 text 만으로 MLM 을 20 epoch 이어 학습(`mission3_symptom/` 에서, 약 2시간 35분): `python tapt_mlm.py --train-csv <train.csv> --output-dir runs/tapt_klue_base_e20 --local-files-only --amp --epochs 20` (`--eval-csv <val.csv>` 는 no_grad 진단 기록용, 생략 가능)
+2. 분류 학습 — 위 폴더에서 시작하고 층별 학습률 감쇠(LLRD) 0.8, 최상위 학습률 5e-5: `python train.py ... --model-name-or-path runs/tapt_klue_base_e20 --local-files-only --learning-rate 5e-5 --llrd-decay 0.8 --use-pos-weight --pos-weight-power 0.5 --checkpoint-metric val_macro_f1 --amp`
+3. 제출 — 시드 4개 `best_model` + 기존 TF-IDF(w=0.3) 번들 `runs/submit_tapt20_llrd08_4seed_tfidf`: Validation **0.6593** (원본 JSON 에서 `inference.py` 로 재현, 추론 113초). 현재 번들 0.6546 대비 +0.0046 이지만 번들 수준 CI 는 0 을 포함하고, LLRD 0.9 번들(0.6596)과도 구분되지 않는다. 레시피 선택 근거는 단일 모델 짝 비교다.
+
+감쇠 0.9·lr 3e-5 에서는 학습률만 3e-5 로 올린 대조군이 원본과 같아서, 그 설정의 이득은 층별 감쇠에서 온 것이다. large 백본용 `--gradient-checkpointing` 옵션도 있다.
+
 ### 임계값 0.5 고정 기준 권장 레시피 (2026-09-24)
 
 제출 지표는 **macro F1@0.5** 다. 아래 "현재 정상 Full Training 실험 결과" 절의 `Optimized Macro F1` 은 클래스별 임계값을 Validation 에서 고른 연구 기록이라 제출 성능이 아니다. 전체 수치와 근거는 `reports/calibration_eval.md` 에 있다.
@@ -272,7 +282,18 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 python inference.py --label_dir <json 폴더> --ckpt_path runs/<run 또는 번들> --output ./outputs/mission3.csv
 ```
 
-로컬 Validation 추론 시간은 단일 모델 27.5초, 단일+TF-IDF 42초, 4-seed+TF-IDF 101초였다. TF-IDF 멤버는 scikit-learn 버전이 다르면 경고를 낸다 (학습 1.9.0).
+로컬 Validation 추론 시간은 단일 모델 27.5초, 단일+TF-IDF 42초, 4-seed+TF-IDF 101초였다 (fp32). TF-IDF 멤버는 scikit-learn 버전이 다르면 경고를 낸다 (학습 1.9.0).
+
+**추론 속도·메모리 (2026-09-29)**
+
+- **fp16 (선택):** `ensemble.json` 에 `"precision": "fp16"` 을 넣으면 CUDA 에서 fp16 autocast 로 추론한다. 기본은 `fp32` 다. 값은 `fp32` / `fp16` 만 받고, 임계값·클래스별 키는 여전히 거부한다.
+  - RTX 5060(torch 2.13+cu130) 측정: 4-seed+TF-IDF 번들 101초 → **42초**. Validation 3,640건 제출 행은 fp32 와 전부 같았다(멤버 하나 단독으로는 32,760 칸 중 0~1 칸 차이).
+  - 주최 측 실행 형태(루트 `inference.py`)에는 플래그가 없으므로 번들 키로만 켤 수 있다. `mission3_symptom/inference.py` 의 `--precision` 은 번들 값을 덮어쓰는 로컬용 옵션이다.
+  - CPU 에서는 요청해도 fp32 로 돌고, 로그에 그렇게 표시된다.
+  - `precision` 키가 든 번들은 이 버전 이후의 추론 코드가 필요하다(이전 코드는 모르는 키로 거부한다).
+- **긴 본문부터 처리:** 짧은 것부터 처리하면 배치 텐서가 계속 커져 PyTorch 캐시 예약이 부푼다(실사용 0.7GB 에 예약 4.5GB, 배치 32 에서는 8GB 를 넘겨 20배 이상 느려짐). 긴 것부터 처리해 예약을 0.9GB 로 유지한다. 판정은 같고 확률은 1e-6 수준으로만 다르다.
+- **GPU 실패 대비:** 배치가 GPU 메모리 부족으로 실패하면 반으로 나눠 다시 한다. 한 건도 안 들어가거나 CUDA 실행 오류(cuBLAS 할당 실패, 이 GPU 용 커널 없음 등)가 나면 해당 멤버를 CPU fp32 로 내려 끝까지 추론한다. Windows 드라이버가 공유 메모리로 넘겨 느려지는 경우는 오류가 아니라서 이 장치로 막지 못한다.
+- **배치 크기:** 16 에서 이미 GPU 가 포화라 32·64 로 늘려도 빨라지지 않았다.
 
 ### 현재 정상 Full Training 실험 결과
 

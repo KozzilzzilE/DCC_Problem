@@ -33,3 +33,4 @@
 | `label_dependency_eval.md` | Label Dependency Loss 검증 (개선 없음) |
 | `pairwise_eval.md` | Pairwise Ranking Loss 검증 (개선 없음) |
 | `calibration_eval.md` | 임계값 0.5 고정 기준 pos_weight 거듭제곱·발화 경계·오심·TF-IDF 블렌드 검증 (F1@0.5 0.5967 → 0.6496, 블렌드 0.6536~0.6546) |
+| `improvement_eval.md` | 백본(KoELECTRA·KF-DeBERTa·large)·TAPT·LLRD 검증과 남은 오류의 성격. 새 권장 레시피 TAPT 20ep + LLRD 0.8 (원본 대비 +0.0068), 4시드 번들 0.6593 |

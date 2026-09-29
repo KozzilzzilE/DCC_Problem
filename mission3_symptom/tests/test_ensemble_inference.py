@@ -136,7 +136,7 @@ class BlendMathTest(unittest.TestCase):
             write_labels(label_dir)
             names = sorted(p.name for p in label_dir.glob("*.json"))
 
-            def fake_transformer(label_dir_arg, ckpt_path, batch_size=16, device=None):
+            def fake_transformer(label_dir_arg, ckpt_path, batch_size=16, device=None, precision="fp32"):
                 vector = np.asarray(member_probs[Path(ckpt_path).name], dtype=float)
                 return names, np.tile(vector, (len(names), 1))
 
@@ -178,7 +178,7 @@ class BlendMathTest(unittest.TestCase):
             label_dir = root / "labels"
             write_labels(label_dir)
 
-            def fake_transformer(label_dir_arg, ckpt_path, batch_size=16, device=None):
+            def fake_transformer(label_dir_arg, ckpt_path, batch_size=16, device=None, precision="fp32"):
                 names = ["x.json", "y.json"] if Path(ckpt_path).name == "a" else ["y.json", "x.json"]
                 return names, np.zeros((2, NUM_CLASSES))
 

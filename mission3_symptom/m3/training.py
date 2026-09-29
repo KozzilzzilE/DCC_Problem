@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import platform
 import random
 import time
@@ -82,6 +83,10 @@ class TrainingConfig:
     use_pure_nausea_sampling: bool = False
     pure_nausea_weight: float = 1.5
     pooling_type: str = "cls"
+    # layer-wise LR decay. 분류 헤드는 learning_rate, 인코더 층을 내려갈수록 decay 를 곱한다. 1.0 은 끔.
+    llrd_decay: float = 1.0
+    # 8GB GPU 에서 large 백본을 돌리기 위한 activation 재계산 (속도 대신 메모리)
+    gradient_checkpointing: bool = False
 
 
 def set_seed(seed: int) -> None:
@@ -340,10 +345,53 @@ def _validate_config(config: TrainingConfig) -> None:
         raise ValueError(f"지원하지 않는 pooling_type입니다: {config.pooling_type}")
     if not math.isfinite(config.pure_nausea_weight) or config.pure_nausea_weight < 1.0:
         raise ValueError("pure_nausea_weight는 1.0 이상의 유한한 값이어야 합니다.")
+    if not 0.0 < config.llrd_decay <= 1.0:
+        raise ValueError("llrd_decay는 0 초과 1 이하여야 합니다.")
 
 
-def _build_optimizer(model, learning_rate: float, weight_decay: float):
+_LAYER_INDEX = re.compile(r"\.layer\.(\d+)\.")
+
+
+def _layer_depths(names: List[str], backbone_prefix: Optional[str] = None) -> Dict[str, int]:
+    """헤드에서 몇 단계 아래인지. 헤드 0, 맨 위 층 1, 임베딩은 맨 아래 층 + 1.
+
+    층 번호가 없는 백본 파라미터(DeBERTa-v2 의 공유 상대위치 임베딩·인코더 LayerNorm,
+    ELECTRA 의 embeddings_project 등)는 헤드가 아니라 임베딩과 같은 깊이로 둔다.
+    """
+    indices = [int(m.group(1)) for m in map(_LAYER_INDEX.search, names) if m]
+    num_layers = max(indices) + 1 if indices else 0
+    depths = {}
+    for name in names:
+        match = _LAYER_INDEX.search(name)
+        if match:
+            depths[name] = num_layers - int(match.group(1))
+        elif ".embeddings." in name or (backbone_prefix and name.startswith(backbone_prefix + ".")):
+            depths[name] = num_layers + 1
+        else:
+            depths[name] = 0
+    return depths
+
+
+def _build_optimizer(model, learning_rate: float, weight_decay: float, llrd_decay: float = 1.0):
     no_decay = ("bias", "LayerNorm.weight", "layer_norm.weight")
+    if llrd_decay != 1.0:
+        named = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
+        depths = _layer_depths([n for n, _ in named], getattr(model, "base_model_prefix", None))
+        grouped: Dict[Tuple[int, bool], List[torch.nn.Parameter]] = {}
+        for name, parameter in named:
+            key = (depths[name], any(k in name for k in no_decay))
+            grouped.setdefault(key, []).append(parameter)
+        return torch.optim.AdamW(
+            [
+                {
+                    "params": params,
+                    "lr": learning_rate * llrd_decay ** depth,
+                    "weight_decay": 0.0 if excluded else weight_decay,
+                }
+                for (depth, excluded), params in sorted(grouped.items())
+            ],
+            lr=learning_rate,
+        )
     parameter_groups = [
         {
             "params": [
@@ -529,6 +577,8 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         pin_memory=pin_memory,
     )
 
+    if config.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
     model.to(device)
     pos_weight_statistics = None
     pos_weights = None
@@ -569,7 +619,8 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         dependency_alpha=config.dependency_alpha,
         pairwise_alpha=config.pairwise_alpha,
     )
-    optimizer = _build_optimizer(model, config.learning_rate, config.weight_decay)
+    optimizer = _build_optimizer(
+        model, config.learning_rate, config.weight_decay, llrd_decay=config.llrd_decay)
     updates_per_epoch = math.ceil(len(train_loader) / config.gradient_accumulation_steps)
     planned_steps = updates_per_epoch * config.epochs
     total_steps = min(planned_steps, config.max_steps) if config.max_steps else planned_steps
