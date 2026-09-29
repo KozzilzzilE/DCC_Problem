@@ -20,7 +20,7 @@ mission3_symptom/
 ├── train.py                # 학습 3단계: 분류 학습
 ├── train_tfidf_member.py   # 학습 4단계: TF-IDF 멤버
 ├── model_train.ipynb       # 학습 과정·로그·Validation 평가 기록
-├── reports/                # 실험 보고서 (calibration_eval.md, improvement_eval.md 외)
+├── reports/                # 실험 보고서: calibration_eval.md(보정 손실), improvement_eval.md(TAPT·LLRD·앙상블)
 ├── requirements.txt
 └── README.md
 ```
