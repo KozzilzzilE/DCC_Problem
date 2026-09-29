@@ -250,7 +250,10 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 
 ### 테스트
 
+테스트 전용 패키지(pytest, 피처 수치 대조용 librosa)는 `requirements-dev.txt` 에 있다. 저장소 루트에서:
+
 ```bash
+python -m pip install -r mission1_gender/requirements-dev.txt
 python -m pytest -q
 ```
 
@@ -263,7 +266,7 @@ python -m pytest -q
 | Active 파라미터 (추론) | 94.4M — dense 모델, 전 파라미터 사용 | 23.5M |
 | 학습 시 trainable | 90.2M (feature encoder 4.2M 동결) | 23.5M |
 | 학습·추론 환경 | NVIDIA GeForce RTX 5060 (8 GB, 드라이버 610.62, CUDA 13.0), AMD Ryzen 5 9600 (6코어 12스레드), RAM 31 GB, Windows 10, Python 3.14.6, torch 2.13.0+cu130, AMP | 동일 |
-| 학습 시간 | 3 epoch 약 2.3시간 (epoch 당 약 45분, RTX 5060) | 약 25분 |
+| 학습 시간 | 3 epoch 약 2.3시간 (epoch 당 약 45분, RTX 5060) | 6 epoch 약 80분 (epoch 당 약 13분) |
 | Validation 추론 batch size | **32** (16 kHz 갈래 기본값, 아래 참고; `inference.py --batch_size` 로 변경 가능) | 128 |
 | Validation 전체 추론 시간 (3,640통화) | **221초 (3.7분)** | **27.2초** |
 | 샘플(통화)당 평균 | **60.7 ms** | **7.5 ms** |
@@ -303,12 +306,11 @@ ResNet 은 8 kHz 멜 입력이라 128 도 안전하다. 시간 제한이 매우 
 
 ## 환경 주의사항
 
-**GPU 스택은 `requirements.txt`에서 버전을 고정하지 않는다.** 원래 `torch==2.7.1+cu118`로
-고정돼 있었는데, RTX 5060은 Blackwell(sm_120)이라 그 조합은 설치조차 되지 않는다
-(`No matching distribution found`). 머신마다 GPU가 다르므로 torch/torchvision은 각자
-자기 GPU에 맞는 인덱스에서 먼저 설치한 뒤 `requirements.txt`를 적용한다 — 설치 명령은
-`requirements.txt` 안에 적어 두었다. 이 작업은 `torch 2.13.0+cu130` +
-`torchvision 0.28.0+cu130`으로 진행했다.
+**GPU 스택은 CUDA 13.0 빌드로 고정한다.** `requirements.txt` 가 PyTorch cu130 인덱스를
+extra-index 로 걸고 `torch==2.13.0`, `torchvision==0.28.0` 을 받는다 (검증 조합 2.13.0+cu130 /
+0.28.0+cu130). 원래 저장소 루트의 `torch==2.7.1+cu118` 고정은 RTX 5060(Blackwell, sm_120)에서
+동작하지 않고 인덱스 없이는 설치조차 되지 않았다. 드라이버가 580 미만이면 파일의 cu130 을
+cu126 으로, GPU 가 없으면 cpu 로 바꾼다.
 
 **한국어 base 크기 Wav2Vec2는 공개된 것이 없다.** 한국어는 large(24층)만 있어
 (`kresnik/wav2vec2-large-xlsr-korean`), 8 GB VRAM과 통제된 비교를 고려해 기본

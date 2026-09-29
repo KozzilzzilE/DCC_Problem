@@ -12,9 +12,9 @@
 #   - 드라이버가 더 오래됐으면 cu130 을 cu126 으로 바꾼다.
 #   - GPU 가 없으면 cu130 을 cpu 로 바꾼다.
 #
-# torchaudio 는 쓰지 않는다 (log-Mel 을 torch.stft 로 직접 구현). librosa 는 테스트의
-# 수치 대조에만 쓰인다. 사전학습 모델의 config/가중치는 ckpt/*.pt 에 동봉돼 있어
-# 추론 시 인터넷 접속이 없다.
+# torchaudio·librosa 는 쓰지 않는다 (log-Mel 을 torch.stft 로 직접 구현). 사전학습 모델의
+# config/가중치는 ckpt/*.pt 에 동봉돼 있어 추론 시 인터넷 접속이 없다. 학습을 처음부터 다시 할 때만
+# 시작점 facebook/wav2vec2-base 를 한 번 내려받는다.
 
 --extra-index-url https://download.pytorch.org/whl/cu130
 
@@ -24,11 +24,9 @@ torchvision==0.28.0
 
 # --- 핵심 ---
 transformers==5.15.0
-accelerate==1.14.0
 numpy==2.4.6
 scipy==1.18.0
 pandas==3.0.5
-scikit-learn==1.9.0
 
 # --- 오디오 I/O ---
 soundfile==0.14.0
@@ -39,7 +37,3 @@ tqdm==4.70.0
 nbformat==5.11.1
 nbconvert==7.17.1
 ipykernel==7.3.0
-
-# --- 테스트 (librosa 는 피처 수치 대조용) ---
-pytest==9.1.1
-librosa==1.0.0
