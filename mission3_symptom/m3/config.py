@@ -46,5 +46,6 @@ def resolve_utterance_sep(mode: str = DEFAULT_UTTERANCE_SEP_MODE) -> str:
 # 경로 설정
 MISSION3_DIR = Path(__file__).resolve().parent.parent
 REPORTS_DIR = MISSION3_DIR / "reports"
+# 아래 두 경로는 분석 리포트(m3/report.py) 전용이다. 제출 추론은 읽지 않는다 (임계값 0.5 고정).
 BEST_THRESHOLDS_PATH = REPORTS_DIR / "best_thresholds.json"
 COMPARISON_REPORT_PATH = REPORTS_DIR / "comparison.md"

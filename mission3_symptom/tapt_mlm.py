@@ -8,7 +8,10 @@ masked LM 을 조금 더 돌려 백본을 도메인에 맞춘다 (Gururangan et 
 - `--eval-csv` 를 주면 학습 전과 매 epoch 뒤에 고정 마스크로 MLM 손실을 잰다 (평가 전용, 역전파 없음).
   Training 표본(본 텍스트)과 eval CSV 표본(안 본 텍스트)의 차이로 적응과 암기를 구분하는 진단용이다.
 
-    python tapt_mlm.py --train-csv <mission3_train.csv> --output-dir runs/tapt_klue_base_e4 --amp
+    python tapt_mlm.py --train-csv <mission3_train.csv> --output-dir runs/tapt_klue_base_e20 --amp --epochs 20
+
+시작점 klue/roberta-base(공개 모델)는 처음 한 번 Hugging Face 에서 받는다(학습 시에만 인터넷 필요).
+이미 받아 둔 경우에만 --local-files-only 를 붙인다.
 """
 
 from __future__ import annotations

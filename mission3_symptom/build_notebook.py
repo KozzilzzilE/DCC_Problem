@@ -42,7 +42,7 @@ CELLS = [
 - 입력은 대화 본문(`utterances[].text`)뿐이다. 화자·시간·인적사항은 파싱 단계에서 버린다.
 - 결정 임계값은 0.5 고정이다. 공개 사전학습 모델(klue/roberta-base)만 썼고 상용 API 는 쓰지 않았다.
 
-이 노트북은 학습 작업공간(`runs/` 가 있는 폴더)에서 실행한 기록이다. 학습은 아래 명령들로 CLI 에서 수행했고, 각 셀은 그 명령이 남긴 로그를 읽어 출력한다. `RUN_TRAINING = True` 로 바꾸면 같은 명령으로 다시 학습한다.
+이 노트북은 학습 작업공간(`runs/` 가 있는 폴더)에서 실행한 기록이다. 학습은 아래 명령들로 CLI 에서 수행했고, 각 셀은 그 명령이 남긴 로그(`runs/*/history.json` 등)를 읽어 출력한다. 제출 폴더에는 `runs/` 가 없으므로 로그는 저장된 셀 출력으로 확인한다. 처음부터 재현하려면 `RUN_TRAINING = True` 로 바꿔 같은 명령으로 다시 학습한다(약 4시간, RTX 5060 기준).
 """),
     code("""
 import json, os, platform, subprocess, sys, time
@@ -89,7 +89,9 @@ print("데이터:", DATA_ROOT)
     md("""
 ## 1. 데이터 준비 — 원본 JSON 에서 학습 CSV 만들기
 
-`m3.labels.load_transcripts_dir` 가 대화 본문만 공백으로 이어 붙이고(발화 경계 모드 `space`), 9개 대상 증상만 라벨 벡터로 남긴다. 추론 경로(`m3.infer.read_texts`)도 같은 함수를 쓰므로 학습 입력과 추론 입력이 어긋나지 않는다.
+`m3.labels.load_transcripts_dir` 가 대화 본문만 공백으로 이어 붙이고(발화 경계 모드 `space`), 9개 대상 증상만 라벨 벡터로 남긴다. 추론 경로(`m3.infer.read_texts`)도 같은 함수를 쓰므로 학습 입력과 추론 입력이 어긋나지 않는다. 같은 CSV 를 명령줄로 만들려면 `python make_csv.py --label-dir <data>/train/label --output data_csv/mission3_train.csv` (Validation 도 같은 방식).
+
+실제 학습에는 팀이 먼저 만든 CSV 를 썼다. 아래 두 번째 셀이 이 셀에서 다시 만든 것과 행 단위로 대조한다.
 """),
     code("""
 def build_dataframe(label_dir: Path) -> pd.DataFrame:
@@ -120,9 +122,12 @@ used = json.loads((RUN_DIRS[42] / "run_config.json").read_text(encoding="utf-8")
 for name, rebuilt, csv_path in [("Training", train_df, used["train_csv"]), ("Validation", val_df, used["val_csv"])]:
     original = pd.read_csv(csv_path, encoding="utf-8-sig").set_index("call_id")
     rebuilt = rebuilt.set_index("call_id").loc[original.index]
-    same_text = (rebuilt["text"] == original["text"]).mean()
-    same_label = (rebuilt[TARGET_SYMPTOMS].values == original[TARGET_SYMPTOMS].values).all(axis=1).mean()
-    print(f"{name}: 학습 CSV {len(original):,}행과 본문 일치 {same_text:.2%}, 라벨 일치 {same_label:.2%}  ({csv_path})")
+    text_diff = rebuilt["text"] != original["text"]
+    squash = lambda s: s.str.split().str.join(" ")
+    ws_only = int((text_diff & (squash(rebuilt["text"]) == squash(original["text"]))).sum())
+    label_same = int((rebuilt[TARGET_SYMPTOMS].values == original[TARGET_SYMPTOMS].values).all(axis=1).sum())
+    print(f"{name}: 학습 CSV {len(original):,}행 중 본문 동일 {len(original) - int(text_diff.sum()):,}행"
+          f" (다른 {int(text_diff.sum())}행 중 공백만 다른 행 {ws_only}), 라벨 동일 {label_same:,}행  [{Path(csv_path).name}]")
 """),
     md("""
 ## 2. TAPT — Training 본문으로 MLM 추가 사전학습 (20 epoch)
@@ -130,8 +135,9 @@ for name, rebuilt, csv_path in [("Training", train_df, used["train_csv"]), ("Val
 원본 KLUE-RoBERTa 는 이 통화 전사문에서 MLM 손실이 약 5.1 로, 문어체 사전학습 코퍼스와 도메인 차이가 크다. Training CSV 의 text 만으로 15% 마스킹 MLM 을 20 epoch 이어 학습했다(lr 5e-5, warmup 6%, 선형 감쇠, 항상 마지막 epoch 저장). `--eval-csv` 는 Validation 256건의 MLM 손실을 no_grad 로 기록하는 진단용이며 가중치에 영향이 없다.
 """),
     code("""
+# 시작점 klue/roberta-base(공개 모델)는 처음 한 번 Hugging Face 에서 받는다 (학습 시에만 인터넷 필요).
 TAPT_CMD = [sys.executable, "tapt_mlm.py", "--train-csv", used["train_csv"], "--eval-csv", used["val_csv"],
-            "--output-dir", str(TAPT_DIR), "--local-files-only", "--amp", "--epochs", "20"]
+            "--output-dir", str(TAPT_DIR), "--amp", "--epochs", "20"]
 print(" ".join(TAPT_CMD[1:]))
 if RUN_TRAINING:
     subprocess.run(TAPT_CMD, check=True)

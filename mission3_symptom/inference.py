@@ -1,7 +1,10 @@
 """Mission 3 (환자 증상 인식) — 미션 폴더 단독 실행용 추론 진입점.
 
-    python inference.py --label_dir <json 폴더> \
-                        --ckpt_path runs/<run 이름 또는 번들> --output ./outputs/mission3.csv
+    python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> \
+                        --ckpt_path ckpt/ensemble.json --output ./outputs/mission3.csv
+
+    (--audio_dir 는 받기만 하고 읽지 않는다. --ckpt_path 는 번들의 ensemble.json, 번들 폴더,
+     또는 학습 run/best_model 폴더 하나를 받는다)
 
 이 파일이 있는 폴더(mission3_symptom/)만 제출해도 동작하도록 만들었다.
   - 같은 폴더의 m3 패키지만 import 한다. 루트 inference.py 처럼 librosa/torchvision 같은

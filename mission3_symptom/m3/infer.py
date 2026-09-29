@@ -2,8 +2,8 @@
 
   - **입력**: 대화 본문(`utterances[].text`)만 사용한다. `m3.labels` 가 파싱 단계에서
     speaker / startAt / endAt / 인적사항을 원천 배제하므로 여기서 다시 거를 필요가 없다.
-  - **결정 임계값**: 대회 규정대로 **0.5 고정**이다. 학습 중 탐색한 class-wise threshold
-    (`reports/best_thresholds.json` 포함)는 제출 경로에서 읽지 않는다.
+  - **결정 임계값**: 대회 규정대로 **모든 클래스 0.5 고정**이다. 임계값 파일을 읽지 않으며,
+    번들(ensemble.json)도 임계값·클래스별 값을 받지 않는다.
   - **학습-추론 일치**: 발화 경계 표현(`utterance_sep_mode`), 인코딩(`encode_mode`),
     `max_length` 를 run_config 에서 복원한다. 이게 어긋나면 예외 없이 점수만 떨어진다.
   - **앙상블·블렌드**: `--ckpt_path` 가 `ensemble.json` 을 가리키면 트랜스포머 멤버 확률을

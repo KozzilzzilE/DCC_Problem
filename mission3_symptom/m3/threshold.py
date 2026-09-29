@@ -1,7 +1,8 @@
-"""Mission 3 클래스별 임계값(Threshold) 최적화 모듈
+"""Mission 3 임계값 유틸리티.
 
-불균형 다중 라벨 데이터셋에서 9개 증상 각각의 F1을 최대화하는
-최적 임계값을 그리드 탐색(Grid Search)을 통해 도출.
+- `apply_thresholds`: 확률을 임계값으로 0/1 로 바꾼다. 학습 중 Validation 평가는 0.5 로만 부른다.
+- `find_best_thresholds` / `get_threshold_curves`: **분석 전용**. 0.5 에서 잃는 양을 재던 초기 실험
+  도구이며, 대회 규정(결정 임계값 모든 클래스 0.5 고정)에 따라 제출·추론 경로는 쓰지 않는다.
 """
 
 from typing import Dict, List, Tuple, Union
