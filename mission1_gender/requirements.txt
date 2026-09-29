@@ -1,22 +1,26 @@
 # Mission 1 (신고자 성별 분류) 실행 환경 — 이 폴더 단독 제출 기준
 #
-# torch / torchvision 은 채점 머신의 GPU 에 맞는 CUDA 빌드를 받아야 하므로 아래에서
-# 버전을 고정하지 않는다 (cu118 로 고정하면 RTX 50 시리즈에서 설치조차 되지 않는다).
-# 학습·검증에 쓴 조합: torch 2.13.0+cu130, torchvision 0.28.0+cu130 (Python 3.14).
+# 검증 환경: Python 3.14.6, Windows 10, NVIDIA RTX 5060 8GB (드라이버 610.62, CUDA 13.0)
+# Python 3.12 이상 필요 (scipy 1.18.0 기준).
 #
 # 설치 (이 폴더에서):
 #   python -m venv venv
-#   venv\Scripts\python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
-#     (RTX 30/40 이면 cu121, CPU 전용이면 --index-url 생략)
-#   venv\Scripts\python -m pip install -r requirements.txt
+#   venv/Scripts/python -m pip install -r requirements.txt      (Linux: venv/bin/python)
+#
+# torch/torchvision 은 아래 extra-index 의 CUDA 13.0 빌드(2.13.0+cu130 / 0.28.0+cu130)를 받는다.
+# NVIDIA 드라이버 580 이상이 필요하다. cu118 로 고정하면 RTX 50 시리즈에서 동작하지 않는다.
+#   - 드라이버가 더 오래됐으면 cu130 을 cu126 으로 바꾼다.
+#   - GPU 가 없으면 cu130 을 cpu 로 바꾼다.
 #
 # torchaudio 는 쓰지 않는다 (log-Mel 을 torch.stft 로 직접 구현). librosa 는 테스트의
 # 수치 대조에만 쓰인다. 사전학습 모델의 config/가중치는 ckpt/*.pt 에 동봉돼 있어
 # 추론 시 인터넷 접속이 없다.
 
-# --- GPU 스택 (위 index-url 로 별도 설치) ---
-# torch==2.13.0+cu130
-# torchvision==0.28.0+cu130
+--extra-index-url https://download.pytorch.org/whl/cu130
+
+# --- GPU 스택 ---
+torch==2.13.0
+torchvision==0.28.0
 
 # --- 핵심 ---
 transformers==5.15.0
