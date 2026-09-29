@@ -30,7 +30,7 @@ Python 3.12 이상 (검증 3.14.6). 이 폴더에서:
 python -m pip install -r requirements.txt
 ```
 
-`requirements.txt` 는 PyTorch CUDA 13.0 빌드(torch 2.13.0+cu130, torchvision 0.28.0+cu130)를 받는다. NVIDIA 드라이버 580 이상이 필요하며, 드라이버가 더 오래됐으면 파일 안의 `cu130` 을 `cu126` 으로, GPU 가 없으면 `cpu` 로 바꾼다.
+`requirements.txt` 는 PyTorch CUDA 13.0 빌드(torch 2.13.0+cu130, torchvision 0.28.0+cu130)를 받는다. NVIDIA 드라이버 580 이상이 필요하며, 드라이버가 더 오래됐으면 파일 안의 `cu130` 을 `cu126` 으로 바꾼다.
 
 ## 추론 (주최 측 명령 형식)
 
@@ -42,7 +42,7 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 
 - 출력 CSV: `audio file name`, `gender`. 값은 `남`/`여` 다 (라벨의 `M`→남, `F`→여). 입력 통화마다 한 행이다.
 - 실행 첫 줄에 `threshold=0.500 (규정 고정)` 이 찍힌다.
-- 시간 제약이 있거나 GPU 가 없으면 `--ckpt_path ckpt/resnet_aug_m80.pt` 로 폴백 모델을 쓴다.
+- 시간 제약이 있으면 `--ckpt_path ckpt/resnet_aug_m80.pt` 로 폴백 모델을 쓴다 (약 27초).
 - 사전학습 모델의 config 와 가중치가 `.pt` 안에 들어 있어 추론 시 인터넷에 접속하지 않는다.
 
 ## 계산 효율
@@ -56,7 +56,6 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 | 학습·추론 환경 | NVIDIA GeForce RTX 5060 8GB (드라이버 610.62, CUDA 13.0), AMD Ryzen 5 9600 (6코어 12스레드), RAM 31GB, Windows 10, Python 3.14.6, torch 2.13.0+cu130, AMP | 동일 |
 | Validation 추론 batch size | 32 | 128 |
 | Validation 전체 추론 시간 | 3,640통화 **약 222초 (통화당 61 ms)**, 모델 로딩·wav 디코딩·리샘플·CSV 저장 포함 | 약 27초 (통화당 7.5 ms) |
-| GPU 없는 환경 (참고) | CPU 통화당 약 1.5~2초 (12통화 표본). Validation 전체 약 1.5~2시간 추정 | 통화당 약 0.16초, 10분 이내 추정 |
 | 학습 시간 | 3 epoch 약 2.3시간 (epoch 당 약 45분) | 6 epoch 약 80분 (epoch 당 약 13분) |
 
 추론 시간은 이 폴더의 `inference.py` 를 인터넷 차단(`HF_HUB_OFFLINE=1`) 상태로 1회 실행해 잰 벽시계 시간이다.

@@ -10,7 +10,6 @@
 # torch/torchvision 은 아래 extra-index 의 CUDA 13.0 빌드(2.13.0+cu130 / 0.28.0+cu130)를 받는다.
 # NVIDIA 드라이버 580 이상이 필요하다. cu118 로 고정하면 RTX 50 시리즈에서 동작하지 않는다.
 #   - 드라이버가 더 오래됐으면 cu130 을 cu126 으로 바꾼다.
-#   - GPU 가 없으면 cu130 을 cpu 로 바꾼다.
 #
 # torchaudio·librosa 는 쓰지 않는다 (log-Mel 을 torch.stft 로 직접 구현). 사전학습 모델의
 # config/가중치는 ckpt/*.pt 에 동봉돼 있어 추론 시 인터넷 접속이 없다. 학습을 처음부터 다시 할 때만
