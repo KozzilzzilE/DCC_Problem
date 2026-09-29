@@ -282,7 +282,18 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 python inference.py --label_dir <json 폴더> --ckpt_path runs/<run 또는 번들> --output ./outputs/mission3.csv
 ```
 
-로컬 Validation 추론 시간은 단일 모델 27.5초, 단일+TF-IDF 42초, 4-seed+TF-IDF 101초였다. TF-IDF 멤버는 scikit-learn 버전이 다르면 경고를 낸다 (학습 1.9.0).
+로컬 Validation 추론 시간은 단일 모델 27.5초, 단일+TF-IDF 42초, 4-seed+TF-IDF 101초였다 (fp32). TF-IDF 멤버는 scikit-learn 버전이 다르면 경고를 낸다 (학습 1.9.0).
+
+**추론 속도·메모리 (2026-09-29)**
+
+- **fp16 (선택):** `ensemble.json` 에 `"precision": "fp16"` 을 넣으면 CUDA 에서 fp16 autocast 로 추론한다. 기본은 `fp32` 다. 값은 `fp32` / `fp16` 만 받고, 임계값·클래스별 키는 여전히 거부한다.
+  - RTX 5060(torch 2.13+cu130) 측정: 4-seed+TF-IDF 번들 101초 → **42초**. Validation 3,640건 제출 행은 fp32 와 전부 같았다(멤버 하나 단독으로는 32,760 칸 중 0~1 칸 차이).
+  - 주최 측 실행 형태(루트 `inference.py`)에는 플래그가 없으므로 번들 키로만 켤 수 있다. `mission3_symptom/inference.py` 의 `--precision` 은 번들 값을 덮어쓰는 로컬용 옵션이다.
+  - CPU 에서는 요청해도 fp32 로 돌고, 로그에 그렇게 표시된다.
+  - `precision` 키가 든 번들은 이 버전 이후의 추론 코드가 필요하다(이전 코드는 모르는 키로 거부한다).
+- **긴 본문부터 처리:** 짧은 것부터 처리하면 배치 텐서가 계속 커져 PyTorch 캐시 예약이 부푼다(실사용 0.7GB 에 예약 4.5GB, 배치 32 에서는 8GB 를 넘겨 20배 이상 느려짐). 긴 것부터 처리해 예약을 0.9GB 로 유지한다. 판정은 같고 확률은 1e-6 수준으로만 다르다.
+- **GPU 실패 대비:** 배치가 GPU 메모리 부족으로 실패하면 반으로 나눠 다시 한다. 한 건도 안 들어가거나 CUDA 실행 오류(cuBLAS 할당 실패, 이 GPU 용 커널 없음 등)가 나면 해당 멤버를 CPU fp32 로 내려 끝까지 추론한다. Windows 드라이버가 공유 메모리로 넘겨 느려지는 경우는 오류가 아니라서 이 장치로 막지 못한다.
+- **배치 크기:** 16 에서 이미 GPU 가 포화라 32·64 로 늘려도 빨라지지 않았다.
 
 ### 현재 정상 Full Training 실험 결과
 
