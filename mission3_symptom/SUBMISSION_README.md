@@ -33,7 +33,7 @@ Python 3.12 이상 (검증 3.14.6). 이 폴더에서:
 python -m pip install -r requirements.txt
 ```
 
-`requirements.txt` 는 PyTorch CUDA 13.0 빌드(torch 2.13.0+cu130)를 받는다. NVIDIA 드라이버 580 이상이 필요하며, 드라이버가 더 오래됐으면 파일 안의 `cu130` 을 `cu126` 으로, GPU 가 없으면 `cpu` 로 바꾼다.
+`requirements.txt` 는 PyTorch CUDA 13.0 빌드(torch 2.13.0+cu130)를 받는다. NVIDIA 드라이버 580 이상이 필요하며, 드라이버가 더 오래됐으면 파일 안의 `cu130` 을 `cu126` 으로 바꾼다.
 
 ## 추론 (주최 측 명령 형식)
 
@@ -46,7 +46,7 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 - `--audio_dir` 는 받기만 하고 읽지 않는다 (입력은 대화 본문뿐).
 - `--ckpt_path` 는 `ckpt/ensemble.json` 파일 또는 `ckpt` 폴더를 받는다.
 - 출력 CSV: `label file name`, `symptom`. symptom 은 `"['두통', '복통']"` 형식이고 증상이 없으면 `"[]"` 다.
-- `ensemble.json` 의 `"precision": "fp16"` 은 CUDA 에서만 적용된다. GPU 가 없거나 GPU 에서 실패하면 자동으로 CPU fp32 로 끝까지 추론한다. 이 키는 이 폴더의 `m3/infer.py` 가 읽는다.
+- `ensemble.json` 의 `"precision": "fp16"` 은 CUDA 에서만 적용된다. GPU 에서 메모리 부족이 나면 배치를 나눠 다시 돌리고, 그래도 안 되거나 CUDA 실행 오류가 날 때만 CPU fp32 로 내려 결과 파일을 끝까지 만든다 (1회 실행이 중간에 죽지 않게 하는 안전장치). 이 키는 이 폴더의 `m3/infer.py` 가 읽는다.
 - 가중치는 Hugging Face 표준 `model.safetensors`(멤버별)와 scikit-learn `joblib`(TF-IDF 멤버)이고, `ensemble.json` 이 번들 진입점이다. 출제문제 12쪽의 `.pt/.pth/.ckpt` 예시와 확장자가 다르지만 모두 이 폴더의 로더(`m3/model.py`, `m3/tfidf_member.py`)가 로컬 경로에서 불러온다.
 
 ## 계산 효율
@@ -58,7 +58,6 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 | 학습·추론 환경 | NVIDIA GeForce RTX 5060 8GB (드라이버 610.62, CUDA 13.0), AMD Ryzen 5 9600 (6코어 12스레드), RAM 31GB, Windows 10, Python 3.14.6, torch 2.13.0+cu130, transformers 5.15.0 |
 | Validation 추론 batch size | 16 |
 | Validation 전체 추론 시간 | 3,640건 **약 42초 (샘플당 11.6 ms)**, fp16, 모델 로딩·TF-IDF·CSV 저장 포함 (fp32 로 돌리면 약 104초, 샘플당 28.7 ms) |
-| GPU 없는 환경 (참고) | CPU fp32 샘플당 약 1초 (12건 표본, 로딩 포함). Validation 전체면 약 1시간으로 추정 |
 | 학습 시간 | TAPT 20 epoch 약 2시간 35분 + 분류 학습 시드당 약 19분 × 4 + TF-IDF 약 30초 |
 
 ## 방법
