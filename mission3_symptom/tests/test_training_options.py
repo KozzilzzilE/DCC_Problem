@@ -87,6 +87,25 @@ class LayerwiseLrDecayTest(unittest.TestCase):
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(set(grouped), {id(p) for p in model.parameters() if p.requires_grad})
 
+    def test_backbone_params_outside_layers_get_embedding_rate(self) -> None:
+        # DeBERTa-v2 의 공유 상대위치 임베딩·인코더 LayerNorm 은 층 번호가 없지만 백본이다.
+        # 헤드 학습률(가장 큰 값)이 아니라 임베딩과 같은 가장 낮은 학습률을 받아야 한다.
+        from transformers import DebertaV2Config, DebertaV2ForSequenceClassification
+
+        config = DebertaV2Config(
+            vocab_size=50, hidden_size=8, num_hidden_layers=2, num_attention_heads=2, intermediate_size=16,
+            max_position_embeddings=40, relative_attention=True, position_biased_input=False,
+            norm_rel_ebd="layer_norm", num_labels=len(TARGET_SYMPTOMS),
+        )
+        model = DebertaV2ForSequenceClassification(config)
+        rates = lr_by_name(model, _build_optimizer(model, 1e-4, 0.01, llrd_decay=0.5))
+
+        self.assertAlmostEqual(rates["deberta.encoder.rel_embeddings.weight"][0], 0.125e-4)
+        self.assertAlmostEqual(rates["deberta.embeddings.word_embeddings.weight"][0], 0.125e-4)
+        self.assertAlmostEqual(rates["deberta.encoder.layer.1.attention.self.query_proj.weight"][0], 0.5e-4)
+        self.assertAlmostEqual(rates["classifier.weight"][0], 1e-4)
+        self.assertAlmostEqual(rates["pooler.dense.weight"][0], 1e-4)
+
     def test_config_rejects_decay_outside_zero_one(self) -> None:
         for bad in (0.0, -0.1, 1.5, math.nan, math.inf):
             with self.subTest(decay=bad):

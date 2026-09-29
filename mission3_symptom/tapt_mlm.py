@@ -3,8 +3,10 @@
 119 신고 통화 전사문은 사전학습 코퍼스(뉴스·웹)와 문체가 달라, 분류 학습 전에 같은 본문으로
 masked LM 을 조금 더 돌려 백본을 도메인에 맞춘다 (Gururangan et al., 2020).
 
-- **Training CSV 의 text 만** 쓴다. 라벨은 읽지 않고, Validation 은 받지 않는다.
+- 학습(역전파)에는 **Training CSV 의 text 만** 쓴다. 라벨은 읽지 않는다.
 - 결과 폴더는 `train.py --model-name-or-path <폴더> --local-files-only` 로 바로 분류 학습에 쓴다.
+- `--eval-csv` 를 주면 학습 전과 매 epoch 뒤에 고정 마스크로 MLM 손실을 잰다 (평가 전용, 역전파 없음).
+  Training 표본(본 텍스트)과 eval CSV 표본(안 본 텍스트)의 차이로 적응과 암기를 구분하는 진단용이다.
 
     python tapt_mlm.py --train-csv <mission3_train.csv> --output-dir runs/tapt_klue_base_e4 --amp
 """
@@ -16,6 +18,7 @@ import json
 import math
 import time
 from pathlib import Path
+from typing import Dict, List, Optional
 
 import torch
 from torch.utils.data import DataLoader
@@ -31,6 +34,44 @@ from m3.config import DEFAULT_UTTERANCE_SEP_MODE
 from m3.dataset import load_symptom_csv
 from m3.labels import verify_utterance_sep_mode
 from m3.training import set_seed
+
+
+EVAL_SEED = 2024
+
+
+def sample_texts(texts: List[str], n: int, seed: int) -> List[str]:
+    """진단용 표본. 본문이 n 보다 적으면 전부 쓴다."""
+    import pandas as pd
+
+    series = pd.Series(list(texts))
+    return series.sample(min(n, len(series)), random_state=seed).tolist()
+
+
+def build_eval_batches(tokenizer, collator, named_texts: Dict[str, List[str]], max_length: int,
+                       seed: int = EVAL_SEED, batch_size: int = 16) -> Dict[str, list]:
+    """고정 마스크 평가 배치. 전역 난수(CPU·CUDA)는 건드리지 않는다.
+
+    마스크 생성용으로 시드를 새로 걸면 학습의 dropout 난수까지 바뀌어, `--eval-csv` 를 켜느냐에
+    따라 TAPT 가중치가 달라진다. fork_rng 로 격리해 평가를 순수 진단으로 둔다.
+    """
+    devices = list(range(torch.cuda.device_count())) if torch.cuda.is_available() else []
+    batches: Dict[str, list] = {}
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(seed)
+        for name, texts in named_texts.items():
+            enc = tokenizer(texts, truncation=True, max_length=max_length, return_special_tokens_mask=True)
+            rows = [{k: enc[k][i] for k in ("input_ids", "attention_mask", "special_tokens_mask")}
+                    for i in range(len(texts))]
+            batches[name] = [collator(rows[i:i + batch_size]) for i in range(0, len(rows), batch_size)]
+    return batches
+
+
+def provenance_note(eval_csv: Optional[str]) -> str:
+    if not eval_csv:
+        return "Training CSV text column only (labels unused, Validation unused)"
+    return ("Backprop: Training CSV text column only (labels unused). "
+            f"eval_csv={eval_csv} used only for no_grad fixed-mask MLM loss logging; "
+            "not used for checkpoint selection (the last epoch is always saved).")
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,6 +92,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--local-files-only", action="store_true")
     parser.add_argument("--max-train-samples", type=int)
+    parser.add_argument("--eval-csv", help="진단용 held-out 본문 CSV (평가 전용, 학습에 쓰지 않음)")
+    parser.add_argument("--eval-samples", type=int, default=256)
     return parser.parse_args()
 
 
@@ -84,6 +127,39 @@ def main() -> None:
     loader = DataLoader(examples, batch_size=args.batch_size, shuffle=True, collate_fn=collator,
                         generator=generator)
 
+    eval_sets = {}
+    if args.eval_csv:
+        import pandas as pd
+
+        eval_sets = build_eval_batches(
+            tokenizer,
+            collator,
+            {
+                "seen_train": sample_texts(frame["text"].tolist(), args.eval_samples, seed=EVAL_SEED),
+                "unseen_eval": sample_texts(pd.read_csv(args.eval_csv)["text"].tolist(), args.eval_samples,
+                                            seed=EVAL_SEED),
+            },
+            max_length=args.max_length,
+            seed=EVAL_SEED,
+        )
+
+    def heldout_losses() -> dict:
+        model.eval()
+        out = {}
+        with torch.no_grad():
+            for name, batches in eval_sets.items():
+                total_loss, total_tokens = 0.0, 0
+                for batch in batches:
+                    batch = {k: v.to(device) for k, v in batch.items()}
+                    with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+                        loss = model(**batch).loss
+                    n = int((batch["labels"] != -100).sum())
+                    total_loss += float(loss) * n
+                    total_tokens += n
+                out[name] = total_loss / max(total_tokens, 1)
+        model.train()
+        return out
+
     no_decay = ("bias", "LayerNorm.weight", "layer_norm.weight")
     optimizer = torch.optim.AdamW(
         [
@@ -99,6 +175,10 @@ def main() -> None:
     scaler = torch.amp.GradScaler("cuda", enabled=amp)
 
     history = []
+    if eval_sets:
+        before = heldout_losses()
+        history.append({"epoch": 0, **before})
+        print(f"Epoch 0: " + ", ".join(f"{k}={v:.4f}" for k, v in before.items()), flush=True)
     started = time.perf_counter()
     model.train()
     for epoch in range(1, args.epochs + 1):
@@ -118,15 +198,19 @@ def main() -> None:
                 scaler.step(optimizer); scaler.update(); scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
             progress.set_postfix(avg_loss=f"{total / count:.4f}")
-        history.append({"epoch": epoch, "mlm_loss": total / max(count, 1)})
-        print(f"Epoch {epoch}: mlm_loss={total / max(count, 1):.4f}", flush=True)
+        record = {"epoch": epoch, "mlm_loss": total / max(count, 1)}
+        if eval_sets:
+            record.update(heldout_losses())
+        history.append(record)
+        print(f"Epoch {epoch}: " + ", ".join(f"{k}={v:.4f}" for k, v in record.items() if k != "epoch"),
+              flush=True)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
     meta = {k: v for k, v in vars(args).items()}
     meta.update({
-        "source": "Training CSV text column only (labels unused, Validation unused)",
+        "source": provenance_note(args.eval_csv),
         "num_texts": len(texts),
         "history": history,
         "training_seconds": time.perf_counter() - started,

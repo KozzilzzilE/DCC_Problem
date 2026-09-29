@@ -204,6 +204,16 @@ CSV 재생성은 `data_preprocessing.ipynb`의 `UTTERANCE_SEP_MODE`만 바꿔 �
 
 재학습 전에 노트북 4번 셀로 512 token 초과 비율 변화를 먼저 측정한다. 구분자만큼 입력이 길어지므로 이 값을 재지 않으면 경계 정보의 효과와 절단 증가의 부작용이 섞여 결과를 해석할 수 없다. baseline(`space`)의 Validation 초과 비율은 KLUE-RoBERTa 기준 `98 / 3,640 = 2.69%`다.
 
+### 개선 레시피: TAPT + LLRD (2026-09-29)
+
+아래 "임계값 0.5 고정 기준 권장 레시피"(pos_weight power 0.5)에 두 가지를 더하면 같은 시드 짝 비교로 원본 대비 **+0.0068 [+0.0025, +0.0111]** (시드 42~45 네 쌍 모두 상승, epoch 을 고정해도 유지)이다. 전체 비교와 근거, 효과가 없던 시도(다른 백본, RoBERTa-large, TF-IDF 변형 등)는 `reports/improvement_eval.md` 에 있다.
+
+1. TAPT — Training CSV 의 text 만으로 MLM 을 20 epoch 이어 학습(`mission3_symptom/` 에서, 약 2시간 35분): `python tapt_mlm.py --train-csv <train.csv> --output-dir runs/tapt_klue_base_e20 --local-files-only --amp --epochs 20` (`--eval-csv <val.csv>` 는 no_grad 진단 기록용, 생략 가능)
+2. 분류 학습 — 위 폴더에서 시작하고 층별 학습률 감쇠(LLRD) 0.8, 최상위 학습률 5e-5: `python train.py ... --model-name-or-path runs/tapt_klue_base_e20 --local-files-only --learning-rate 5e-5 --llrd-decay 0.8 --use-pos-weight --pos-weight-power 0.5 --checkpoint-metric val_macro_f1 --amp`
+3. 제출 — 시드 4개 `best_model` + 기존 TF-IDF(w=0.3) 번들 `runs/submit_tapt20_llrd08_4seed_tfidf`: Validation **0.6593** (원본 JSON 에서 `inference.py` 로 재현, 추론 113초). 현재 번들 0.6546 대비 +0.0046 이지만 번들 수준 CI 는 0 을 포함하고, LLRD 0.9 번들(0.6596)과도 구분되지 않는다. 레시피 선택 근거는 단일 모델 짝 비교다.
+
+감쇠 0.9·lr 3e-5 에서는 학습률만 3e-5 로 올린 대조군이 원본과 같아서, 그 설정의 이득은 층별 감쇠에서 온 것이다. large 백본용 `--gradient-checkpointing` 옵션도 있다.
+
 ### 임계값 0.5 고정 기준 권장 레시피 (2026-09-24)
 
 제출 지표는 **macro F1@0.5** 다. 아래 "현재 정상 Full Training 실험 결과" 절의 `Optimized Macro F1` 은 클래스별 임계값을 Validation 에서 고른 연구 기록이라 제출 성능이 아니다. 전체 수치와 근거는 `reports/calibration_eval.md` 에 있다.

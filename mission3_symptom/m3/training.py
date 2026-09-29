@@ -352,8 +352,12 @@ def _validate_config(config: TrainingConfig) -> None:
 _LAYER_INDEX = re.compile(r"\.layer\.(\d+)\.")
 
 
-def _layer_depths(names: List[str]) -> Dict[str, int]:
-    """헤드에서 몇 단계 아래인지. 헤드·층 밖 파라미터 0, 맨 위 층 1, 임베딩은 맨 아래 층 + 1."""
+def _layer_depths(names: List[str], backbone_prefix: Optional[str] = None) -> Dict[str, int]:
+    """헤드에서 몇 단계 아래인지. 헤드 0, 맨 위 층 1, 임베딩은 맨 아래 층 + 1.
+
+    층 번호가 없는 백본 파라미터(DeBERTa-v2 의 공유 상대위치 임베딩·인코더 LayerNorm,
+    ELECTRA 의 embeddings_project 등)는 헤드가 아니라 임베딩과 같은 깊이로 둔다.
+    """
     indices = [int(m.group(1)) for m in map(_LAYER_INDEX.search, names) if m]
     num_layers = max(indices) + 1 if indices else 0
     depths = {}
@@ -361,7 +365,7 @@ def _layer_depths(names: List[str]) -> Dict[str, int]:
         match = _LAYER_INDEX.search(name)
         if match:
             depths[name] = num_layers - int(match.group(1))
-        elif ".embeddings." in name:
+        elif ".embeddings." in name or (backbone_prefix and name.startswith(backbone_prefix + ".")):
             depths[name] = num_layers + 1
         else:
             depths[name] = 0
@@ -372,7 +376,7 @@ def _build_optimizer(model, learning_rate: float, weight_decay: float, llrd_deca
     no_decay = ("bias", "LayerNorm.weight", "layer_norm.weight")
     if llrd_decay != 1.0:
         named = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
-        depths = _layer_depths([n for n, _ in named])
+        depths = _layer_depths([n for n, _ in named], getattr(model, "base_model_prefix", None))
         grouped: Dict[Tuple[int, bool], List[torch.nn.Parameter]] = {}
         for name, parameter in named:
             key = (depths[name], any(k in name for k in no_decay))
