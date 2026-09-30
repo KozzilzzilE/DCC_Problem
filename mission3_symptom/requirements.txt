@@ -1,0 +1,35 @@
+# Mission 3 (환자 증상 인식) 실행 환경 — 이 폴더 단독 제출 기준
+#
+# 검증 환경: Python 3.14.6, Windows 10, NVIDIA RTX 5060 8GB (드라이버 610.62, CUDA 13.0)
+# Python 3.12 이상 필요 (scipy 1.18.0 기준).
+#
+# 설치 (이 폴더에서):
+#   python -m venv venv
+#   venv/Scripts/python -m pip install -r requirements.txt      (Linux: venv/bin/python)
+#
+# torch 는 아래 extra-index 의 CUDA 13.0 빌드(2.13.0+cu130)를 받는다. NVIDIA 드라이버 580 이상이 필요하다.
+#   - 드라이버가 더 오래됐으면 cu130 을 cu126 으로 바꾼다.
+# 사전학습 모델의 tokenizer/config/가중치는 제출 번들(ckpt/)에 모두 들어 있어 추론 시 인터넷 접속이 없다.
+# TF-IDF 멤버(tfidf_lr.joblib)는 scikit-learn 1.9.0 으로 저장했으므로 버전을 바꾸지 않는다.
+
+--extra-index-url https://download.pytorch.org/whl/cu130
+
+torch==2.13.0
+transformers==5.15.0
+tokenizers==0.22.2
+huggingface_hub==1.27.0
+safetensors==0.8.0
+numpy==2.4.6
+scipy==1.18.0
+pandas==3.0.5
+scikit-learn==1.9.0
+joblib==1.5.3
+threadpoolctl==3.6.0
+tqdm==4.70.0
+
+# (선택) KoBERT 비교 실험을 재현할 때만 필요: sentencepiece==0.2.2
+
+# 학습 기록 노트북(model_train.ipynb)을 다시 실행할 때만 필요
+nbformat==5.11.1
+nbclient==0.11.0
+ipykernel==7.3.0

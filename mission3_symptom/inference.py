@@ -1,15 +1,18 @@
 """Mission 3 (환자 증상 인식) — 미션 폴더 단독 실행용 추론 진입점.
 
-    python inference.py --label_dir <json 폴더> \
-                        --ckpt_path runs/<run 이름 또는 번들> --output ./outputs/mission3.csv
+    python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> \
+                        --ckpt_path ckpt/ensemble.json --output ./outputs/mission3.csv
+
+    (--audio_dir 는 받기만 하고 읽지 않는다. --ckpt_path 는 번들의 ensemble.json, 번들 폴더,
+     또는 학습 run/best_model 폴더 하나를 받는다)
 
 이 파일이 있는 폴더(mission3_symptom/)만 제출해도 동작하도록 만들었다.
   - 같은 폴더의 m3 패키지만 import 한다. 루트 inference.py 처럼 librosa/torchvision 같은
     다른 미션의 의존성을 끌어오지 않는다 (Mission 3 는 텍스트 과제라 필요가 없다)
   - 모델 입력은 대화 본문(`utterances[].text`)만 사용한다. 화자·시간·인적사항은
     m3.labels 가 파싱 단계에서 원천 배제한다
-  - 결정 임계값은 대회 규정대로 0.5 고정이다. 학습 중 탐색한 class-wise threshold 는
-    제출 경로에서 사용하지 않는다
+  - 결정 임계값은 대회 규정대로 9개 클래스 모두 0.5 고정이다. 클래스별·튜닝된 임계값은
+    어디서도 고르거나 불러오지 않는다
   - 발화 경계 표현과 인코딩 설정은 체크포인트의 run_config 에서 복원한다
 
 출력 CSV: [label file name], [symptom]   (symptom 은 "['두통', '복통']" 형태의 String)

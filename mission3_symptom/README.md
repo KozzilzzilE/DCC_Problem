@@ -9,6 +9,66 @@
 
 ---
 
+## 🚀 최종 제출본 실행 방법 (예선 제출 폴더)
+
+제출 폴더 하나로 설치·추론이 끝난다. 저장소에서 제출 폴더로 옮기는 파일은 아래 트리가 전부다.
+
+```text
+mission3_symptom/
+├── inference.py            # 추론 진입점 (한 번 실행으로 결과 CSV 생성)
+├── m3/                     # 전처리·모델·추론·학습 모듈
+├── ckpt/                   # 제출 번들 (tokenizer/config/가중치 포함, 인터넷 불필요)
+│   ├── ensemble.json       # 번들 진입점: 멤버 4개 + TF-IDF 가중치 0.3 + precision fp16
+│   ├── seed42 ~ seed45/    # KLUE-RoBERTa-base (TAPT 20ep + LLRD 0.8) 시드별 best_model
+│   └── tfidf/              # Training 전용 TF-IDF + LogisticRegression (scikit-learn 1.9.0)
+├── train.py  tapt_mlm.py  train_tfidf_member.py   # 학습 코드
+├── model_train.ipynb       # 학습 과정·로그·Validation 평가 기록
+├── reports/                # 실험 보고서 (calibration_eval.md, improvement_eval.md)
+├── requirements.txt
+└── README.md
+```
+
+**설치** (Python 3.12 이상, 검증 3.14.6):
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+**실행** (제출 폴더 안에서, 주최 측 명령 형식):
+
+```bash
+python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_path ckpt/ensemble.json --output ./outputs/mission3.csv
+```
+
+- `--audio_dir` 는 받기만 하고 읽지 않는다. Mission 3 입력은 대화 본문(`utterances[].text`)뿐이다.
+- `--ckpt_path` 에는 `ckpt/ensemble.json` 파일이나 `ckpt` 폴더를 준다. `ckpt/seed42` 처럼 멤버 폴더 하나를 주면 그 모델 하나로만 추론한다.
+- 출력은 `label file name`, `symptom` 두 열이다. symptom 은 `"['두통', '복통']"` 형식이고 증상이 없으면 `"[]"` 다. 판정 임계값은 모든 클래스 0.5 고정이다.
+- 번들의 `"precision": "fp16"` 은 CUDA 에서만 적용된다. GPU 가 없거나 GPU 에서 실패하면 fp32 CPU 로 자동 전환해 끝까지 추론한다.
+
+### 계산 효율 (주최 권장 기재 항목)
+
+| 항목 | 값 |
+|---|---|
+| Total 파라미터 | **445,681,425** = KLUE-RoBERTa-base 110,625,033 × 4 + TF-IDF LogisticRegression 3,181,293 (9 × 353,477) |
+| Active 파라미터 | **445,681,425** (앙상블 멤버가 모두 매 샘플 추론에 쓰이는 dense 구조) |
+| 학습·추론 환경 | NVIDIA GeForce RTX 5060 8GB (드라이버 610.62, CUDA 13.0), AMD Ryzen 5 9600 (6코어 12스레드), RAM 31GB, Windows 10, Python 3.14.6, torch 2.13.0+cu130, transformers 5.15.0 |
+| Validation 추론 batch size | 16 |
+| Validation 전체 추론 시간 | 3,640건 **42초 (샘플당 11.5 ms)**, fp16 제출 번들, 모델 로딩·TF-IDF·CSV 저장 포함. fp32 로 돌리면 약 104초 (샘플당 28.7 ms) |
+| GPU 없는 환경 (참고) | CPU fp32 로 샘플당 약 1초 (12~15건 표본 측정, 로딩 포함). Validation 전체면 약 1시간으로 추정 |
+| 학습 시간 | TAPT(MLM) 20 epoch 약 2시간 35분 + 분류 학습 시드당 약 20분 × 4 + TF-IDF 약 30초 (RTX 5060, AMP) |
+
+### 규정 준수 요약
+
+- 학습(역전파)에는 Training(서울) 데이터만 썼다. Validation 은 체크포인트 선택·하이퍼파라미터 선택·평가에만 썼다.
+- 입력은 대화 본문 텍스트뿐이다. 화자·시간·인적사항은 파싱 단계에서 버린다.
+- 결정 임계값은 모든 클래스 0.5 고정이다. 클래스별·튜닝된 임계값은 쓰지 않는다.
+- 공개 사전학습 모델(klue/roberta-base)만 썼고, 상용 API 는 쓰지 않았다.
+- 가중치는 Hugging Face 표준 `model.safetensors`(멤버별)와 scikit-learn `joblib` 이다. `ensemble.json` 이 번들 진입점이고, 모두 로컬 경로에서 `local_files_only` 로 불러온다.
+
+학습 절차와 로그는 `model_train.ipynb`, 실험 비교는 `reports/improvement_eval.md` 와 `reports/calibration_eval.md` 에 있다.
+
+---
+
 ## 📋 대회 규정 대상 9개 증상
 
 | 번호 | 타겟 증상 | 비고 |
@@ -210,7 +270,7 @@ CSV 재생성은 `data_preprocessing.ipynb`의 `UTTERANCE_SEP_MODE`만 바꿔 �
 
 1. TAPT — Training CSV 의 text 만으로 MLM 을 20 epoch 이어 학습(`mission3_symptom/` 에서, 약 2시간 35분): `python tapt_mlm.py --train-csv <train.csv> --output-dir runs/tapt_klue_base_e20 --local-files-only --amp --epochs 20` (`--eval-csv <val.csv>` 는 no_grad 진단 기록용, 생략 가능)
 2. 분류 학습 — 위 폴더에서 시작하고 층별 학습률 감쇠(LLRD) 0.8, 최상위 학습률 5e-5: `python train.py ... --model-name-or-path runs/tapt_klue_base_e20 --local-files-only --learning-rate 5e-5 --llrd-decay 0.8 --use-pos-weight --pos-weight-power 0.5 --checkpoint-metric val_macro_f1 --amp`
-3. 제출 — 시드 4개 `best_model` + 기존 TF-IDF(w=0.3) 번들 `runs/submit_tapt20_llrd08_4seed_tfidf`: Validation **0.6593** (원본 JSON 에서 `inference.py` 로 재현, 추론 113초). 현재 번들 0.6546 대비 +0.0046 이지만 번들 수준 CI 는 0 을 포함하고, LLRD 0.9 번들(0.6596)과도 구분되지 않는다. 레시피 선택 근거는 단일 모델 짝 비교다.
+3. 제출 — 시드 4개 `best_model` + 기존 TF-IDF(w=0.3) 번들 `runs/submit_tapt20_llrd08_4seed_tfidf`: Validation **0.6593** (원본 JSON 에서 `inference.py` 로 재현, 추론 fp32 약 104초 / fp16 42초). 현재 번들 0.6546 대비 +0.0046 이지만 번들 수준 CI 는 0 을 포함하고, LLRD 0.9 번들(0.6596)과도 구분되지 않는다. 레시피 선택 근거는 단일 모델 짝 비교다.
 
 감쇠 0.9·lr 3e-5 에서는 학습률만 3e-5 로 올린 대조군이 원본과 같아서, 그 설정의 이득은 층별 감쇠에서 온 것이다. large 백본용 `--gradient-checkpointing` 옵션도 있다.
 
