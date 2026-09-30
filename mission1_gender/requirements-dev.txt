@@ -1,0 +1,4 @@
+# 저장소 개발용 (제출 폴더에는 넣지 않는다): 테스트 실행에 필요한 패키지
+-r requirements.txt
+pytest==9.1.1
+librosa==1.0.0

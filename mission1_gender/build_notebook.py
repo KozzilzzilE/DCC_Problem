@@ -27,7 +27,9 @@ CELLS: list[tuple[str, str]] = [
 음성으로부터 신고자의 성별(남/여)을 분류한다. 같은 전처리 캐시 위에 ResNet50(2D CNN)과
 Wav2Vec2(음성 특화 파인튜닝) 갈래를 올려 비교했고, **제출 모델은 dev 기준으로 고른
 `w2v2_full.pt`** 다 (dev 0.9897 / Validation 0.9835). 결정 임계값은 **대회 규정대로 0.5 고정**이다.
-이 노트북은 그 모델의 학습 이력과 Validation 평가, 제출 규격 실행을 담는다.
+이 노트북은 그 모델의 학습 이력과 Validation 평가, 제출 규격 실행을 담는다. 저장소 루트에서 실행한
+기록이라 경로(`data/`, `cache/`, `mission1_gender/ckpt/`)가 저장소 기준이다. 제출 폴더에서는 셀 출력으로
+로그를 확인하고, 추론은 폴더 안의 `inference.py` 로 한다.
 
 **핵심 구조 — 2단 집계**
 
@@ -226,8 +228,10 @@ with torch.no_grad():
 조각이 아니라 통화 단위로 나눠야 같은 화자가 train과 dev 양쪽에 들어가는 누수가
 없다. Validation 폴더는 학습·모델선택에 일절 쓰지 않는다 (대회 규칙).
 
-아래 셀은 체크포인트가 이미 있으면 기록된 학습 이력을 읽어 보여주고, 없으면 그
-자리에서 학습한다. 표의 dev 는 학습 중 `center` 모드(조각당 창 1개, 임계값 0.5) 값이다.
+학습은 `python -m m1.train --branch w2v2 --cache cache/train --out mission1_gender/ckpt/w2v2_full.pt
+--epochs 3 --lr 3e-5 --batch-size 32` CLI 로 실행했고, 그 로그는 `ckpt/w2v2_full.history.json` 에
+epoch 별로 남아 있다. 아래 셀은 체크포인트가 이미 있으면 그 학습 로그를 읽어 보여주고, 없으면 그
+자리에서 같은 설정으로 학습한다. 표의 dev 는 학습 중 `center` 모드(조각당 창 1개, 임계값 0.5) 값이다.
 제출 경로와 같은 `sliding` 모드 dev 수치는 README 의 제출 모델 선정 표에 있다."""),
 
     ("code", """HISTORY = CKPT.with_suffix(".history.json")
@@ -338,7 +342,10 @@ else:
 
     ("md", """## 9. 제출 규격 확인
 
-대회가 실제로 실행하는 명령을 그대로 한 번 돌려 CSV 형식을 확인한다.
+대회가 실제로 실행하는 명령을 그대로 한 번 돌려 CSV 형식을 확인한다. 이 노트북은 저장소 루트에서
+실행해 루트 `inference.py`(세 미션 공용 진입점)를 불렀다. 제출 폴더에서는 폴더 안의
+`inference.py` 로 같은 결과가 나온다: `python inference.py --audio_dir <wav> --label_dir <json>
+--ckpt_path ckpt/w2v2_full.pt --output ./outputs/mission1.csv`.
 
 ```
 python inference.py --audio_dir {wav} --label_dir {json} --ckpt_path {ckpt} --output ./outputs/mission1.csv

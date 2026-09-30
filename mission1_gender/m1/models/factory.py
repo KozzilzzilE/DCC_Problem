@@ -16,9 +16,9 @@ from ..config import FeatureConfig
 CHECKPOINT_VERSION = 1
 
 # 조각 확률을 통화 단위로 평균했을 때의 결정 경계. **대회 규정으로 0.5 고정.**
-# m1.calibrate 가 dev 에서 고른 값이 체크포인트에 남아 있어도 제출 경로(infer)와
-# 비교표(benchmark/analysis/overlap 기본값)는 이 값을 쓴다. 저장값은 연구용
-# (--use-ckpt-threshold) 으로만 읽는다.
+# 제출 경로(inference.py -> m1.infer)는 항상 이 값을 쓴다. 제출 체크포인트에는 다른 임계값이
+# 저장돼 있지 않다. 체크포인트 저장값을 읽는 경로(use_checkpoint=True)는 규정 확인 전 연구
+# 기록을 재현하던 용도이며 제출·학습에서는 쓰지 않는다.
 DEFAULT_THRESHOLD = 0.5
 
 
