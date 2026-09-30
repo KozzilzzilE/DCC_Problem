@@ -4,6 +4,7 @@ from .redimnet import ReDimNet2_B2
 from .campp import CAMPPlus
 from .hubert import HuBERTClassifier
 from .ssast import SSAST_Tiny
+from .wavlm import WavLMClassifier
 
 def build_model(model_name: str, num_classes: int = 2, pretrained: bool = True):
     """
@@ -22,8 +23,10 @@ def build_model(model_name: str, num_classes: int = 2, pretrained: bool = True):
         return HuBERTClassifier(num_classes=num_classes)
     elif model_name == "ssast":
         return SSAST_Tiny(num_classes=num_classes)
+    elif model_name == "wavlm":
+        return WavLMClassifier(num_classes=num_classes)
     else:
-        raise ValueError(f"알 수 없는 모델 이름입니다: {model_name}. 지원 모델: resnet50, ecapa_tdnn, redimnet, campp, hubert, ssast")
+        raise ValueError(f"알 수 없는 모델 이름입니다: {model_name}. 지원 모델: resnet50, ecapa_tdnn, redimnet, campp, hubert, ssast, wavlm")
 
 def count_parameters(model):
     """학습 가능한 총 파라미터 수를 반환합니다."""

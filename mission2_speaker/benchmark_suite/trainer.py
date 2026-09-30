@@ -39,22 +39,29 @@ class BenchmarkTrainer:
             target_dir = os.path.join(self.drive_backup_dir, dst_subfolder)
             os.makedirs(target_dir, exist_ok=True)
             dst_file = os.path.join(target_dir, os.path.basename(src_file))
+            
+            if os.path.abspath(src_file) == os.path.abspath(dst_file):
+                return
+
             try:
                 shutil.copy2(src_file, dst_file)
             except Exception as e:
                 print(f"⚠️ 구글 드라이브 동기화 일시 오류: {e}")
 
-    def train_epoch(self, model, dataloader, optimizer, criterion):
+    def train_epoch(self, model, dataloader, optimizer, criterion, epoch, model_name, save_steps=500):
         model.train()
         total_loss = 0.0
         correct = 0
         total = 0
 
-        for inputs, targets in dataloader:
+        for step, (inputs, targets) in enumerate(dataloader):
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
+            
+            with torch.amp.autocast('cuda', enabled=torch.cuda.is_available()):
+                outputs = model(inputs)
+                loss = criterion(outputs, targets)
+                
             loss.backward()
             optimizer.step()
 
@@ -62,6 +69,18 @@ class BenchmarkTrainer:
             preds = torch.argmax(outputs, dim=1)
             correct += (preds == targets).sum().item()
             total += targets.size(0)
+            
+            # Step-based saving to prevent loss during Colab timeout
+            if (step + 1) % save_steps == 0:
+                step_ckpt_path = os.path.join(self.output_dir, "checkpoints", f"step_{model_name}.pt")
+                torch.save({
+                    "epoch": epoch,
+                    "step": step,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "model_name": model_name
+                }, step_ckpt_path)
+                self._sync_to_drive(step_ckpt_path, "checkpoints")
 
         return total_loss / total, (correct / total) * 100.0
 
@@ -91,15 +110,19 @@ class BenchmarkTrainer:
         avg_loss = total_loss / len(all_targets) if criterion else 0.0
         return avg_loss, metrics, all_probs
 
-    def fit(self, model_name, model, train_loader, val_loader, epochs=15, lr=1e-4, weight_decay=1e-4, skip_if_done=True):
-        """단일 모델에 대한 전체 학습 루프 및 자동 백업 수행"""
+    def fit(self, model_name, model, train_loader, val_loader, epochs=15, lr=1e-4, weight_decay=1e-4, skip_if_done=False):
+        """단일 모델에 대한 전체 학습 루프 및 자동 백업/Resume 수행"""
         print(f"\n=======================================================")
         print(f"🚀 [모델 벤치마크 실행] : {model_name.upper()}")
         print(f"=======================================================")
 
-        # 이미 완료된 모델인지 체크
+        local_ckpt_path = os.path.join(self.output_dir, "checkpoints", f"best_{model_name}.pt")
+        drive_ckpt_path = os.path.join(self.drive_backup_dir, "checkpoints", f"best_{model_name}.pt")
+        step_ckpt_path = os.path.join(self.output_dir, "checkpoints", f"step_{model_name}.pt")
+        drive_step_ckpt = os.path.join(self.drive_backup_dir, "checkpoints", f"step_{model_name}.pt")
+
         if skip_if_done and self.is_already_completed(model_name):
-            print(f"⚡ {model_name}의 체크포인트가 이미 백업에 존재합니다! 이전 결과 유지 및 Skip합니다.")
+            print(f"⚡ {model_name}의 체크포인트가 이미 존재합니다! 결과 유지 및 Skip합니다.")
             return None
 
         model = model.to(self.device)
@@ -108,13 +131,44 @@ class BenchmarkTrainer:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
         best_val_acc = 0.0
+        start_epoch = 1
         best_metrics = None
+
+        # Auto-Resume: 기존 90% 가중치 또는 중간 저장된 가중치 불러오기 (Fine-tuning)
+        resume_target = None
+        if os.path.exists(local_ckpt_path):
+            resume_target = local_ckpt_path
+        elif os.path.exists(drive_ckpt_path):
+            resume_target = drive_ckpt_path
+        elif os.path.exists(step_ckpt_path):
+            resume_target = step_ckpt_path
+        elif os.path.exists(drive_step_ckpt):
+            resume_target = drive_step_ckpt
+
+        if resume_target:
+            print(f"🔄 이전 체크포인트를 발견했습니다! [{resume_target}] 불러와서 이어서 학습(Fine-Tuning)합니다.")
+            checkpoint = torch.load(resume_target, map_location=self.device)
+            model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            if "optimizer_state_dict" in checkpoint:
+                try:
+                    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+                except Exception:
+                    print("⚠️ 옵티마이저 호환 안됨. 모델 가중치만 불러옵니다.")
+            start_epoch = checkpoint.get("epoch", 0) + 1
+            best_val_acc = checkpoint.get("val_acc", 0.0)
+            if start_epoch > epochs:
+                print("⚡ 목표 에포크를 이미 달성했습니다.")
+                if not skip_if_done:
+                    # 풀학습을 위해 강제로 1에포크부터 이어서 더 돌림
+                    start_epoch = 1
+                    print("⚡ 풀데이터 추가 학습을 위해 에포크 카운트를 1로 초기화하고 이어 학습합니다.")
+                else:
+                    return None
+
         start_train_time = time.time()
 
-        local_ckpt_path = os.path.join(self.output_dir, "checkpoints", f"best_{model_name}.pt")
-
-        for epoch in range(1, epochs + 1):
-            t_loss, t_acc = self.train_epoch(model, train_loader, optimizer, criterion)
+        for epoch in range(start_epoch, epochs + 1):
+            t_loss, t_acc = self.train_epoch(model, train_loader, optimizer, criterion, epoch, model_name, save_steps=500)
             v_loss, v_metrics, _ = self.evaluate(model, val_loader, criterion)
             scheduler.step()
 

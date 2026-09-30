@@ -60,6 +60,10 @@ class UniversalSpeakerDataset(Dataset):
         else:
             self.transform = None
 
+        # 데이터 증강 (Augmentation) 초기화
+        self.freq_mask = T.FrequencyMasking(freq_mask_param=15)
+        self.time_mask = T.TimeMasking(time_mask_param=35)
+
         # 발화(Utterance) 메타데이터 수집
         self.samples = self._load_utterance_metadata(max_files)
 
@@ -79,8 +83,8 @@ class UniversalSpeakerDataset(Dataset):
             # 상위 폴더 구조가 2.라벨링데이터 <-> 1.원천데이터 형태인지 자동 확인
             w_candidate = j_path.replace("2.라벨링데이터", "1.원천데이터").replace("TL_", "TS_").replace(".json", ".wav")
             if not os.path.exists(w_candidate):
-                # 일반적인 audio 폴더 또는 동일 폴더 검색
-                w_candidate = j_path.replace("/label/", "/audio/").replace(".json", ".wav")
+                # 일반적인 audio 폴더 또는 동일 폴더 검색 (운영체제별 슬래시 처리)
+                w_candidate = j_path.replace("/label/", "/audio/").replace("\\label\\", "\\audio\\").replace(".json", ".wav")
                 if not os.path.exists(w_candidate):
                     # 같은 폴더 내 .wav
                     w_candidate = os.path.splitext(j_path)[0] + ".wav"
@@ -185,10 +189,24 @@ class UniversalSpeakerDataset(Dataset):
                 offset = (cur_len - self.target_samples) // 2
             waveform = waveform[:, offset:offset + self.target_samples]
 
+        # 1D Waveform Data Augmentation (학습 시에만 적용)
+        if self.is_train:
+            # 1. Random Gain (0.5 ~ 1.5)
+            if random.random() < 0.5:
+                gain = random.uniform(0.5, 1.5)
+                waveform = waveform * gain
+            # 2. Gaussian Noise
+            if random.random() < 0.5:
+                noise = torch.randn_like(waveform) * random.uniform(0.001, 0.01)
+                waveform = waveform + noise
+
         # 3. 모델별 입력 특징(Feature) 변환
         if self.input_type == "mel_spec":
             # 2D Mel-Spectrogram (dB 스케일) -> (1, n_mels, time)
             spec = self.transform(waveform)
+            if self.is_train and random.random() < 0.5:
+                spec = self.freq_mask(spec)
+                spec = self.time_mask(spec)
             spec_db = self.amplitude_to_db(spec)
             # 인스턴스 정규화 (Mean-Std)
             mean = spec_db.mean()
@@ -198,6 +216,9 @@ class UniversalSpeakerDataset(Dataset):
         elif self.input_type == "fbank":
             # Log Mel-Filterbank -> (n_mels, time)
             spec = self.transform(waveform)
+            if self.is_train and random.random() < 0.5:
+                spec = self.freq_mask(spec)
+                spec = self.time_mask(spec)
             fbank = torch.log(spec + 1e-6)
             # Cepstral Mean and Variance Normalization (CMVN)
             features = (fbank - fbank.mean(dim=-1, keepdim=True)) / (fbank.std(dim=-1, keepdim=True) + 1e-6)

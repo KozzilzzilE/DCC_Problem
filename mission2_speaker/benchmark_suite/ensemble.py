@@ -2,6 +2,7 @@ import os
 import torch
 import numpy as np
 import pandas as pd
+import itertools
 from torch.utils.data import DataLoader
 
 from .models import build_model
@@ -93,3 +94,56 @@ class EnsembleEvaluator:
         print(f"  👉 Val Accuracy : {metrics['accuracy']:.2f}%")
         print(f"  👉 Macro F1     : {metrics['macro_f1']:.4f}")
         return metrics
+
+    def find_best_ensemble(self, candidate_models, val_dir, max_files=None):
+        """가능한 모든 2~4개 모델 조합을 탐색하여 최고의 Soft Voting 앙상블을 찾습니다."""
+        print(f"\n=======================================================")
+        print(f"🚀 [자동 앙상블 탐색 시작] 후보 모델: {candidate_models}")
+        print(f"=======================================================")
+
+        best_acc = 0.0
+        best_combo = None
+        best_metrics = None
+
+        valid_models = []
+        prob_dict = {}
+        targets = None
+
+        # 1. 모든 후보 모델의 예측 확률 캐싱
+        for name in candidate_models:
+            print(f"[{name}] 확률 추출 중...")
+            p, t = self.get_model_predictions(name, val_dir, max_files)
+            if p is not None:
+                prob_dict[name] = p
+                valid_models.append(name)
+                if targets is None:
+                    targets = t
+
+        if len(valid_models) < 2:
+            print("❌ 앙상블 가능한 모델이 2개 미만입니다.")
+            return None
+
+        # 2. 2개부터 len(valid_models)개까지의 모든 조합 탐색
+        for r in range(2, len(valid_models) + 1):
+            for combo in itertools.combinations(valid_models, r):
+                prob_matrix = np.array([prob_dict[name] for name in combo])
+                w = np.ones(r) / r
+                ensemble_probs = np.tensordot(w, prob_matrix, axes=(0, 0))
+                ensemble_preds = (ensemble_probs >= 0.5).astype(int)
+                
+                metrics = compute_all_metrics(targets, ensemble_preds, ensemble_probs)
+                acc = metrics["accuracy"]
+                
+                print(f"조합 {combo} -> Acc: {acc:.2f}%")
+                
+                if acc > best_acc:
+                    best_acc = acc
+                    best_combo = combo
+                    best_metrics = metrics
+
+        print(f"\n🏆 [최종 최고 성능 앙상블 조합] 🏆")
+        print(f"  👉 모델 조합: {best_combo}")
+        print(f"  👉 Val Accuracy : {best_metrics['accuracy']:.2f}%")
+        print(f"  👉 Macro F1     : {best_metrics['macro_f1']:.4f}")
+        
+        return best_combo, best_metrics
