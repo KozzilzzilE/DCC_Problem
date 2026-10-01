@@ -1,4 +1,12 @@
-"""Mission 3 KLUE-RoBERTa baseline 학습 진입점."""
+"""Mission 3 KLUE-RoBERTa 다중 라벨 분류 학습 진입점.
+
+run_dev_selection.sh 가 dev 선택 학습과 최종 학습에 모두 이 스크립트를 쓴다. 예:
+
+    python train.py --train-csv data_csv/mission3_train.csv --val-csv runs/devsel/data/dev_split.csv \\
+        --output-dir runs/devsel/final_s42 --model-name-or-path runs/devsel/tapt --local-files-only \\
+        --learning-rate 5e-5 --llrd-decay 0.8 --use-pos-weight --pos-weight-power 0.5 --epochs 3 \\
+        --checkpoint-metric fixed_epoch --checkpoint-epoch 2 --max-length 512 --amp --seed 42
+"""
 
 from __future__ import annotations
 
@@ -11,11 +19,14 @@ from m3.training import BASELINE_MODEL_NAME, TrainingConfig, run_training
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Mission 3 KLUE-RoBERTa 다중 라벨 학습")
+    # 데이터·출력 경로
     parser.add_argument("--train-csv", required=True, help="학습 CSV 경로")
     parser.add_argument("--val-csv", required=True, help="Validation CSV 경로")
     parser.add_argument("--output-dir", required=True, help="실험 산출물 저장 경로")
+    # 시작 모델 (공개 모델 이름 또는 TAPT 결과 폴더)
     parser.add_argument("--model-name-or-path", default=BASELINE_MODEL_NAME)
     parser.add_argument("--model-revision")
+    # 일반 학습 설정
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-length", type=int, default=512)
     parser.add_argument("--train-batch-size", type=int, default=8)
@@ -29,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--amp", action="store_true")
+    # 불균형 보정 손실: BCE 양성 가중 pos_weight = (Training 음성/양성) ** power
     parser.add_argument("--use-pos-weight", action="store_true")
     parser.add_argument(
         "--pos-weight-power",
@@ -36,19 +48,13 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="pos_weight = (negative/positive) ** power. 1.0 은 기존 동작, 0.5 가 임계값 0.5 고정 기준 실측 최적",
     )
-    parser.add_argument("--loss-type", choices=("bce", "asl", "dependency", "pairwise"), default="bce")
-    parser.add_argument("--dependency-alpha", type=float, default=0.1, help="Weight for Label Dependency Loss")
-    parser.add_argument("--pairwise-alpha", type=float, default=0.1, help="Weight for Pairwise Ranking Loss")
-    parser.add_argument("--asl-gamma-neg", type=float, default=4.0)
-    parser.add_argument("--asl-gamma-pos", type=float, default=1.0)
-    parser.add_argument("--asl-clip", type=float, default=0.05)
-    parser.add_argument("--asl-eps", type=float, default=1e-8)
-    parser.add_argument("--asl-reduction", choices=("mean", "sum"), default="mean")
     parser.add_argument("--local-files-only", action="store_true")
+    # 빠른 점검용 축소 실행
     parser.add_argument("--max-train-samples", type=int)
     parser.add_argument("--max-val-samples", type=int)
     parser.add_argument("--max-steps", type=int)
     parser.add_argument("--smoke-test", action="store_true")
+    # 저장할 체크포인트 선정 기준
     parser.add_argument(
         "--checkpoint-metric",
         choices=("val_loss", "val_macro_f1", "fixed_epoch"),
@@ -61,33 +67,10 @@ def parse_args() -> argparse.Namespace:
         help="--checkpoint-metric fixed_epoch 일 때 저장할 epoch (생략하면 마지막 epoch). 학습률 스케줄은 --epochs 기준",
     )
     parser.add_argument(
-        "--encode-mode",
-        choices=("truncate", "head_tail"),
-        default="truncate",
-        help="512 초과 통화 입력: truncate(앞만) 또는 head_tail(앞 128+꼬리)",
-    )
-    parser.add_argument(
         "--utterance-sep-mode",
         choices=tuple(UTTERANCE_SEP_MODES),
         default=DEFAULT_UTTERANCE_SEP_MODE,
         help="학습 CSV 의 발화 경계 표현. run_config.json 에 기록되어 추론이 같은 모드를 복원한다",
-    )
-    parser.add_argument(
-        "--pooling-type",
-        choices=("cls", "label_attention"),
-        default="cls",
-        help="분류 pooling: 기존 first-token cls 또는 RoBERTa label_attention",
-    )
-    parser.add_argument(
-        "--use-pure-nausea-sampling",
-        action="store_true",
-        help="Training의 pure-nausea(오심=1, 구토=0) row만 가중 재샘플링",
-    )
-    parser.add_argument(
-        "--pure-nausea-weight",
-        type=float,
-        default=1.5,
-        help="pure-nausea(C) Training row의 sampling weight (기본값: 1.5)",
     )
     parser.add_argument(
         "--llrd-decay",
@@ -95,15 +78,11 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="layer-wise LR decay. 헤드는 learning-rate, 인코더 층마다 이 값을 곱한다 (1.0 은 끔)",
     )
-    parser.add_argument(
-        "--gradient-checkpointing",
-        action="store_true",
-        help="activation 재계산으로 GPU 메모리 절약 (large 백본용, 대신 느려짐)",
-    )
     return parser.parse_args()
 
 
 def build_config(args: argparse.Namespace) -> TrainingConfig:
+    """CLI 인자를 TrainingConfig 로 옮긴다. --smoke-test 면 크기를 줄이고 출력 폴더에 _smoke 를 붙인다."""
     output_dir = Path(args.output_dir)
     max_length = args.max_length
     train_batch_size = args.train_batch_size
@@ -148,14 +127,6 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         amp=args.amp,
         use_pos_weight=args.use_pos_weight,
         pos_weight_power=args.pos_weight_power,
-        loss_type=args.loss_type,
-        dependency_alpha=args.dependency_alpha,
-        pairwise_alpha=args.pairwise_alpha,
-        asl_gamma_neg=args.asl_gamma_neg,
-        asl_gamma_pos=args.asl_gamma_pos,
-        asl_clip=args.asl_clip,
-        asl_eps=args.asl_eps,
-        asl_reduction=args.asl_reduction,
         local_files_only=args.local_files_only,
         max_train_samples=max_train_samples,
         max_val_samples=max_val_samples,
@@ -164,12 +135,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         checkpoint_metric=args.checkpoint_metric,
         checkpoint_epoch=checkpoint_epoch,
         utterance_sep_mode=args.utterance_sep_mode,
-        encode_mode=args.encode_mode,
-        pooling_type=args.pooling_type,
-        use_pure_nausea_sampling=args.use_pure_nausea_sampling,
-        pure_nausea_weight=args.pure_nausea_weight,
         llrd_decay=args.llrd_decay,
-        gradient_checkpointing=args.gradient_checkpointing,
     )
 
 

@@ -1,10 +1,10 @@
 """Mission 3 (환자 증상 인식) — 미션 폴더 단독 실행용 추론 진입점.
 
     python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> \
-                        --ckpt_path ckpt/ensemble.json --output ./outputs/mission3.csv
+                        --ckpt_path ckpt/mission3.pt --output ./outputs/mission3.csv
 
-    (--audio_dir 는 받기만 하고 읽지 않는다. --ckpt_path 는 번들의 ensemble.json, 번들 폴더,
-     또는 학습 run/best_model 폴더 하나를 받는다)
+    (--audio_dir 는 받기만 하고 읽지 않는다. --ckpt_path 는 제출 번들 .pt 파일(ckpt/mission3.pt),
+     또는 모델 하나를 확인할 때 학습 run/best_model 폴더를 받는다)
 
 이 파일이 있는 폴더(mission3_symptom/)만 제출해도 동작하도록 만들었다.
   - 같은 폴더의 m3 패키지만 import 한다. 루트 inference.py 처럼 librosa/torchvision 같은
@@ -13,7 +13,7 @@
     m3.labels 가 파싱 단계에서 원천 배제한다
   - 결정 임계값은 대회 규정대로 9개 클래스 모두 0.5 고정이다. 클래스별·튜닝된 임계값은
     어디서도 고르거나 불러오지 않는다
-  - 발화 경계 표현과 인코딩 설정은 체크포인트의 run_config 에서 복원한다
+  - 발화 경계 표현과 인코딩 설정은 번들 멤버(또는 run 폴더)에 저장된 학습 설정에서 복원한다
 
 출력 CSV: [label file name], [symptom]   (symptom 은 "['두통', '복통']" 형태의 String)
 """
@@ -39,11 +39,11 @@ def parse_args(argv=None):
                    help="받기만 하고 사용하지 않는다. Mission 3 는 대화 본문만 입력으로 허용된다")
     p.add_argument("--label_dir", required=True, help="json 라벨 폴더 (utterances[].text 만 사용)")
     p.add_argument("--ckpt_path", required=True,
-                   help="run 디렉터리(best_model 포함), best_model 디렉터리, 또는 ensemble.json 번들 디렉터리")
+                   help="제출 번들 .pt 파일(ckpt/mission3.pt), 또는 단일 모델 확인용 run 디렉터리(best_model 포함)/best_model 디렉터리")
     p.add_argument("--output", required=True, help="결과 CSV 경로 (예: ./outputs/mission3.csv)")
     p.add_argument("--batch_size", type=int, default=16, help="추론 배치 크기")
     p.add_argument("--precision", choices=("fp32", "fp16"), default=None,
-                   help="지정하지 않으면 번들(ensemble.json 의 precision, 기본 fp32)을 따른다. fp16 은 CUDA 에서만")
+                   help="지정하지 않으면 .pt 번들의 precision(제출 번들은 fp16)을, run 폴더면 fp32 를 쓴다. fp16 은 CUDA 에서만")
     return p.parse_args(argv)
 
 

@@ -83,6 +83,8 @@ TAPT+LLRD 가 모든 epoch 에서 원래 레시피보다 높다 (+0.0101, +0.003
   - 가중치는 fp32 로 저장돼 있다. `ensemble.json` 의 `"precision": "fp16"` 은 CUDA 추론 때 fp16 autocast 를 켜는 설정이다.
   - 파라미터 442,500,132 (110,625,033 × 4).
 
+> **덧붙임 (10-02):** 이 문서는 10-01 실행 기록이라 그대로 둔다. 10-01 Validation 확인은 위 폴더 번들(`runs/devsel/bundle/`, `ensemble.json`)로 했다. 이후 같은 가중치 4개를 바꾸지 않고 `.pt` 파일 하나(`runs/devsel/mission3.pt`, 제출본의 `ckpt/mission3.pt`)로 옮겼다. 이 `.pt` 로 Validation 을 다시 추론한 예측은 첫 확인과 3,640행 모두 같았다. `.pt` 로 잰 전체 실행 시간은 약 43~45초(샘플당 약 12 ms)다.
+
 ## Validation 확인 (1회)
 
 | 고열 | 구토 | 두통 | 복통 | 어지러움 | 열상 | 오심 | 전신쇠약 | 호흡곤란 | **macro** |

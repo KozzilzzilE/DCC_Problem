@@ -2,14 +2,13 @@
 
 - 긴 본문부터 처리해 GPU 캐시 재사용을 늘린다 (짧은 것부터 하면 배치 모양이 커질 때마다 새 블록을
   잡아 8GB 카드에서 예약 메모리가 4.5GB 까지 부푼다).
-- fp16 은 번들(`ensemble.json` 의 `precision`)이나 `--precision` 이 켤 때만, CUDA 에서만 쓴다. 기본은 fp32.
+- fp16 은 번들(`.pt` 의 `precision`)이나 `--precision` 이 켤 때만, CUDA 에서만 쓴다. 기본은 fp32.
 - GPU 메모리가 부족하면 배치를 반으로 나눠 다시 하고(실패한 시도의 메모리는 풀고 나서), 한 건도 안 되면
   또는 CUDA 실행 오류가 나면 CPU 로 내려 끝까지 채운다.
 """
 
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest
@@ -19,12 +18,15 @@ import numpy as np
 import torch
 
 MISSION3_DIR = Path(__file__).resolve().parents[1]
-if str(MISSION3_DIR) not in sys.path:
-    sys.path.insert(0, str(MISSION3_DIR))
+TESTS_DIR = Path(__file__).resolve().parent
+for _path in (MISSION3_DIR, TESTS_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 from m3 import infer
+from m3.bundle import load_bundle
 from m3.config import NUM_CLASSES
-from m3.infer import ENSEMBLE_MANIFEST_NAME, load_ensemble_spec
+from test_ensemble_inference import write_fake_bundle
 
 
 class FakeOutput:
@@ -97,60 +99,62 @@ class PrecisionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "precision"):
             infer.autocast_dtype("int8", torch.device("cuda"))
 
-    def _manifest(self, root: Path, extra: dict) -> Path:
-        run = root / "run" / "best_model"
-        run.mkdir(parents=True)
-        (run / "config.json").write_text("{}", encoding="utf-8")
-        path = root / "bundle" / ENSEMBLE_MANIFEST_NAME
-        path.parent.mkdir()
-        path.write_text(json.dumps({"members": ["../run"], **extra}), encoding="utf-8")
-        return path
+    def _precision_of(self, precision) -> str:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            return load_bundle(write_fake_bundle(Path(tmp) / "b.pt", ["m"], precision=precision)).precision
 
     def test_bundle_precision_defaults_to_fp32(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            spec = load_ensemble_spec(self._manifest(Path(tmp), {}))
-
-        self.assertEqual(spec.precision, "fp32")
+        self.assertEqual(self._precision_of(None), "fp32")   # precision 키가 없는 번들
 
     def test_bundle_can_opt_into_fp16(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            spec = load_ensemble_spec(self._manifest(Path(tmp), {"precision": "fp16"}))
-
-        self.assertEqual(spec.precision, "fp16")
+        self.assertEqual(self._precision_of("fp16"), "fp16")
 
     def test_bundle_rejects_unknown_precision(self) -> None:
-        for bad in ("int8", 16, None, ""):
-            with self.subTest(value=bad), tempfile.TemporaryDirectory() as tmp:
+        for bad in ("int8", 16, ""):
+            with self.subTest(value=bad):
                 with self.assertRaisesRegex(ValueError, "precision"):
-                    load_ensemble_spec(self._manifest(Path(tmp), {"precision": bad}))
+                    self._precision_of(bad)
 
 
 class PrecisionPassThroughTest(unittest.TestCase):
-    def _captured_precisions(self, manifest_extra: dict, override=None):
+    def _captured_precisions(self, bundle_precision, override=None, members=("a", "b")):
         from unittest.mock import patch
 
         seen = []
 
-        def fake_transformer(label_dir, ckpt_path, batch_size=16, device=None, precision="fp32"):
+        def fake_transformer(label_dir, ckpt_path, batch_size=16, device=None, precision="fp32", loader=None):
             seen.append(precision)
             return ["a.json"], np.zeros((1, NUM_CLASSES))
 
-        with tempfile.TemporaryDirectory() as tmp:
-            manifest = PrecisionTest()._manifest(Path(tmp), manifest_extra)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            pt = write_fake_bundle(Path(tmp) / "b.pt", list(members), precision=bundle_precision)
             with patch.object(infer, "transformer_probabilities", side_effect=fake_transformer):
-                infer.predict_directory(Path(tmp), manifest.parent, precision=override)
+                infer.predict_directory(Path(tmp), pt, precision=override)
         return seen
 
     def test_bundle_precision_reaches_every_member(self) -> None:
-        self.assertEqual(self._captured_precisions({"precision": "fp16"}), ["fp16"])
-        self.assertEqual(self._captured_precisions({}), ["fp32"])
+        self.assertEqual(self._captured_precisions("fp16"), ["fp16", "fp16"])
+        self.assertEqual(self._captured_precisions(None), ["fp32", "fp32"])
 
     def test_explicit_override_wins_over_bundle(self) -> None:
-        self.assertEqual(self._captured_precisions({"precision": "fp16"}, override="fp32"), ["fp32"])
+        self.assertEqual(self._captured_precisions("fp16", override="fp32"), ["fp32", "fp32"])
 
     def test_empty_override_is_rejected_not_ignored(self) -> None:
         with self.assertRaisesRegex(ValueError, "precision"):
-            self._captured_precisions({}, override="")
+            self._captured_precisions("fp16", override="")
+
+    def test_single_run_directory_defaults_to_fp32(self) -> None:
+        from unittest.mock import patch
+
+        seen = []
+
+        def fake_transformer(label_dir, ckpt_path, batch_size=16, device=None, precision="fp32", loader=None):
+            seen.append(precision)
+            return ["a.json"], np.zeros((1, NUM_CLASSES))
+
+        with patch.object(infer, "transformer_probabilities", side_effect=fake_transformer):
+            infer.predict_directory(".", "runs/some_run")
+        self.assertEqual(seen, ["fp32"])
 
 
 class OutOfMemoryFallbackTest(unittest.TestCase):

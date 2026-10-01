@@ -15,7 +15,6 @@ from m3.infer import (
     OUTPUT_COLUMNS,
     decision_threshold,
     format_symptoms,
-    load_run_config,
     read_texts,
     resolve_model_dir,
     resolve_sep_mode,
@@ -123,7 +122,7 @@ class CheckpointResolutionTest(unittest.TestCase):
 class SettingsRestoreTest(unittest.TestCase):
     def test_sep_mode_comes_from_run_config(self) -> None:
         self.assertEqual(resolve_sep_mode({"utterance_sep_mode": "sep"}), "sep")
-        self.assertEqual(resolve_sep_mode({"utterance_sep_mode": "turn"}), "turn")
+        self.assertEqual(resolve_sep_mode({"utterance_sep_mode": "space"}), "space")
 
     def test_sep_mode_falls_back_to_train_csv_name(self) -> None:
         """구버전 run 은 모드를 기록하지 않았으므로 CSV 이름에서 유추한다."""
@@ -135,19 +134,31 @@ class SettingsRestoreTest(unittest.TestCase):
     def test_settings_restore_encode_mode_and_max_length(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = make_bundle(Path(tmp), {
-                "utterance_sep_mode": "sep", "encode_mode": "head_tail", "max_length": 256,
+                "utterance_sep_mode": "sep", "encode_mode": "truncate", "max_length": 256,
             })
             settings = resolve_settings(run_dir)
             self.assertEqual(settings.sep_mode, "sep")
-            self.assertEqual(settings.encode_mode, "head_tail")
+            self.assertEqual(settings.encode_mode, "truncate")
             self.assertEqual(settings.max_length, 256)
+
+    def test_missing_encode_mode_defaults_to_truncate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = make_bundle(Path(tmp), {"utterance_sep_mode": "space"})
+            self.assertEqual(resolve_settings(run_dir).encode_mode, "truncate")
+
+    def test_unsupported_encode_mode_fails_instead_of_silently_truncating(self) -> None:
+        """truncate 외 인코딩으로 학습된 모델을 truncate 로 읽으면 점수만 조용히 떨어진다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = make_bundle(Path(tmp), {"utterance_sep_mode": "space", "encode_mode": "head_tail"})
+            with self.assertRaisesRegex(ValueError, "encode_mode"):
+                resolve_settings(run_dir)
 
     def test_inference_config_overrides_run_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = make_bundle(Path(tmp), {"utterance_sep_mode": "space"})
             (run_dir / "best_model" / "inference_config.json").write_text(
-                json.dumps({"utterance_sep_mode": "turn"}), encoding="utf-8")
-            self.assertEqual(resolve_settings(run_dir).sep_mode, "turn")
+                json.dumps({"utterance_sep_mode": "sep"}), encoding="utf-8")
+            self.assertEqual(resolve_settings(run_dir).sep_mode, "sep")
 
 
 class ReadTextsTest(unittest.TestCase):
@@ -165,7 +176,7 @@ class ReadTextsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             write_transcript(directory, "call-a", ["여보세요"], symptoms=["두통"])
-            for mode in ("space", "sep", "turn"):
+            for mode in ("space", "sep"):
                 _, texts = read_texts(directory, mode)
                 for forbidden in ("speaker", "startAt", "endAt", "1000", "서울시"):
                     self.assertNotIn(forbidden, texts[0], f"{mode} 모드에서 {forbidden} 누출")
@@ -208,34 +219,37 @@ class SubmissionRobustnessTest(unittest.TestCase):
             (standalone / "inference_config.json").write_text(
                 json.dumps({
                     "utterance_sep_mode": "sep",
-                    "encode_mode": "head_tail",
+                    "encode_mode": "truncate",
                     "max_length": 256,
                 }, ensure_ascii=False), encoding="utf-8")
 
             settings = resolve_settings(standalone)
             self.assertEqual(settings.sep_mode, "sep")
-            self.assertEqual(settings.encode_mode, "head_tail")
+            self.assertEqual(settings.encode_mode, "truncate")
             self.assertEqual(settings.max_length, 256)
 
     def test_submission_path_never_reads_optimized_thresholds(self) -> None:
-        """규정상 임계값은 0.5 고정이다.
+        """규정상 판정 임계값은 모든 클래스 0.5 고정이다.
 
-        reports/best_thresholds.json 은 이름이 그럴듯한 데다 synthetic 값이라,
-        제출 경로가 이걸 읽기 시작하면 규정 위반인 동시에 성능 사고다.
+        제출 경로(inference.py -> m3/infer.py -> m3/bundle.py)가 저장된 임계값 파일을 읽거나
+        임계값을 탐색·적용하는 코드를 갖게 되면 그 자체로 규정 위반이다. 주석·docstring 을 포함한
+        소스 전체에서 그런 이름이 아예 나오지 않는지 확인한다 (판정은 DECISION_THRESHOLD 하나뿐).
         """
-        import m3.infer as infer_module
+        import re
 
-        source = Path(infer_module.__file__).read_text(encoding="utf-8")
-        code = "\n".join(
-            line for line in source.splitlines()
-            if not line.strip().startswith("#") and not line.strip().startswith("(")
+        forbidden = re.compile(
+            r"best_threshold|find_best|threshold_path|thresholds?_file|thresholds\.json"
+            r"|optimi[sz]ed_threshold|apply_thresholds|class_threshold|per_class_threshold",
+            re.IGNORECASE,
         )
-        for forbidden in ("best_thresholds", "BEST_THRESHOLDS", "find_best_thresholds",
-                          "apply_thresholds", "optimized_thresholds"):
-            self.assertNotIn(
-                forbidden, code.split('"""')[-1],
-                f"제출 경로가 {forbidden} 를 참조하면 안 된다",
-            )
+        for relative in ("m3/infer.py", "m3/bundle.py", "inference.py"):
+            source = (MISSION3_DIR / relative).read_text(encoding="utf-8")
+            hits = [
+                f"{relative}:{number}: {line.strip()}"
+                for number, line in enumerate(source.splitlines(), start=1)
+                if forbidden.search(line)
+            ]
+            self.assertEqual(hits, [], f"제출 경로가 임계값 파일·탐색을 참조하면 안 된다: {hits}")
 
 
 class InferenceConfigBuilderTest(unittest.TestCase):
@@ -246,7 +260,7 @@ class InferenceConfigBuilderTest(unittest.TestCase):
         from m3.infer import build_inference_config
 
         training_config = SimpleNamespace(
-            utterance_sep_mode="turn", encode_mode="head_tail",
+            utterance_sep_mode="sep", encode_mode="truncate",
             max_length=384, model_name_or_path="klue/roberta-base",
         )
         payload = build_inference_config(training_config)
@@ -260,8 +274,8 @@ class InferenceConfigBuilderTest(unittest.TestCase):
                 json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
             settings = resolve_settings(bundle)
-            self.assertEqual(settings.sep_mode, "turn")
-            self.assertEqual(settings.encode_mode, "head_tail")
+            self.assertEqual(settings.sep_mode, "sep")
+            self.assertEqual(settings.encode_mode, "truncate")
             self.assertEqual(settings.max_length, 384)
 
     def test_defaults_when_fields_are_absent(self) -> None:

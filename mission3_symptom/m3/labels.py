@@ -193,31 +193,3 @@ def load_transcripts_dir(
             continue
 
     return records
-
-
-def load_transcripts_dataframe(
-    label_dir: Union[str, Path],
-    max_samples: Optional[int] = None,
-    sep_mode: str = DEFAULT_UTTERANCE_SEP_MODE,
-):
-    """KoBERT 모델 학습에 바로 넘길 수 있도록 pandas DataFrame 형태로 반환.
-    
-    컬럼:
-      - call_id: 통화 식별자
-      - text: 순수 발화 전사 텍스트
-      - symptoms: 필터링된 타겟 증상명 리스트
-      - label_vector: 9차원 이진 리스트 ([0, 1, 0, ...])
-    """
-    import pandas as pd
-
-    records = load_transcripts_dir(label_dir, max_samples=max_samples, sep_mode=sep_mode)
-    data = [
-        {
-            "call_id": r.call_id,
-            "text": r.text,
-            "symptoms": list(r.symptoms),
-            "label_vector": r.label_vector.tolist() if r.label_vector is not None else None,
-        }
-        for r in records
-    ]
-    return pd.DataFrame(data)

@@ -19,7 +19,6 @@ for mod in [
     "torch.utils",
     "torch.utils.data",
     "transformers",
-    "sentencepiece",
     "pandas",
     "tqdm",
     "tqdm.auto",

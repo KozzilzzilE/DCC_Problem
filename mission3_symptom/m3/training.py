@@ -15,11 +15,12 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import torch
 import transformers
+from torch.nn import BCEWithLogitsLoss
 from torch.nn.utils import clip_grad_norm_
 from tqdm.auto import tqdm
 from transformers import get_linear_schedule_with_warmup
 
-from .config import DEFAULT_UTTERANCE_SEP_MODE, TARGET_SYMPTOMS
+from .config import DEFAULT_UTTERANCE_SEP_MODE, ENCODE_MODE, TARGET_SYMPTOMS, check_encode_mode
 from .dataset import (
     calculate_token_length_stats,
     create_dataloader,
@@ -27,13 +28,11 @@ from .dataset import (
 )
 from .infer import build_inference_config
 from .labels import verify_utterance_sep_mode
-from .metrics import eval_macro_f1
+from .metrics import apply_thresholds, eval_macro_f1
 from .model import build_tokenizer_and_model, load_saved_model, save_model_bundle
-from .losses import build_loss
-from .sampling import build_pure_nausea_sampler
-from .threshold import apply_thresholds
 
 
+# 시작점 공개 사전학습 모델 (TAPT 결과 폴더를 --model-name-or-path 로 넘길 수도 있다)
 BASELINE_MODEL_NAME = "klue/roberta-base"
 
 
@@ -42,6 +41,8 @@ CHECKPOINT_METRICS = ("val_loss", "val_macro_f1", "fixed_epoch")
 
 @dataclass(frozen=True)
 class TrainingConfig:
+    """분류 학습 한 번의 설정. train.py 의 CLI 인자가 그대로 옮겨지고, run_config.json 에 기록된다."""
+
     train_csv: str
     val_csv: str
     output_dir: str
@@ -75,25 +76,12 @@ class TrainingConfig:
     # fixed_epoch 일 때 저장할 epoch (None 이면 마지막 epoch). 학습률 스케줄은 epochs 기준 그대로라
     # epochs=3, checkpoint_epoch=2 는 3 epoch 학습의 2 epoch 시점과 같은 가중치가 된다.
     checkpoint_epoch: Optional[int] = None
-    loss_type: str = "bce"
-    dependency_alpha: float = 0.1
-    pairwise_alpha: float = 0.1
-    asl_gamma_neg: float = 4.0
-    asl_gamma_pos: float = 1.0
-    asl_clip: float = 0.05
-    asl_eps: float = 1e-8
-    asl_reduction: str = "mean"
-    asl_disable_focal_loss_grad: bool = True
-    encode_mode: str = "truncate"
+    # max_length 를 넘는 통화는 앞부분만 남긴다. run_config / inference_config 호환을 위해 남긴 필드로 'truncate' 만 받는다.
+    encode_mode: str = ENCODE_MODE
     # 학습 CSV 의 발화 경계 표현. run_config.json 에 기록되어 추론이 같은 모드를 복원한다.
     utterance_sep_mode: str = DEFAULT_UTTERANCE_SEP_MODE
-    use_pure_nausea_sampling: bool = False
-    pure_nausea_weight: float = 1.5
-    pooling_type: str = "cls"
     # layer-wise LR decay. 분류 헤드는 learning_rate, 인코더 층을 내려갈수록 decay 를 곱한다. 1.0 은 끔.
     llrd_decay: float = 1.0
-    # 8GB GPU 에서 large 백본을 돌리기 위한 activation 재계산 (속도 대신 메모리)
-    gradient_checkpointing: bool = False
 
 
 def fixed_checkpoint_epoch(config: TrainingConfig) -> int:
@@ -137,6 +125,7 @@ def _move_batch_to_device(
     batch: Dict[str, torch.Tensor],
     device: torch.device,
 ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor]:
+    """배치를 device 로 옮기고 `(모델 입력, 라벨)` 로 나눈다."""
     labels = batch["labels"].to(device, non_blocking=True)
     model_inputs = {
         key: value.to(device, non_blocking=True)
@@ -289,12 +278,14 @@ def evaluate(
 
 
 def _write_json(path: Path, data: Dict[str, object]) -> None:
+    """한글이 그대로 보이게(ensure_ascii=False) UTF-8 JSON 으로 저장한다."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as file:
         json.dump(data, file, ensure_ascii=False, indent=2)
 
 
 def _environment_metadata(device: torch.device, amp_enabled: bool) -> Dict[str, object]:
+    """run_config.json 에 남길 실행 환경(Python·PyTorch·transformers 버전, device, GPU 이름)."""
     metadata: Dict[str, object] = {
         "python": platform.python_version(),
         "pytorch": torch.__version__,
@@ -309,6 +300,7 @@ def _environment_metadata(device: torch.device, amp_enabled: bool) -> Dict[str, 
 
 
 def _validate_config(config: TrainingConfig) -> None:
+    """학습을 시작하기 전에 설정 값의 범위와 조합을 확인하고, 틀리면 바로 ValueError 를 낸다."""
     positive_ints = {
         "max_length": config.max_length,
         "train_batch_size": config.train_batch_size,
@@ -331,29 +323,10 @@ def _validate_config(config: TrainingConfig) -> None:
         raise ValueError("max_steps는 양수여야 합니다.")
     if not 0.0 <= config.warmup_ratio < 1.0:
         raise ValueError("warmup_ratio는 0 이상 1 미만이어야 합니다.")
-    if config.loss_type not in {"bce", "asl", "dependency", "pairwise"}:
-        raise ValueError(f"지원하지 않는 loss_type입니다: {config.loss_type}")
-    if config.loss_type == "dependency":
-        if config.dependency_alpha < 0:
-            raise ValueError("dependency_alpha는 0 이상이어야 합니다.")
-    if config.loss_type == "pairwise":
-        if config.pairwise_alpha < 0:
-            raise ValueError("pairwise_alpha는 0 이상이어야 합니다.")
     if not math.isfinite(config.pos_weight_power) or config.pos_weight_power < 0:
         raise ValueError("pos_weight_power는 0 이상의 유한한 값이어야 합니다.")
     if config.pos_weight_power != 1.0 and not config.use_pos_weight:
         raise ValueError("pos_weight_power를 바꾸려면 use_pos_weight를 함께 켜야 합니다.")
-    if config.loss_type == "asl":
-        if config.use_pos_weight:
-            raise ValueError("ASL ablation에서는 use_pos_weight를 함께 사용할 수 없습니다.")
-        if config.asl_gamma_neg < 0 or config.asl_gamma_pos < 0:
-            raise ValueError("ASL gamma는 0 이상이어야 합니다.")
-        if not 0.0 <= config.asl_clip < 1.0:
-            raise ValueError("ASL clip은 0 이상 1 미만이어야 합니다.")
-        if not 0.0 < config.asl_eps < 1.0:
-            raise ValueError("ASL eps는 0 초과 1 미만이어야 합니다.")
-        if config.asl_reduction not in {"mean", "sum"}:
-            raise ValueError("학습용 ASL reduction은 'mean' 또는 'sum'이어야 합니다.")
     # 최적 모델 선정 기준 검증
     if config.checkpoint_metric not in CHECKPOINT_METRICS:
         raise ValueError(
@@ -367,24 +340,21 @@ def _validate_config(config: TrainingConfig) -> None:
             raise ValueError(
                 f"checkpoint_epoch 는 1 이상 epochs({config.epochs}) 이하여야 합니다: {config.checkpoint_epoch}"
             )
-    if config.encode_mode not in {"truncate", "head_tail"}:
-        raise ValueError(f"지원하지 않는 encode_mode입니다: {config.encode_mode}")
-    if config.pooling_type not in {"cls", "label_attention"}:
-        raise ValueError(f"지원하지 않는 pooling_type입니다: {config.pooling_type}")
-    if not math.isfinite(config.pure_nausea_weight) or config.pure_nausea_weight < 1.0:
-        raise ValueError("pure_nausea_weight는 1.0 이상의 유한한 값이어야 합니다.")
+    check_encode_mode(config.encode_mode)
     if not 0.0 < config.llrd_decay <= 1.0:
         raise ValueError("llrd_decay는 0 초과 1 이하여야 합니다.")
 
 
+# 인코더 층 파라미터 이름의 층 번호 (예: roberta.encoder.layer.11.attention.self.query.weight -> 11)
 _LAYER_INDEX = re.compile(r"\.layer\.(\d+)\.")
 
 
-def _layer_depths(names: List[str], backbone_prefix: Optional[str] = None) -> Dict[str, int]:
-    """헤드에서 몇 단계 아래인지. 헤드 0, 맨 위 층 1, 임베딩은 맨 아래 층 + 1.
+def _layer_depths(names: List[str]) -> Dict[str, int]:
+    """파라미터마다 분류 헤드에서 몇 단계 아래인지. 헤드 0, 맨 위 층 1, 임베딩은 맨 아래 층 + 1.
 
-    층 번호가 없는 백본 파라미터(DeBERTa-v2 의 공유 상대위치 임베딩·인코더 LayerNorm,
-    ELECTRA 의 embeddings_project 등)는 헤드가 아니라 임베딩과 같은 깊이로 둔다.
+    RoBERTa 분류 모델의 파라미터는 세 종류뿐이다: `roberta.encoder.layer.N.*`(인코더 층),
+    `roberta.embeddings.*`(임베딩), `classifier.*`(분류 헤드). 층 번호도 `.embeddings.` 도 없는 이름은
+    분류 헤드로 본다.
     """
     indices = [int(m.group(1)) for m in map(_LAYER_INDEX.search, names) if m]
     num_layers = max(indices) + 1 if indices else 0
@@ -393,7 +363,7 @@ def _layer_depths(names: List[str], backbone_prefix: Optional[str] = None) -> Di
         match = _LAYER_INDEX.search(name)
         if match:
             depths[name] = num_layers - int(match.group(1))
-        elif ".embeddings." in name or (backbone_prefix and name.startswith(backbone_prefix + ".")):
+        elif ".embeddings." in name:
             depths[name] = num_layers + 1
         else:
             depths[name] = 0
@@ -401,10 +371,20 @@ def _layer_depths(names: List[str], backbone_prefix: Optional[str] = None) -> Di
 
 
 def _build_optimizer(model, learning_rate: float, weight_decay: float, llrd_decay: float = 1.0):
+    """AdamW 를 만든다. bias·LayerNorm 가중치는 weight decay 0, 나머지는 `weight_decay` 다.
+
+    - `llrd_decay == 1.0`(기본): 위 두 그룹만 두고 모든 파라미터가 같은 `learning_rate` 를 쓴다.
+    - `llrd_decay < 1.0`(layer-wise LR decay): `_layer_depths` 로 파라미터마다 깊이 d 를 매긴다
+      (분류 헤드 0, 맨 위 인코더 층 1, ..., 맨 아래 층 L, 임베딩 L + 1). 그리고 (d, decay 제외 여부)
+      묶음마다 그룹을 만들어 lr = learning_rate x llrd_decay ** d 를 준다. 층을 하나 내려갈 때마다
+      decay 를 한 번 더 곱하는 셈이다. 예: RoBERTa-base(12층), lr 5e-5, decay 0.8 이면 헤드 5e-5,
+      11번 층 4e-5, 0번 층 5e-5 x 0.8^12, 임베딩 5e-5 x 0.8^13.
+    그룹은 (d, 제외 여부) 오름차순이고, 선형 스케줄러는 그룹마다 자기 lr 을 같은 비율로 줄인다.
+    """
     no_decay = ("bias", "LayerNorm.weight", "layer_norm.weight")
     if llrd_decay != 1.0:
         named = [(n, p) for n, p in model.named_parameters() if p.requires_grad]
-        depths = _layer_depths([n for n, _ in named], getattr(model, "base_model_prefix", None))
+        depths = _layer_depths([n for n, _ in named])
         grouped: Dict[Tuple[int, bool], List[torch.nn.Parameter]] = {}
         for name, parameter in named:
             key = (depths[name], any(k in name for k in no_decay))
@@ -478,32 +458,6 @@ def _calculate_pos_weights(
     return weights, statistics
 
 
-def _print_sampling_summary(summary: Dict[str, object]) -> None:
-    print("Pure-nausea group-aware sampling (Training rows only):")
-    for group, stats in summary["group_statistics"].items():
-        exposure = stats["relative_exposure"]
-        exposure_text = "n/a" if exposure is None else f"{exposure:.4f}x"
-        print(
-            f"- {group}: count={stats['original_count']}, "
-            f"weight={stats['sampling_weight']:.4f}, "
-            f"expected_probability={stats['expected_sampling_probability']:.6f}, "
-            f"relative_exposure={exposure_text}"
-        )
-    print(
-        f"- sampler: num_samples={summary['num_samples']}, "
-        f"replacement={summary['replacement']}"
-    )
-    print("Expected Training label exposure after sampling:")
-    for symptom, stats in summary["label_exposure"].items():
-        exposure = stats["relative_exposure"]
-        exposure_text = "n/a" if exposure is None else f"{exposure:.4f}x"
-        print(
-            f"- {symptom}: original={stats['original_positive_count']}, "
-            f"expected={stats['expected_positive_count']:.2f}, "
-            f"ratio={exposure_text}"
-        )
-
-
 def _create_train_val_loaders(
     train_df,
     val_df,
@@ -511,31 +465,17 @@ def _create_train_val_loaders(
     config: TrainingConfig,
     pin_memory: bool,
 ):
-    train_sampler = None
-    sampling_summary: Dict[str, object] = {
-        "enabled": False,
-        "source": "training_rows_only",
-    }
-    if config.use_pure_nausea_sampling:
-        train_sampler, sampling_summary = build_pure_nausea_sampler(
-            train_df,
-            pure_nausea_weight=config.pure_nausea_weight,
-            seed=config.seed,
-        )
-        _print_sampling_summary(sampling_summary)
-
+    """학습 loader(seed 고정 셔플)와 평가 loader(CSV 행 순서 그대로)를 만든다."""
     train_loader = create_dataloader(
         train_df,
         tokenizer,
         max_length=config.max_length,
         batch_size=config.train_batch_size,
-        shuffle=train_sampler is None,
+        shuffle=True,
         seed=config.seed,
         num_workers=config.num_workers,
         pin_memory=pin_memory,
         pad_to_multiple_of=8 if pin_memory else None,
-        encode_mode=config.encode_mode,
-        sampler=train_sampler,
     )
     val_loader = create_dataloader(
         val_df,
@@ -547,9 +487,8 @@ def _create_train_val_loaders(
         num_workers=config.num_workers,
         pin_memory=pin_memory,
         pad_to_multiple_of=8 if pin_memory else None,
-        encode_mode=config.encode_mode,
     )
-    return train_loader, val_loader, sampling_summary
+    return train_loader, val_loader
 
 
 def run_training(config: TrainingConfig) -> Dict[str, object]:
@@ -587,7 +526,6 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         config.model_name_or_path,
         local_files_only=config.local_files_only,
         revision=config.model_revision,
-        pooling_type=config.pooling_type,
     )
 
     train_lengths = calculate_token_length_stats(
@@ -597,7 +535,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         val_df["text"].tolist(), tokenizer, config.max_length
     )
     pin_memory = device.type == "cuda"
-    train_loader, val_loader, sampling_summary = _create_train_val_loaders(
+    train_loader, val_loader = _create_train_val_loaders(
         train_df,
         val_df,
         tokenizer,
@@ -605,8 +543,6 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         pin_memory=pin_memory,
     )
 
-    if config.gradient_checkpointing:
-        model.gradient_checkpointing_enable()
     model.to(device)
     pos_weight_statistics = None
     pos_weights = None
@@ -622,31 +558,9 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
                 f"negative={stats['negative_count']}, "
                 f"pos_weight={stats['pos_weight']:.6f}"
             )
-            
-    co_occurrence_matrix = None
-    if config.loss_type == "dependency":
-        labels_np = train_df[TARGET_SYMPTOMS].values
-        co_occ = (labels_np.T @ labels_np).astype(np.float32)
-        # Normalize by total samples to get joint probability P(i, j)
-        co_occ_normalized = co_occ / max(len(train_df), 1)
-        co_occurrence_matrix = torch.from_numpy(co_occ_normalized).to(device)
-        print("Dependency Loss: Co-occurrence 행렬 계산 완료")
-    if config.loss_type == "pairwise":
-        print(f"Pairwise Ranking Loss 사용 (alpha={config.pairwise_alpha})")
 
-    loss_fn = build_loss(
-        config.loss_type,
-        pos_weight=pos_weights,
-        asl_gamma_neg=config.asl_gamma_neg,
-        asl_gamma_pos=config.asl_gamma_pos,
-        asl_clip=config.asl_clip,
-        asl_eps=config.asl_eps,
-        asl_reduction=config.asl_reduction,
-        asl_disable_focal_loss_grad=config.asl_disable_focal_loss_grad,
-        co_occurrence_matrix=co_occurrence_matrix,
-        dependency_alpha=config.dependency_alpha,
-        pairwise_alpha=config.pairwise_alpha,
-    )
+    # 손실: 9개 클래스 독립 BCE. use_pos_weight 면 양성 항에 클래스별 pos_weight 를 곱한다 (없으면 plain BCE).
+    loss_fn = BCEWithLogitsLoss(pos_weight=pos_weights)
     optimizer = _build_optimizer(
         model, config.learning_rate, config.weight_decay, llrd_decay=config.llrd_decay)
     updates_per_epoch = math.ceil(len(train_loader) / config.gradient_accumulation_steps)
@@ -680,7 +594,6 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             "train_token_lengths": train_lengths,
             "val_token_lengths": val_lengths,
             "train_pos_weight_statistics": pos_weight_statistics,
-            "train_sampling": sampling_summary,
             "checkpoint_selection_criterion": {
                 "metric": config.checkpoint_metric,
                 "mode": checkpoint_mode(config),

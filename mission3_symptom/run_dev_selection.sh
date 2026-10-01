@@ -133,11 +133,13 @@ if "$PY" -c "import sys; sys.exit(0 if float(sys.argv[1]) > 0 else 1)" "$W"; the
   tfidf_args=(--tfidf "$ROOT/final_tfidf/tfidf_lr.joblib" --tfidf-weight "$W")
 fi
 
-# 9. 번들 조립 (fp16)
-if ! is_done bundle; then
-  rm -rf "$ROOT/bundle"
-  "$PY" -B devsel.py assemble "${members[@]}" "${tfidf_args[@]}" --out "$ROOT/bundle" > "$ROOT/logs/bundle.log"
-  done_mark bundle; log "9. 번들 $ROOT/bundle"
+# 9. 번들 조립: 최종 멤버 가중치(fp32)·tokenizer·config (+TF-IDF) 를 .pt 파일 하나로, 추론 정밀도 fp16
+#  - 완료 표식은 bundle_pt 다. 예전 폴더 번들(bundle/, ensemble.json) 시절의 표식 bundle 이 남은 ROOT 에서
+#    이어 실행해도 .pt 를 새로 만든다. 표식이 있어도 .pt 파일이 없으면 다시 만든다.
+if ! is_done bundle_pt || [ ! -f "$ROOT/mission3.pt" ]; then
+  rm -f "$ROOT/mission3.pt"
+  "$PY" -B devsel.py assemble "${members[@]}" "${tfidf_args[@]}" --out "$ROOT/mission3.pt" > "$ROOT/logs/bundle.log"
+  done_mark bundle_pt; log "9. 번들 $ROOT/mission3.pt"
 fi
 
 # 10. Validation 확인 1회 (결정이 모두 끝난 뒤. 결과가 나온 뒤에는 다시 돌지 않는다)
@@ -153,11 +155,11 @@ else
   stamp=$(date '+%Y%m%d_%H%M%S')
   {
     echo "== attempt $stamp label_dir=$VAL_LABEL_DIR"
-    sha256sum "$ROOT/bundle/ensemble.json" "$ROOT"/bundle/*/model.safetensors "$ROOT"/bundle/tfidf/*.joblib 2>/dev/null || true
+    sha256sum "$ROOT/mission3.pt" 2>/dev/null || true
   } >> "$ROOT/logs/validation_attempts.log"
   done_mark validation_started
   log "10. Validation 확인 시작 ($stamp)"
-  "$PY" -B inference.py --label_dir "$VAL_LABEL_DIR" --ckpt_path "$ROOT/bundle/ensemble.json" \
+  "$PY" -B inference.py --label_dir "$VAL_LABEL_DIR" --ckpt_path "$ROOT/mission3.pt" \
     --output "$ROOT/validation_once_$stamp.csv" > "$ROOT/logs/validation_once_$stamp.log" 2>&1
   "$PY" -B devsel.py score --pred "$ROOT/validation_once_$stamp.csv" --label-dir "$VAL_LABEL_DIR" \
     --out "$RESULT" > /dev/null

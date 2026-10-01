@@ -1,29 +1,31 @@
-"""학습 옵션 단위 테스트: layer-wise LR decay(`--llrd-decay`)와 `--gradient-checkpointing`.
+"""학습 옵션 단위 테스트: layer-wise LR decay(`--llrd-decay`)와 train.py CLI.
 
 - LLRD 는 분류 헤드에 기본 LR 을 주고, 인코더 층을 내려갈수록 decay 를 한 번씩 곱한다.
   임베딩은 맨 아래 층보다 한 단계 더 낮다. 1.0(기본값)이면 기존 두 그룹 동작 그대로다.
-- gradient checkpointing 은 8GB GPU 에서 large 백본을 돌리기 위한 메모리 옵션이다.
+- 학습 loader 는 seed 로 섞고, 평가 loader 는 CSV 행 순서를 지킨다 (devsel.py 가 이 순서에 기댄다).
+- run_dev_selection.sh 가 쓰는 옵션이 모두 TrainingConfig 로 그대로 옮겨지는지, 정리해 뺀 실험 옵션은
+  거부되는지 고정한다.
 """
 
 from __future__ import annotations
 
 import math
 import sys
-import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
+import torch
+from torch.utils.data import RandomSampler, SequentialSampler
 from transformers import RobertaConfig, RobertaForSequenceClassification
 
 MISSION3_DIR = Path(__file__).resolve().parents[1]
 if str(MISSION3_DIR) not in sys.path:
     sys.path.insert(0, str(MISSION3_DIR))
 
-from m3 import training
 from m3.config import TARGET_SYMPTOMS
-from m3.training import TrainingConfig, _build_optimizer, _validate_config
+from m3.training import TrainingConfig, _build_optimizer, _create_train_val_loaders, _validate_config
 
 import train as train_entry
 
@@ -87,24 +89,18 @@ class LayerwiseLrDecayTest(unittest.TestCase):
         self.assertEqual(len(grouped), len(set(grouped)))
         self.assertEqual(set(grouped), {id(p) for p in model.parameters() if p.requires_grad})
 
-    def test_backbone_params_outside_layers_get_embedding_rate(self) -> None:
-        # DeBERTa-v2 의 공유 상대위치 임베딩·인코더 LayerNorm 은 층 번호가 없지만 백본이다.
-        # 헤드 학습률(가장 큰 값)이 아니라 임베딩과 같은 가장 낮은 학습률을 받아야 한다.
-        from transformers import DebertaV2Config, DebertaV2ForSequenceClassification
-
-        config = DebertaV2Config(
-            vocab_size=50, hidden_size=8, num_hidden_layers=2, num_attention_heads=2, intermediate_size=16,
-            max_position_embeddings=40, relative_attention=True, position_biased_input=False,
-            norm_rel_ebd="layer_norm", num_labels=len(TARGET_SYMPTOMS),
-        )
-        model = DebertaV2ForSequenceClassification(config)
+    def test_only_classifier_gets_head_rate(self) -> None:
+        # RoBERTa 백본 파라미터는 모두 인코더 층이나 임베딩이라 헤드 학습률(가장 큰 값)을 받지 않는다.
+        model = tiny_roberta(num_layers=2)
         rates = lr_by_name(model, _build_optimizer(model, 1e-4, 0.01, llrd_decay=0.5))
 
-        self.assertAlmostEqual(rates["deberta.encoder.rel_embeddings.weight"][0], 0.125e-4)
-        self.assertAlmostEqual(rates["deberta.embeddings.word_embeddings.weight"][0], 0.125e-4)
-        self.assertAlmostEqual(rates["deberta.encoder.layer.1.attention.self.query_proj.weight"][0], 0.5e-4)
-        self.assertAlmostEqual(rates["classifier.weight"][0], 1e-4)
-        self.assertAlmostEqual(rates["pooler.dense.weight"][0], 1e-4)
+        for name, (rate, _) in rates.items():
+            with self.subTest(name=name):
+                if name.startswith("classifier."):
+                    self.assertAlmostEqual(rate, 1e-4)
+                else:
+                    self.assertTrue(name.startswith("roberta."), name)
+                    self.assertLess(rate, 1e-4)
 
     def test_config_rejects_decay_outside_zero_one(self) -> None:
         for bad in (0.0, -0.1, 1.5, math.nan, math.inf):
@@ -113,54 +109,111 @@ class LayerwiseLrDecayTest(unittest.TestCase):
                     _validate_config(make_config(llrd_decay=bad))
 
 
+class RowIndexTokenizer:
+    """본문 '행 N' 을 [1, N, 2] 로 바꾸는 더미 tokenizer. 배치에서 원래 행 번호를 읽기 위한 것이다."""
+
+    def __call__(self, text, **kwargs):
+        return {"input_ids": [1, int(text.split()[-1]), 2], "attention_mask": [1, 1, 1]}
+
+    def pad(self, features, padding=True, pad_to_multiple_of=None, return_tensors="pt"):
+        return {key: torch.tensor([f[key] for f in features], dtype=torch.long) for key in features[0]}
+
+
+def row_frame(n: int) -> pd.DataFrame:
+    rows = []
+    for index in range(n):
+        row = {"call_id": f"call-{index}", "text": f"행 {index}"}
+        row.update({symptom: index % 2 for symptom in TARGET_SYMPTOMS})
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def row_order(loader) -> list:
+    return [int(value) for batch in loader for value in batch["input_ids"][:, 1]]
+
+
+class TrainValLoaderTest(unittest.TestCase):
+    """devsel.py 는 epoch 별 평가 확률(val_probs_epoch*.npy)을 dev CSV 행 순서로 읽는다.
+
+    그래서 평가 loader 는 섞지 않고(SequentialSampler) CSV 순서대로 돌아야 하고, 학습 loader 만 seed 로 섞는다.
+    """
+
+    def _loaders(self, n: int = 12, seed: int = 42):
+        config = make_config(seed=seed, train_batch_size=4, val_batch_size=5)
+        return _create_train_val_loaders(row_frame(n), row_frame(n), RowIndexTokenizer(), config, pin_memory=False)
+
+    def test_returns_train_then_validation_loader(self) -> None:
+        train_loader, val_loader = self._loaders()
+
+        self.assertIsInstance(train_loader.sampler, RandomSampler)
+        self.assertIsInstance(val_loader.sampler, SequentialSampler)
+        self.assertEqual((train_loader.batch_size, val_loader.batch_size), (4, 5))
+
+    def test_validation_loader_keeps_csv_row_order(self) -> None:
+        _, val_loader = self._loaders()
+
+        self.assertEqual(row_order(val_loader), list(range(12)))
+        self.assertEqual(row_order(val_loader), list(range(12)))  # 다시 돌려도 같은 순서
+
+    def test_train_loader_shuffles_reproducibly_by_seed(self) -> None:
+        first = row_order(self._loaders(seed=42)[0])
+        second = row_order(self._loaders(seed=42)[0])
+
+        self.assertEqual(sorted(first), list(range(12)))
+        self.assertEqual(first, second)
+
+
 class TrainingOptionCliTest(unittest.TestCase):
-    def test_cli_defaults_are_off(self) -> None:
-        with patch.object(sys, "argv", REQUIRED_ARGS):
-            config = train_entry.build_config(train_entry.parse_args())
+    def _config(self, *extra: str) -> TrainingConfig:
+        with patch.object(sys, "argv", [*REQUIRED_ARGS, *extra]):
+            return train_entry.build_config(train_entry.parse_args())
+
+    def test_cli_defaults(self) -> None:
+        config = self._config()
 
         self.assertEqual(config.llrd_decay, 1.0)
-        self.assertFalse(config.gradient_checkpointing)
+        self.assertEqual(config.encode_mode, "truncate")
+        self.assertEqual(config.utterance_sep_mode, "space")
+        self.assertEqual(config.checkpoint_metric, "val_loss")
 
-    def test_cli_passes_options_to_config(self) -> None:
-        argv = [*REQUIRED_ARGS, "--llrd-decay", "0.9", "--gradient-checkpointing"]
-        with patch.object(sys, "argv", argv):
-            config = train_entry.build_config(train_entry.parse_args())
+    def test_final_training_command_reaches_config(self) -> None:
+        """run_dev_selection.sh 7 단계(최종 학습)와 같은 인자가 그대로 설정이 된다."""
+        config = self._config(
+            "--model-name-or-path", "runs/devsel/tapt", "--local-files-only", "--learning-rate", "5e-5",
+            "--llrd-decay", "0.8", "--use-pos-weight", "--pos-weight-power", "0.5", "--epochs", "3",
+            "--checkpoint-metric", "fixed_epoch", "--checkpoint-epoch", "2", "--max-length", "512",
+            "--amp", "--seed", "43",
+        )
 
-        self.assertEqual(config.llrd_decay, 0.9)
-        self.assertTrue(config.gradient_checkpointing)
+        self.assertEqual(config.model_name_or_path, "runs/devsel/tapt")
+        self.assertTrue(config.local_files_only)
+        self.assertEqual(config.learning_rate, 5e-5)
+        self.assertEqual(config.llrd_decay, 0.8)
+        self.assertTrue(config.use_pos_weight)
+        self.assertEqual(config.pos_weight_power, 0.5)
+        self.assertEqual(config.epochs, 3)
+        self.assertEqual(config.checkpoint_metric, "fixed_epoch")
+        self.assertEqual(config.checkpoint_epoch, 2)
+        self.assertEqual(config.max_length, 512)
+        self.assertTrue(config.amp)
+        self.assertEqual(config.seed, 43)
+        self.assertEqual((config.train_batch_size, config.gradient_accumulation_steps), (8, 2))
+        _validate_config(config)
 
+    def test_removed_experiment_options_are_rejected(self) -> None:
+        removed = (
+            ["--gradient-checkpointing"], ["--loss-type", "asl"], ["--pooling-type", "label_attention"],
+            ["--encode-mode", "head_tail"], ["--use-pure-nausea-sampling"],
+        )
+        for argv in removed:
+            with self.subTest(argv=argv), patch("sys.stderr"):
+                with self.assertRaises(SystemExit):
+                    self._config(*argv)
 
-class RunTrainingOptionWiringTest(unittest.TestCase):
-    def _run_until_loss(self, **overrides):
-        class _Stop(Exception):
-            pass
-
-        frame = pd.DataFrame({"text": ["a"] * 5, **{s: [1, 0, 0, 0, 0] for s in TARGET_SYMPTOMS}})
-        model = MagicMock()
-        with tempfile.TemporaryDirectory() as tmp, \
-                patch.object(training, "load_symptom_csv", return_value=frame), \
-                patch.object(training, "verify_utterance_sep_mode"), \
-                patch.object(training, "build_tokenizer_and_model", return_value=(MagicMock(), model)), \
-                patch.object(training, "calculate_token_length_stats", return_value={}), \
-                patch.object(training, "_create_train_val_loaders", return_value=(None, None, None)), \
-                patch.object(training, "build_loss", side_effect=_Stop):
-            config = TrainingConfig(
-                train_csv="train.csv", val_csv="val.csv", output_dir=str(Path(tmp) / "out"),
-                device="cpu", **overrides,
-            )
-            with self.assertRaises(_Stop):
-                training.run_training(config)
-        return model
-
-    def test_gradient_checkpointing_is_enabled_on_request(self) -> None:
-        model = self._run_until_loss(gradient_checkpointing=True)
-
-        model.gradient_checkpointing_enable.assert_called_once()
-
-    def test_gradient_checkpointing_is_off_by_default(self) -> None:
-        model = self._run_until_loss()
-
-        model.gradient_checkpointing_enable.assert_not_called()
+    def test_config_accepts_only_truncate_encoding(self) -> None:
+        _validate_config(make_config(encode_mode="truncate"))
+        with self.assertRaisesRegex(ValueError, "encode_mode"):
+            _validate_config(make_config(encode_mode="head_tail"))
 
 
 if __name__ == "__main__":

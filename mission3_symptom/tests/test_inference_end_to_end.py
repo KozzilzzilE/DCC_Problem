@@ -37,7 +37,7 @@ SAMPLE_TEXTS = [
 def build_offline_bundle(model_dir: Path) -> None:
     """인터넷 없이 로드 가능한 최소 번들을 만든다."""
     specials = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]
-    corpus = SANITY_TEXT + "".join("".join(t) for t in SAMPLE_TEXTS) + "[SEP][TURN]"
+    corpus = SANITY_TEXT + "".join("".join(t) for t in SAMPLE_TEXTS) + "[SEP]"
     chars = sorted({c for c in corpus if not c.isspace()})
     # 한글은 BERT 의 CJK 문자 분리 대상이 아니라 wordpiece 가 "##" 접두 조각을 찾는다.
     vocab = specials + [c for c in chars if c not in specials] + [f"##{c}" for c in chars]

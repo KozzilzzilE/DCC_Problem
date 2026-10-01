@@ -34,23 +34,28 @@ SUPPORTED_PRECISIONS = ("fp32", "fp16")
 
 @dataclass(frozen=True)
 class BundleMember:
-    name: str
-    files: Dict[str, bytes]
-    state_dict: Dict[str, object]
+    """번들 안의 트랜스포머 멤버 하나 (학습 run 하나의 best_model 폴더에 해당)."""
+
+    name: str                       # 멤버 이름 (run 폴더 이름, 예: final_s42)
+    files: Dict[str, bytes]         # best_model 폴더의 가중치 외 파일 원문 (config·tokenizer·inference_config 등)
+    state_dict: Dict[str, object]   # 가중치 {파라미터 이름: Tensor} (fp32, mmap 으로 열림)
 
     def inference_config(self) -> Dict[str, object]:
+        """학습이 남긴 inference_config.json (발화 경계·인코딩·max_length). 없으면 빈 dict."""
         raw = self.files.get(INFERENCE_CONFIG_FILE)
         return json.loads(raw.decode("utf-8")) if raw else {}
 
 
 @dataclass(frozen=True)
 class Bundle:
-    path: Path
-    precision: str
-    members: Tuple[BundleMember, ...]
-    tfidf_weight: float
-    tfidf_joblib: Optional[bytes]
-    note: str
+    """`load_bundle` 이 돌려주는, 검증을 마친 `.pt` 번들 내용."""
+
+    path: Path                          # 읽은 .pt 파일 경로
+    precision: str                      # 추론 정밀도 "fp16" | "fp32" (fp16 은 CUDA 에서만 적용)
+    members: Tuple[BundleMember, ...]   # 확률을 균등 평균할 트랜스포머 멤버 (저장 순서 그대로)
+    tfidf_weight: float                 # TF-IDF 블렌드 가중치 w (멤버가 없으면 0.0)
+    tfidf_joblib: Optional[bytes]       # TF-IDF 멤버 joblib 원문 (없으면 None)
+    note: str                           # 조립할 때 남긴 설명
 
 
 def pack_bundle(
@@ -147,6 +152,10 @@ def load_bundle_tfidf(bundle: Bundle):
 
 
 def describe(bundle: Bundle) -> List[str]:
+    """번들 구성을 사람이 읽을 줄 목록으로 요약한다 (경로·멤버 수·정밀도, 멤버별 파라미터 수, TF-IDF 가중치).
+
+    추론 시작 로그와 `devsel.py assemble` 기록에 쓰며, 파라미터 수는 state_dict 의 원소 수를 더한 값이다.
+    """
     lines = [f"번들: {bundle.path} (멤버 {len(bundle.members)}개, 정밀도 {bundle.precision})"]
     for member in bundle.members:
         params = sum(int(t.numel()) for t in member.state_dict.values())

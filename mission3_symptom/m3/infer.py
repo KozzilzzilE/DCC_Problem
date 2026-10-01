@@ -3,12 +3,13 @@
   - **입력**: 대화 본문(`utterances[].text`)만 사용한다. `m3.labels` 가 파싱 단계에서
     speaker / startAt / endAt / 인적사항을 원천 배제하므로 여기서 다시 거를 필요가 없다.
   - **결정 임계값**: 대회 규정대로 **모든 클래스 0.5 고정**이다. 임계값 파일을 읽지 않으며,
-    번들(ensemble.json)도 임계값·클래스별 값을 받지 않는다.
-  - **학습-추론 일치**: 발화 경계 표현(`utterance_sep_mode`), 인코딩(`encode_mode`),
-    `max_length` 를 run_config 에서 복원한다. 이게 어긋나면 예외 없이 점수만 떨어진다.
-  - **앙상블·블렌드**: `--ckpt_path` 가 `ensemble.json` 을 가리키면 트랜스포머 멤버 확률을
-    균등 평균하고, Training 전용 TF-IDF 멤버와 9개 클래스 공통 가중치 하나로 섞는다.
+    `.pt` 번들(m3/bundle.py)도 임계값·클래스별 값을 담지 않는다.
+  - **학습-추론 일치**: 발화 경계 표현(`utterance_sep_mode`), 인코딩(`encode_mode`, truncate 만 지원),
+    `max_length` 를 학습 설정(inference_config / run_config)에서 복원한다. 이게 어긋나면 예외 없이 점수만 떨어진다.
+  - **앙상블·블렌드**: `--ckpt_path` 가 `.pt` 제출 번들이면 트랜스포머 멤버 확률을
+    균등 평균하고, (번들에 있으면) Training 전용 TF-IDF 멤버와 9개 클래스 공통 가중치 하나로 섞는다.
     판정은 단일 모델과 같은 0.5 고정 임계값이며, 클래스별 가중치·임계값은 받지 않는다.
+  - **단일 모델 확인**: `--ckpt_path` 가 학습 run 폴더(또는 그 안의 best_model 폴더)면 그 모델 하나로 추론한다.
 
 출력 CSV: `label file name`, `symptom`  (symptom 은 `"['두통', '복통']"` 형태의 String)
 """
@@ -16,33 +17,32 @@
 from __future__ import annotations
 
 import json
-import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from .config import (
     DEFAULT_UTTERANCE_SEP_MODE,
+    ENCODE_MODE,
     NUM_CLASSES,
     TARGET_SYMPTOMS,
     UTTERANCE_SEP_MODES,
+    check_encode_mode,
 )
 from .labels import read_transcript, verify_utterance_sep_mode
-from .tfidf_member import load_tfidf_member
 
-# 대회 규정 고정값. 체크포인트나 reports 에 저장된 보정 임계값이 있어도 사용하지 않는다.
+# 대회 규정 고정값. 체크포인트나 번들에 보정 임계값이 있어도 사용하지 않는다.
 DECISION_THRESHOLD = 0.5
 
 OUTPUT_COLUMNS = ["label file name", "symptom"]
 
 DEFAULT_BATCH_SIZE = 16
-# fp32 가 기본이다. fp16(autocast)은 번들 ensemble.json 의 "precision" 이나 --precision 으로만 켜고
+# fp32 가 기본이다. fp16(autocast)은 .pt 번들의 "precision" 이나 --precision 으로만 켜고
 # CUDA 에서만 적용된다. RTX 5060 측정: 멤버 하나 forward 22초 -> 7.4초, 4멤버 번들 101초 -> 42초,
 # Validation 3,640건 제출 행은 fp32 와 전부 같았다(멤버 seed42 단독은 32,760 칸 중 0~1 칸 차이).
 SUPPORTED_PRECISIONS = ("fp32", "fp16")
 DEFAULT_PRECISION = "fp32"
 DEFAULT_MAX_LENGTH = 512
-DEFAULT_ENCODE_MODE = "truncate"
 
 
 def decision_threshold() -> float:
@@ -83,7 +83,7 @@ def build_inference_config(training_config) -> Dict[str, object]:
     return {
         "utterance_sep_mode": getattr(
             training_config, "utterance_sep_mode", DEFAULT_UTTERANCE_SEP_MODE),
-        "encode_mode": getattr(training_config, "encode_mode", DEFAULT_ENCODE_MODE),
+        "encode_mode": getattr(training_config, "encode_mode", ENCODE_MODE),
         "max_length": int(getattr(training_config, "max_length", DEFAULT_MAX_LENGTH)),
         "model_name_or_path": getattr(training_config, "model_name_or_path", None),
         "threshold": DECISION_THRESHOLD,
@@ -121,7 +121,7 @@ def resolve_model_dir(ckpt_path: Union[str, Path]) -> Tuple[Path, Optional[Path]
 
     raise FileNotFoundError(
         f"모델 번들을 찾지 못했습니다: {path}. "
-        "run 디렉터리(best_model 을 포함) 또는 best_model 디렉터리를 지정하세요."
+        ".pt 제출 번들, run 디렉터리(best_model 을 포함) 또는 best_model 디렉터리를 지정하세요."
     )
 
 
@@ -171,12 +171,13 @@ def resolve_settings(ckpt_path: Union[str, Path]) -> InferenceSettings:
     model_dir, run_dir = resolve_model_dir(ckpt_path)
     run_config, config_path = load_run_config(model_dir, run_dir)
 
-    encode_mode = run_config.get("encode_mode", DEFAULT_ENCODE_MODE)
+    encode_mode = run_config.get("encode_mode", ENCODE_MODE)
     max_length = run_config.get("max_length", DEFAULT_MAX_LENGTH)
     return InferenceSettings(
         model_dir=model_dir,
         sep_mode=resolve_sep_mode(run_config),
-        encode_mode=str(encode_mode) if encode_mode else DEFAULT_ENCODE_MODE,
+        # 기록이 없으면 truncate. 다른 값(예: 이전 실험의 head_tail)은 지원하지 않으므로 즉시 실패한다.
+        encode_mode=check_encode_mode(str(encode_mode) if encode_mode else ENCODE_MODE),
         max_length=int(max_length) if max_length else DEFAULT_MAX_LENGTH,
         config_path=config_path,
     )
@@ -207,107 +208,11 @@ def read_texts(label_dir: Union[str, Path], sep_mode: str) -> Tuple[List[str], L
     return names, texts
 
 
-ENSEMBLE_MANIFEST_NAME = "ensemble.json"
-_MANIFEST_KEYS = {"members", "tfidf_member", "tfidf_weight", "note", "precision"}
-
-
 def validate_precision(value) -> str:
+    """추론 정밀도 이름(fp32 / fp16)을 검증한다. 빈 문자열이나 오타는 조용히 넘기지 않는다."""
     if not isinstance(value, str) or value not in SUPPORTED_PRECISIONS:
         raise ValueError(f"precision 은 {list(SUPPORTED_PRECISIONS)} 중 하나여야 합니다: {value!r}")
     return value
-
-
-@dataclass(frozen=True)
-class EnsembleSpec:
-    """`ensemble.json` 이 선언한 제출 번들. 클래스별 값이 들어갈 자리는 없다."""
-
-    manifest_path: Path
-    members: Tuple[Path, ...]
-    tfidf_path: Optional[Path]
-    tfidf_weight: float
-    precision: str = DEFAULT_PRECISION
-
-
-def find_ensemble_manifest(ckpt_path: Union[str, Path]) -> Optional[Path]:
-    """`ckpt_path` 가 앙상블 번들(디렉터리 또는 `ensemble.json`)이면 그 경로, 아니면 None."""
-    path = Path(ckpt_path)
-    if path.is_file() and path.name == ENSEMBLE_MANIFEST_NAME:
-        return path
-    if path.is_dir() and (path / ENSEMBLE_MANIFEST_NAME).is_file():
-        return path / ENSEMBLE_MANIFEST_NAME
-    return None
-
-
-def _resolve_relative(base: Path, value: str) -> Path:
-    path = Path(value)
-    return path if path.is_absolute() else base / path
-
-
-def _warn_if_outside(base: Path, path: Path, what: str) -> None:
-    """제출은 `--ckpt_path` 폴더 하나다. 그 밖을 가리키면 폴더만 옮겼을 때 깨진다."""
-    try:
-        path.resolve().relative_to(base.resolve())
-    except ValueError:
-        print(
-            f"[경고] {what} 이(가) 번들 밖을 가리킵니다: {path}. "
-            "번들 폴더만 제출하면 찾을 수 없으니, 제출 전에 번들 안으로 복사하세요."
-        )
-
-
-def load_ensemble_spec(manifest_path: Union[str, Path]) -> EnsembleSpec:
-    """`ensemble.json` 을 읽고 검증한다. 경로는 manifest 파일 위치 기준 상대경로도 받는다.
-
-    형식:
-        {"members": ["../run_a", "../run_b"],        # 트랜스포머 run 디렉터리, 균등 평균
-         "tfidf_member": "../tfidf/tfidf_lr.joblib",  # 선택
-         "tfidf_weight": 0.3,                          # tfidf_member 와 함께, 0 초과 1 미만 실수 하나
-         "precision": "fp16",                          # 선택, 기본 fp32. fp16 은 CUDA 에서만 적용
-         "note": "..."}                                # 선택
-    임계값은 받지 않는다 (대회 규정 0.5 고정). 모르는 키가 있으면 거부한다.
-    """
-    manifest_path = Path(manifest_path)
-    data = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-    if not isinstance(data, dict):
-        raise ValueError(f"{ENSEMBLE_MANIFEST_NAME} 은 JSON 객체여야 합니다: {manifest_path}")
-    unknown = sorted(set(data) - _MANIFEST_KEYS)
-    if unknown:
-        raise ValueError(
-            f"{ENSEMBLE_MANIFEST_NAME} 에 허용되지 않은 키가 있습니다: {unknown} "
-            f"(허용: {sorted(_MANIFEST_KEYS)}; 임계값은 대회 규정상 0.5 고정)"
-        )
-
-    members = data.get("members")
-    if not isinstance(members, list) or not members or not all(isinstance(m, str) and m for m in members):
-        raise ValueError(f"members 는 비어 있지 않은 run 경로 목록이어야 합니다: {members!r}")
-    base = manifest_path.parent
-    resolved = []
-    for member in members:
-        path = _resolve_relative(base, member)
-        resolve_model_dir(path)  # 없으면 FileNotFoundError
-        _warn_if_outside(base, path, f"멤버 {member}")
-        resolved.append(path)
-
-    precision = validate_precision(data["precision"]) if "precision" in data else DEFAULT_PRECISION
-
-    tfidf = data.get("tfidf_member")
-    weight = data.get("tfidf_weight")
-    if tfidf is None:
-        if weight is not None:
-            raise ValueError("tfidf_weight 는 tfidf_member 와 함께만 쓸 수 있습니다.")
-        return EnsembleSpec(manifest_path, tuple(resolved), None, 0.0, precision)
-
-    if not isinstance(tfidf, str) or not tfidf:
-        raise ValueError(f"tfidf_member 는 파일 경로여야 합니다: {tfidf!r}")
-    if isinstance(weight, bool) or not isinstance(weight, (int, float)):
-        raise ValueError(f"tfidf_weight 는 9개 클래스 공통 실수 하나여야 합니다: {weight!r}")
-    weight = float(weight)
-    if not math.isfinite(weight) or not 0.0 < weight < 1.0:
-        raise ValueError(f"tfidf_weight 는 0 초과 1 미만이어야 합니다: {weight}")
-    tfidf_path = _resolve_relative(base, tfidf)
-    if not tfidf_path.is_file():
-        raise FileNotFoundError(f"TF-IDF 멤버 파일을 찾을 수 없습니다: {tfidf_path}")
-    _warn_if_outside(base, tfidf_path, f"TF-IDF 멤버 {tfidf}")
-    return EnsembleSpec(manifest_path, tuple(resolved), tfidf_path, weight, precision)
 
 
 def inference_order(texts: Sequence[str]) -> List[int]:
@@ -477,8 +382,9 @@ def transformer_probabilities(
     print(f"정밀도: {precision_label}  배치: {batch_size}")
 
     def make_batch(indices: List[int], target_device):
+        # 학습과 같은 encode_text(truncate)로 토큰화하고, 배치 안에서만 padding 한다.
         features = [
-            encode_text(tokenizer, texts[index], settings.max_length, encode_mode=settings.encode_mode)
+            encode_text(tokenizer, texts[index], settings.max_length)
             for index in indices
         ]
         batch = tokenizer.pad(features, padding=True, return_tensors="pt")
@@ -505,43 +411,6 @@ def transformer_probabilities(
     return names, probabilities
 
 
-def ensemble_probabilities(
-    spec: EnsembleSpec,
-    label_dir: Union[str, Path],
-    batch_size: int = DEFAULT_BATCH_SIZE,
-    device: Optional[str] = None,
-    precision: Optional[str] = None,
-):
-    """멤버 확률 균등 평균 -> (선택) TF-IDF 전역 가중 블렌드. 판정은 하지 않는다."""
-    description = f"트랜스포머 {len(spec.members)}개 균등 평균"
-    if spec.tfidf_path is not None:
-        description += f" + TF-IDF 멤버 (전역 가중치 {spec.tfidf_weight})"
-    print(f"앙상블 번들: {spec.manifest_path}\n구성: {description}, 임계값 {DECISION_THRESHOLD:.3f} (대회 규정 고정)")
-
-    names: Optional[List[str]] = None
-    total = None
-    for member in spec.members:
-        member_names, probs = transformer_probabilities(
-            label_dir, member, batch_size=batch_size, device=device,
-            precision=precision or spec.precision)
-        if names is None:
-            names, total = list(member_names), probs.astype("float64")
-        elif list(member_names) != names:
-            raise RuntimeError(f"멤버마다 파일 순서가 다릅니다: {member}")
-        else:
-            total = total + probs
-    blended = total / len(spec.members)
-
-    if spec.tfidf_path is not None:
-        # TF-IDF 멤버는 공백 결합 본문으로 학습했으므로 트랜스포머의 경계 모드와 무관하게 space 로 읽는다.
-        tfidf_names, texts = read_texts(label_dir, "space")
-        if list(tfidf_names) != names:
-            raise RuntimeError("TF-IDF 멤버와 트랜스포머 멤버의 파일 순서가 다릅니다.")
-        member = load_tfidf_member(spec.tfidf_path)
-        blended = (1.0 - spec.tfidf_weight) * blended + spec.tfidf_weight * member.predict_proba(texts)
-    return names, blended
-
-
 def bundle_probabilities(
     bundle_path: Union[str, Path],
     label_dir: Union[str, Path],
@@ -558,14 +427,15 @@ def bundle_probabilities(
     names: Optional[List[str]] = None
     total = None
     for member in bundle.members:
+        # 멤버마다 저장 당시 inference_config.json 으로 발화 경계·인코딩·max_length 를 복원한다.
         def loader(member=member):
             config = member.inference_config()
-            encode_mode = config.get("encode_mode") or DEFAULT_ENCODE_MODE
+            encode_mode = config.get("encode_mode") or ENCODE_MODE
             max_length = config.get("max_length") or DEFAULT_MAX_LENGTH
             settings = InferenceSettings(
                 model_dir=Path(f"{bundle.path.name}:{member.name}"),
                 sep_mode=resolve_sep_mode(config),
-                encode_mode=str(encode_mode),
+                encode_mode=check_encode_mode(str(encode_mode)),
                 max_length=int(max_length),
                 config_path=None,
             )
@@ -585,6 +455,7 @@ def bundle_probabilities(
 
     tfidf = load_bundle_tfidf(bundle)
     if tfidf is not None:
+        # TF-IDF 멤버는 공백 결합 본문으로 학습했으므로 트랜스포머의 경계 모드와 무관하게 space 로 읽는다.
         tfidf_names, texts = read_texts(label_dir, "space")
         if list(tfidf_names) != names:
             raise RuntimeError("TF-IDF 멤버와 트랜스포머 멤버의 파일 순서가 다릅니다.")
@@ -601,7 +472,8 @@ def predict_directory(
 ):
     """라벨 폴더 전체를 추론해 제출 규격 DataFrame 을 돌려준다.
 
-    `ckpt_path` 가 run 디렉터리면 단일 모델, `ensemble.json` 번들이면 앙상블·블렌드다.
+    `ckpt_path` 가 `.pt` 제출 번들이면 앙상블·블렌드(정밀도는 지정이 없으면 번들 값),
+    run 디렉터리나 best_model 디렉터리면 단일 모델(정밀도 기본 fp32)이다.
     어느 쪽이든 판정은 `symptoms_from_probabilities` 의 0.5 고정 임계값 하나로 한다.
     """
     import pandas as pd
@@ -610,19 +482,10 @@ def predict_directory(
         names, probabilities = bundle_probabilities(
             ckpt_path, label_dir, batch_size=batch_size, device=device,
             precision=validate_precision(precision) if precision is not None else None)
-        manifest = None
     else:
-        manifest = find_ensemble_manifest(ckpt_path)
-    if Path(ckpt_path).suffix == ".pt":
-        pass
-    elif manifest is None:
         names, probabilities = transformer_probabilities(
             label_dir, ckpt_path, batch_size=batch_size, device=device,
             precision=validate_precision(precision) if precision is not None else DEFAULT_PRECISION)
-    else:
-        names, probabilities = ensemble_probabilities(
-            load_ensemble_spec(manifest), label_dir, batch_size=batch_size, device=device,
-            precision=validate_precision(precision) if precision is not None else None)
 
     if len(probabilities) != len(names):
         raise RuntimeError(f"확률 행 수({len(probabilities)})와 파일 수({len(names)})가 다릅니다.")
