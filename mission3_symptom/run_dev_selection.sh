@@ -9,10 +9,16 @@
 # - 환경 변수: PYTHON(기본 python), DEVSEL_ROOT(기본 runs/devsel), TAPT_EPOCHS(기본 20),
 #   MAX_LENGTH(기본 512), BASE_MODEL(기본 klue/roberta-base).
 set -euo pipefail
-cd "$(dirname "$0")"
 
+# 인자는 cd 전에 절대 경로로 바꾸고 바로 확인한다 (틀린 경로가 5시간 뒤 10 단계에서야 드러나지 않게)
 TRAIN_CSV=${1:?Training CSV 경로가 필요합니다}
 VAL_LABEL_DIR=${2:?Validation label 폴더가 필요합니다 (10 단계 확인용)}
+[ -f "$TRAIN_CSV" ] || { echo "Training CSV 가 없습니다: $TRAIN_CSV" >&2; exit 1; }
+[ -d "$VAL_LABEL_DIR" ] || { echo "label 폴더가 없습니다: $VAL_LABEL_DIR" >&2; exit 1; }
+TRAIN_CSV="$(cd "$(dirname "$TRAIN_CSV")" && pwd -W)/$(basename "$TRAIN_CSV")"
+VAL_LABEL_DIR="$(cd "$VAL_LABEL_DIR" && pwd -W)"
+compgen -G "$VAL_LABEL_DIR/*.json" > /dev/null || { echo "label 폴더에 JSON 이 없습니다: $VAL_LABEL_DIR" >&2; exit 1; }
+cd "$(dirname "$0")"
 PY=${PYTHON:-python}
 ROOT=${DEVSEL_ROOT:-runs/devsel}
 TAPT_EPOCHS=${TAPT_EPOCHS:-20}
@@ -133,15 +139,27 @@ if ! is_done bundle; then
   done_mark bundle; log "9. 번들 $ROOT/bundle"
 fi
 
-# 10. Validation 확인 1회 (결정이 모두 끝난 뒤. 다시 돌지 않는다)
-if is_done validation_once; then
-  log "10. Validation 확인은 이미 한 번 했습니다: $ROOT/decisions/validation_once.json"
+# 10. Validation 확인 1회 (결정이 모두 끝난 뒤. 결과가 나온 뒤에는 다시 돌지 않는다)
+#  - 시도마다 시각·번들 해시·label 폴더를 logs/validation_attempts.log 에 덧붙여, 몇 번 열었는지 남긴다.
+#  - 결과 없이 끝난 시도가 있으면 멈춘다. 원인을 확인하고 .done/validation_started 를 지운 뒤 다시 실행한다.
+RESULT="$ROOT/decisions/validation_once.json"
+if [ -f "$RESULT" ]; then
+  log "10. Validation 확인은 이미 했습니다: $RESULT"
+elif is_done validation_started; then
+  log "10. 이전 Validation 시도가 결과 없이 끝났습니다. logs/validation_attempts.log 와 로그를 확인한 뒤 .done/validation_started 를 지우고 다시 실행하세요"
+  exit 1
 else
-  touch "$ROOT/.done/validation_once"
-  log "10. Validation 확인 시작"
+  stamp=$(date '+%Y%m%d_%H%M%S')
+  {
+    echo "== attempt $stamp label_dir=$VAL_LABEL_DIR"
+    sha256sum "$ROOT/bundle/ensemble.json" "$ROOT"/bundle/*/model.safetensors "$ROOT"/bundle/tfidf/*.joblib 2>/dev/null || true
+  } >> "$ROOT/logs/validation_attempts.log"
+  done_mark validation_started
+  log "10. Validation 확인 시작 ($stamp)"
   "$PY" -B inference.py --label_dir "$VAL_LABEL_DIR" --ckpt_path "$ROOT/bundle/ensemble.json" \
-    --output "$ROOT/validation_once.csv" > "$ROOT/logs/validation_once.log" 2>&1
-  "$PY" -B devsel.py score --pred "$ROOT/validation_once.csv" --label-dir "$VAL_LABEL_DIR" \
-    --out "$ROOT/decisions/validation_once.json" > /dev/null
-  log "10. 끝: $("$PY" -c "import json,sys; print('macro F1@0.5', round(json.load(open(sys.argv[1], encoding='utf-8'))['macro_f1'], 4))" "$ROOT/decisions/validation_once.json")"
+    --output "$ROOT/validation_once_$stamp.csv" > "$ROOT/logs/validation_once_$stamp.log" 2>&1
+  "$PY" -B devsel.py score --pred "$ROOT/validation_once_$stamp.csv" --label-dir "$VAL_LABEL_DIR" \
+    --out "$RESULT" > /dev/null
+  echo "result $stamp -> $RESULT" >> "$ROOT/logs/validation_attempts.log"
+  log "10. 끝: $("$PY" -c "import json,sys; print('macro F1@0.5', round(json.load(open(sys.argv[1], encoding='utf-8'))['macro_f1'], 4))" "$RESULT" | tr -d '\r')"
 fi

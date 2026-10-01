@@ -124,8 +124,8 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         max_steps = min(max_steps or 2, 2)
 
     checkpoint_epoch = args.checkpoint_epoch
-    if checkpoint_epoch is not None:
-        checkpoint_epoch = min(checkpoint_epoch, epochs)
+    if args.smoke_test and checkpoint_epoch is not None:
+        checkpoint_epoch = min(checkpoint_epoch, epochs)  # smoke 는 epochs 를 1 로 줄이므로 맞춘다
 
     return TrainingConfig(
         train_csv=args.train_csv,
