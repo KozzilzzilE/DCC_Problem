@@ -410,19 +410,28 @@ def predict_all(model, make_batch, order: List[int], batch_size: int, device, dt
 
 def transformer_probabilities(
     label_dir: Union[str, Path],
-    ckpt_path: Union[str, Path],
+    ckpt_path: Optional[Union[str, Path]],
     batch_size: int = DEFAULT_BATCH_SIZE,
     device: Optional[str] = None,
     precision: str = DEFAULT_PRECISION,
+    loader=None,
 ):
-    """트랜스포머 run 하나로 `(파일명 목록, (n, 9) 확률)` 을 만든다. 판정은 하지 않는다."""
+    """트랜스포머 하나로 `(파일명 목록, (n, 9) 확률)` 을 만든다. 판정은 하지 않는다.
+
+    `loader` 가 있으면 `(settings, tokenizer, model)` 을 돌려주는 그 함수로 모델을 얻는다 (.pt 번들 멤버).
+    없으면 `ckpt_path` 의 run/best_model 폴더에서 읽는다. 모델은 이 함수 안에서만 참조해, 끝나면 GPU 메모리를 비운다.
+    """
     import numpy as np
     import torch
 
     from .dataset import encode_text
     from .model import load_saved_model
 
-    settings = resolve_settings(ckpt_path)
+    if loader is not None:
+        settings, tokenizer, model = loader()
+    else:
+        settings = resolve_settings(ckpt_path)
+        tokenizer = model = None
     names, texts = read_texts(label_dir, settings.sep_mode)
 
     print(
@@ -445,7 +454,8 @@ def transformer_probabilities(
     if empty:
         print(f"[경고] 본문이 비어 있는 통화 {empty:,}건은 특수 토큰만으로 추론됩니다.")
 
-    tokenizer, model = load_saved_model(settings.model_dir)
+    if model is None:
+        tokenizer, model = load_saved_model(settings.model_dir)
 
     requested = device or ("cuda" if torch.cuda.is_available() else "cpu")
     try:
@@ -532,6 +542,56 @@ def ensemble_probabilities(
     return names, blended
 
 
+def bundle_probabilities(
+    bundle_path: Union[str, Path],
+    label_dir: Union[str, Path],
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    device: Optional[str] = None,
+    precision: Optional[str] = None,
+):
+    """`.pt` 제출 번들: 멤버 확률 균등 평균 -> (번들에 있으면) TF-IDF 전역 가중 블렌드. 판정은 하지 않는다."""
+    from .bundle import describe, load_bundle, load_bundle_tfidf, load_member_model
+
+    bundle = load_bundle(bundle_path)
+    print("\n".join(describe(bundle)) + f"\n임계값 {DECISION_THRESHOLD:.3f} (대회 규정 고정)")
+
+    names: Optional[List[str]] = None
+    total = None
+    for member in bundle.members:
+        def loader(member=member):
+            config = member.inference_config()
+            encode_mode = config.get("encode_mode") or DEFAULT_ENCODE_MODE
+            max_length = config.get("max_length") or DEFAULT_MAX_LENGTH
+            settings = InferenceSettings(
+                model_dir=Path(f"{bundle.path.name}:{member.name}"),
+                sep_mode=resolve_sep_mode(config),
+                encode_mode=str(encode_mode),
+                max_length=int(max_length),
+                config_path=None,
+            )
+            tokenizer, model = load_member_model(member)
+            return settings, tokenizer, model
+
+        member_names, probs = transformer_probabilities(
+            label_dir, None, batch_size=batch_size, device=device,
+            precision=precision or bundle.precision, loader=loader)
+        if names is None:
+            names, total = list(member_names), probs.astype("float64")
+        elif list(member_names) != names:
+            raise RuntimeError(f"멤버마다 파일 순서가 다릅니다: {member.name}")
+        else:
+            total = total + probs
+    blended = total / len(bundle.members)
+
+    tfidf = load_bundle_tfidf(bundle)
+    if tfidf is not None:
+        tfidf_names, texts = read_texts(label_dir, "space")
+        if list(tfidf_names) != names:
+            raise RuntimeError("TF-IDF 멤버와 트랜스포머 멤버의 파일 순서가 다릅니다.")
+        blended = (1.0 - bundle.tfidf_weight) * blended + bundle.tfidf_weight * tfidf.predict_proba(texts)
+    return names, blended
+
+
 def predict_directory(
     label_dir: Union[str, Path],
     ckpt_path: Union[str, Path],
@@ -546,8 +606,16 @@ def predict_directory(
     """
     import pandas as pd
 
-    manifest = find_ensemble_manifest(ckpt_path)
-    if manifest is None:
+    if Path(ckpt_path).suffix == ".pt":
+        names, probabilities = bundle_probabilities(
+            ckpt_path, label_dir, batch_size=batch_size, device=device,
+            precision=validate_precision(precision) if precision is not None else None)
+        manifest = None
+    else:
+        manifest = find_ensemble_manifest(ckpt_path)
+    if Path(ckpt_path).suffix == ".pt":
+        pass
+    elif manifest is None:
         names, probabilities = transformer_probabilities(
             label_dir, ckpt_path, batch_size=batch_size, device=device,
             precision=validate_precision(precision) if precision is not None else DEFAULT_PRECISION)

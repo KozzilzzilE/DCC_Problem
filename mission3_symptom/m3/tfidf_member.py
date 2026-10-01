@@ -134,7 +134,7 @@ def load_tfidf_member(path: Union[str, Path]) -> TfidfLRMember:
     import joblib
     import sklearn
 
-    payload = joblib.load(Path(path))
+    payload = joblib.load(path if hasattr(path, "read") else Path(path))  # 파일 경로 또는 .pt 번들 안의 바이트
     if not isinstance(payload, dict) or payload.get("format") != MEMBER_FORMAT:
         raise ValueError(f"TF-IDF 멤버 형식이 아닙니다: {path}")
     if payload.get("version") != MEMBER_VERSION:
