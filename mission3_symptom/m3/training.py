@@ -37,6 +37,9 @@ from .threshold import apply_thresholds
 BASELINE_MODEL_NAME = "klue/roberta-base"
 
 
+CHECKPOINT_METRICS = ("val_loss", "val_macro_f1", "fixed_epoch")
+
+
 @dataclass(frozen=True)
 class TrainingConfig:
     train_csv: str
@@ -66,8 +69,12 @@ class TrainingConfig:
     max_val_samples: Optional[int] = None
     max_steps: Optional[int] = None
     smoke_test: bool = False
-    # 최적 모델(Best Checkpoint) 선정 기준: "val_loss" (기본값) 또는 "val_macro_f1" (대회 평가 지표 최고점)
+    # 최적 모델(Best Checkpoint) 선정 기준: "val_loss" (기본값), "val_macro_f1" (대회 평가 지표 최고점),
+    # "fixed_epoch" (평가 점수와 무관하게 checkpoint_epoch 번째 epoch 를 저장하고 학습을 멈춘다).
     checkpoint_metric: str = "val_loss"
+    # fixed_epoch 일 때 저장할 epoch (None 이면 마지막 epoch). 학습률 스케줄은 epochs 기준 그대로라
+    # epochs=3, checkpoint_epoch=2 는 3 epoch 학습의 2 epoch 시점과 같은 가중치가 된다.
+    checkpoint_epoch: Optional[int] = None
     loss_type: str = "bce"
     dependency_alpha: float = 0.1
     pairwise_alpha: float = 0.1
@@ -87,6 +94,20 @@ class TrainingConfig:
     llrd_decay: float = 1.0
     # 8GB GPU 에서 large 백본을 돌리기 위한 activation 재계산 (속도 대신 메모리)
     gradient_checkpointing: bool = False
+
+
+def fixed_checkpoint_epoch(config: TrainingConfig) -> int:
+    """fixed_epoch 기준에서 저장할 epoch. 지정이 없으면 마지막 epoch."""
+    return config.checkpoint_epoch if config.checkpoint_epoch is not None else config.epochs
+
+
+def checkpoint_mode(config: TrainingConfig) -> str:
+    """run_config / baseline_metrics 에 남길 체크포인트 선정 방식."""
+    if config.checkpoint_metric == "val_loss":
+        return "min"
+    if config.checkpoint_metric == "fixed_epoch":
+        return f"epoch {fixed_checkpoint_epoch(config)}"
+    return "max"
 
 
 def set_seed(seed: int) -> None:
@@ -333,12 +354,19 @@ def _validate_config(config: TrainingConfig) -> None:
             raise ValueError("ASL eps는 0 초과 1 미만이어야 합니다.")
         if config.asl_reduction not in {"mean", "sum"}:
             raise ValueError("학습용 ASL reduction은 'mean' 또는 'sum'이어야 합니다.")
-    # 최적 모델 선정 기준 검증 ("val_loss" 또는 "val_macro_f1"만 허용)
-    if config.checkpoint_metric not in {"val_loss", "val_macro_f1"}:
+    # 최적 모델 선정 기준 검증
+    if config.checkpoint_metric not in CHECKPOINT_METRICS:
         raise ValueError(
             f"지원하지 않는 checkpoint_metric입니다: {config.checkpoint_metric}. "
-            "('val_loss' 또는 'val_macro_f1'만 허용됩니다)"
+            "('val_loss', 'val_macro_f1', 'fixed_epoch'만 허용됩니다)"
         )
+    if config.checkpoint_epoch is not None:
+        if config.checkpoint_metric != "fixed_epoch":
+            raise ValueError("checkpoint_epoch 는 checkpoint_metric='fixed_epoch' 와 함께만 쓸 수 있습니다.")
+        if not 1 <= config.checkpoint_epoch <= config.epochs:
+            raise ValueError(
+                f"checkpoint_epoch 는 1 이상 epochs({config.epochs}) 이하여야 합니다: {config.checkpoint_epoch}"
+            )
     if config.encode_mode not in {"truncate", "head_tail"}:
         raise ValueError(f"지원하지 않는 encode_mode입니다: {config.encode_mode}")
     if config.pooling_type not in {"cls", "label_attention"}:
@@ -655,7 +683,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             "train_sampling": sampling_summary,
             "checkpoint_selection_criterion": {
                 "metric": config.checkpoint_metric,
-                "mode": "min" if config.checkpoint_metric == "val_loss" else "max",
+                "mode": checkpoint_mode(config),
             },
             "environment": _environment_metadata(device, amp_enabled),
         }
@@ -710,6 +738,8 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         }
         history.append(epoch_result)
         _write_json(output_dir / "history.json", {"epochs": history})
+        # 하이퍼파라미터를 '고정 epoch' 기준으로 정할 수 있게 epoch 마다 평가 확률을 남긴다 (행 순서 = 평가 CSV).
+        np.save(output_dir / f"val_probs_epoch{epoch}.npy", validation["probabilities"])
 
         print(
             f"Epoch {epoch}: train_loss={train_loss:.4f}, "
@@ -729,6 +759,9 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             if current_f1 > best_val_macro_f1:
                 best_val_macro_f1 = current_f1
                 is_best = True
+        elif config.checkpoint_metric == "fixed_epoch":
+            # 평가 점수를 보지 않는다. 정해 둔 epoch(또는 max_steps 로 먼저 끝난 시점)를 저장한다.
+            is_best = epoch == fixed_checkpoint_epoch(config) or reached_max_steps
 
         if is_best:
             best_epoch = epoch
@@ -742,6 +775,8 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             print(f"  -> Best Checkpoint 갱신 (Epoch {epoch}, {config.checkpoint_metric}: {score_str})")
 
         if reached_max_steps:
+            break
+        if config.checkpoint_metric == "fixed_epoch" and epoch >= fixed_checkpoint_epoch(config):
             break
 
     training_seconds = time.perf_counter() - training_started_at
@@ -765,7 +800,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         "best_epoch": best_epoch,
         "checkpoint_selection_criterion": {
             "metric": config.checkpoint_metric,
-            "mode": "min" if config.checkpoint_metric == "val_loss" else "max",
+            "mode": checkpoint_mode(config),
         },
         "threshold": 0.5,
         "val_loss": best_validation["loss"],

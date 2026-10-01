@@ -51,9 +51,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smoke-test", action="store_true")
     parser.add_argument(
         "--checkpoint-metric",
-        choices=("val_loss", "val_macro_f1"),
+        choices=("val_loss", "val_macro_f1", "fixed_epoch"),
         default="val_loss",
-        help="최적 모델(Best Checkpoint) 저장 기준 지표 (기본값: val_loss, 대회 지표 기준: val_macro_f1)",
+        help="최적 모델 저장 기준: val_loss(기본), val_macro_f1, fixed_epoch(평가 점수와 무관하게 --checkpoint-epoch 저장)",
+    )
+    parser.add_argument(
+        "--checkpoint-epoch",
+        type=int,
+        help="--checkpoint-metric fixed_epoch 일 때 저장할 epoch (생략하면 마지막 epoch). 학습률 스케줄은 --epochs 기준",
     )
     parser.add_argument(
         "--encode-mode",
@@ -118,6 +123,10 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         max_val_samples = min(max_val_samples or 32, 32)
         max_steps = min(max_steps or 2, 2)
 
+    checkpoint_epoch = args.checkpoint_epoch
+    if checkpoint_epoch is not None:
+        checkpoint_epoch = min(checkpoint_epoch, epochs)
+
     return TrainingConfig(
         train_csv=args.train_csv,
         val_csv=args.val_csv,
@@ -153,6 +162,7 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         max_steps=max_steps,
         smoke_test=args.smoke_test,
         checkpoint_metric=args.checkpoint_metric,
+        checkpoint_epoch=checkpoint_epoch,
         utterance_sep_mode=args.utterance_sep_mode,
         encode_mode=args.encode_mode,
         pooling_type=args.pooling_type,
