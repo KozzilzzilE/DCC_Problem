@@ -206,10 +206,14 @@ class StandaloneEntryPointTest(unittest.TestCase):
     """mission3_symptom/ 만 제출해도 동작해야 한다 (mission1 과 같은 구조)."""
 
     def test_writes_submission_csv(self) -> None:
-        import importlib
+        import importlib.util
 
-        entry = importlib.import_module("inference") if str(MISSION3_DIR) in sys.path else None
-        self.assertIsNotNone(entry, "mission3_symptom 이 sys.path 에 있어야 한다")
+        spec = importlib.util.spec_from_file_location(
+            "m3_standalone_inference", MISSION3_DIR / "inference.py"
+        )
+        self.assertIsNotNone(spec and spec.loader, "mission3_symptom/inference.py 가 존재해야 한다")
+        entry = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(entry)
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

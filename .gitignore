@@ -20,6 +20,8 @@ outputs/**
 *.pth
 *.h5
 *.weights
+*.safetensors
+*.joblib
 
 # IDEs
 .vscode/
