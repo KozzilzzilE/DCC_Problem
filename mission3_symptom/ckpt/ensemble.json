@@ -1,0 +1,12 @@
+{
+  "members": [
+    "./seed42",
+    "./seed43",
+    "./seed44",
+    "./seed45"
+  ],
+  "tfidf_member": "./tfidf/tfidf_lr.joblib",
+  "tfidf_weight": 0.3,
+  "note": "KLUE-RoBERTa-base TAPT(Training text MLM 20ep) + LLRD 0.8 (lr 5e-5) posw0.5 seeds 42-45 equal average + Training-only TF-IDF LR(C=0.15), global weight 0.3, threshold 0.5; fp16 autocast on CUDA (needs m3/infer.py with precision support)",
+  "precision": "fp16"
+}

@@ -1,0 +1,100 @@
+{
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.25915,
+      "train_segment_accuracy": 0.88039,
+      "dev_call_accuracy": 0.98596,
+      "dev_segment_accuracy": 0.89337,
+      "train_seconds": 3017.2,
+      "lr": 2.8858192987669303e-05
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.22942,
+      "train_segment_accuracy": 0.89385,
+      "dev_call_accuracy": 0.98767,
+      "dev_segment_accuracy": 0.89424,
+      "train_seconds": 3033.6,
+      "lr": 2.5606601717798212e-05
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.21586,
+      "train_segment_accuracy": 0.9001,
+      "dev_call_accuracy": 0.98904,
+      "dev_segment_accuracy": 0.89761,
+      "train_seconds": 3039.8,
+      "lr": 2.074025148547635e-05
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.204,
+      "train_segment_accuracy": 0.90475,
+      "dev_call_accuracy": 0.98699,
+      "dev_segment_accuracy": 0.89519,
+      "train_seconds": 3049.5,
+      "lr": 1.5e-05
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.19192,
+      "train_segment_accuracy": 0.9094,
+      "dev_call_accuracy": 0.98904,
+      "dev_segment_accuracy": 0.89662,
+      "train_seconds": 3051.7,
+      "lr": 9.259748514523654e-06
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.18123,
+      "train_segment_accuracy": 0.91342,
+      "dev_call_accuracy": 0.98904,
+      "dev_segment_accuracy": 0.89619,
+      "train_seconds": 2973.0,
+      "lr": 4.3933982822017874e-06
+    },
+    {
+      "epoch": 7,
+      "train_loss": 0.17247,
+      "train_segment_accuracy": 0.91642,
+      "dev_call_accuracy": 0.98938,
+      "dev_segment_accuracy": 0.89666,
+      "train_seconds": 2711.2,
+      "lr": 1.1418070123306989e-06
+    },
+    {
+      "epoch": 8,
+      "train_loss": 0.16697,
+      "train_segment_accuracy": 0.91839,
+      "dev_call_accuracy": 0.98938,
+      "dev_segment_accuracy": 0.89558,
+      "train_seconds": 2711.3,
+      "lr": 0.0
+    }
+  ],
+  "best_dev_call_accuracy": 0.9893835616438356,
+  "dev_majority_baseline": 0.5267123287671233,
+  "feature_config": {
+    "sample_rate": 8000,
+    "n_fft": 1024,
+    "hop_length": 128,
+    "n_mels": 64,
+    "fmin": 20.0,
+    "fmax": 4000.0,
+    "kind": "logmel",
+    "n_mfcc": 40,
+    "window_frames": 192
+  },
+  "train_config": {
+    "branch": "w2v2",
+    "epochs": 8,
+    "batch_size": 32,
+    "lr": 3e-05,
+    "weight_decay": 0.0001,
+    "num_workers": 6,
+    "dev_fraction": 0.1,
+    "seed": 1234,
+    "amp": true
+  }
+}

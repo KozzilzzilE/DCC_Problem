@@ -1,0 +1,8 @@
+{
+  "utterance_sep_mode": "space",
+  "encode_mode": "truncate",
+  "max_length": 512,
+  "model_name_or_path": "runs/tapt_klue_base_e20",
+  "threshold": 0.5,
+  "threshold_note": "대회 규정 고정값. class-wise threshold 는 제출에 사용하지 않는다."
+}

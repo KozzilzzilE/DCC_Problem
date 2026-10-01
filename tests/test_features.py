@@ -132,3 +132,30 @@ def test_deterministic(cfg, tone):
     front = MelFrontend(cfg).eval()
     x = torch.from_numpy(tone).unsqueeze(0)
     np.testing.assert_array_equal(front(x).numpy(), front(x).numpy())
+
+
+def test_spec_augment_masks_only_in_training():
+    """SpecAugment 는 학습 모드에서만, 샘플별로 띠를 0 으로 가린다."""
+    from m1.models.resnet import spec_augment
+
+    torch.manual_seed(0)
+    feat = torch.ones(4, 1, 64, 192)
+    out = spec_augment(feat, freq_mask=8, time_mask=24, n_masks=2)
+
+    assert out.shape == feat.shape
+    assert (out == 0).any(), "무언가 가려져야 한다"
+    assert (out == 1).float().mean() > 0.6, "대부분은 남아 있어야 한다"
+    # 샘플마다 마스크 위치가 다르다
+    assert not torch.equal(out[0], out[1]) or not torch.equal(out[1], out[2])
+    # 폭 0 마스크도 허용 (아무것도 안 가릴 수 있음)
+    assert spec_augment(feat, 0, 0, 2).equal(feat)
+
+
+def test_resnet_augment_disabled_in_eval():
+    from m1.models.resnet import ResNetGender
+
+    m = ResNetGender(FeatureConfig(), pretrained=False, freq_mask=8, time_mask=24).eval()
+    x = torch.randn(2, FeatureConfig().window_samples)
+    with torch.no_grad():
+        a, b = m(x), m(x)
+    assert torch.equal(a, b), "eval 에서는 결정적이어야 한다"

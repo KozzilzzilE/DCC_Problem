@@ -1,0 +1,89 @@
+{
+  "baseline": 0.5381868131868132,
+  "results": [
+    {
+      "label": "resnet_full",
+      "branch": "resnet",
+      "feature": "logmel",
+      "model_name": null,
+      "n_params_m": 23.5,
+      "threshold": 0.5150000000000001,
+      "dev_call_accuracy": 0.986,
+      "val_call_accuracy": 0.9808,
+      "val_segment_accuracy": 0.8771,
+      "val_confusion": {
+        "남->남": 1642,
+        "남->여": 39,
+        "여->남": 31,
+        "여->여": 1928
+      },
+      "val_per_gender_accuracy": {
+        "남": 0.9768,
+        "여": 0.9842
+      },
+      "val_total_seconds": 39.7,
+      "train_seconds_per_epoch": 326.2,
+      "preprocess_segments_per_second": 44495.8,
+      "inference_ms_per_call": 12.43,
+      "peak_vram_mb": 367.6,
+      "n_val_calls": 3640,
+      "n_val_segments": 58101
+    },
+    {
+      "label": "w2v2_full",
+      "branch": "w2v2",
+      "feature": "logmel",
+      "model_name": "facebook/wav2vec2-base",
+      "n_params_m": 94.4,
+      "threshold": 0.5,
+      "dev_call_accuracy": 0.9897,
+      "val_call_accuracy": 0.9835,
+      "val_segment_accuracy": 0.8965,
+      "val_confusion": {
+        "남->남": 1645,
+        "남->여": 36,
+        "여->남": 24,
+        "여->여": 1935
+      },
+      "val_per_gender_accuracy": {
+        "남": 0.9786,
+        "여": 0.9877
+      },
+      "val_total_seconds": 209.5,
+      "train_seconds_per_epoch": 2708.4,
+      "preprocess_segments_per_second": null,
+      "inference_ms_per_call": 85.33,
+      "peak_vram_mb": 4224.0,
+      "n_val_calls": 3640,
+      "n_val_segments": 58101
+    },
+    {
+      "label": "audeering_full",
+      "branch": "audeering",
+      "feature": "logmel",
+      "model_name": "audeering/wav2vec2-large-robust-6-ft-age-gender",
+      "n_params_m": 88.7,
+      "threshold": 0.4900000000000001,
+      "dev_call_accuracy": 0.9873,
+      "val_call_accuracy": 0.9816,
+      "val_segment_accuracy": 0.893,
+      "val_confusion": {
+        "남->남": 1635,
+        "남->여": 46,
+        "여->남": 21,
+        "여->여": 1938
+      },
+      "val_per_gender_accuracy": {
+        "남": 0.9726,
+        "여": 0.9893
+      },
+      "val_total_seconds": 272.0,
+      "train_seconds_per_epoch": 3268.8,
+      "preprocess_segments_per_second": null,
+      "inference_ms_per_call": 87.34,
+      "peak_vram_mb": 5542.7,
+      "n_val_calls": 3640,
+      "n_val_segments": 58101
+    }
+  ]
+}

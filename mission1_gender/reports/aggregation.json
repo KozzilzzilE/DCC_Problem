@@ -1,0 +1,575 @@
+{
+  "baseline_val": 0.9808,
+  "chosen": {
+    "alpha": 0.0,
+    "beta": 0.5,
+    "cap": 3.0,
+    "space": "prob",
+    "t": 0.495,
+    "dev": 0.9866,
+    "val": 0.9794,
+    "val_oracle": 0.9819
+  },
+  "grid": [
+    {
+      "alpha": 0.0,
+      "beta": 0.5,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.495,
+      "dev": 0.9866,
+      "val": 0.9794,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 0.0,
+      "beta": 0.0,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.515,
+      "dev": 0.9866,
+      "val": 0.9808,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 0.0,
+      "beta": 1.0,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.485,
+      "dev": 0.9866,
+      "val": 0.9794,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 0.0,
+      "beta": 2.0,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.535,
+      "dev": 0.9863,
+      "val": 0.9816,
+      "val_oracle": 0.9824
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.5,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.5,
+      "dev": 0.986,
+      "val": 0.9802,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 0.5,
+      "beta": 2.0,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.5,
+      "dev": 0.986,
+      "val": 0.981,
+      "val_oracle": 0.9824
+    },
+    {
+      "alpha": 0.5,
+      "beta": 1.0,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.495,
+      "dev": 0.986,
+      "val": 0.9802,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.0,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.51,
+      "dev": 0.986,
+      "val": 0.9799,
+      "val_oracle": 0.9813
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.5,
+      "cap": 5.0,
+      "space": "prob",
+      "t": 0.505,
+      "dev": 0.9856,
+      "val": 0.9808,
+      "val_oracle": 0.9824
+    },
+    {
+      "alpha": 0.5,
+      "beta": 1.0,
+      "cap": 5.0,
+      "space": "prob",
+      "t": 0.495,
+      "dev": 0.9856,
+      "val": 0.981,
+      "val_oracle": 0.9824
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.0,
+      "cap": 5.0,
+      "space": "prob",
+      "t": 0.51,
+      "dev": 0.9856,
+      "val": 0.9799,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 0.5,
+      "beta": 2.0,
+      "cap": 5.0,
+      "space": "prob",
+      "t": 0.52,
+      "dev": 0.9856,
+      "val": 0.9827,
+      "val_oracle": 0.9827
+    },
+    {
+      "alpha": 0.5,
+      "beta": 1.0,
+      "cap": 8.0,
+      "space": "prob",
+      "t": 0.525,
+      "dev": 0.9856,
+      "val": 0.9821,
+      "val_oracle": 0.9827
+    },
+    {
+      "alpha": 1.0,
+      "beta": 1.0,
+      "cap": 5.0,
+      "space": "prob",
+      "t": 0.525,
+      "dev": 0.9856,
+      "val": 0.981,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 0.0,
+      "beta": 2.0,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.53,
+      "dev": 0.9856,
+      "val": 0.981,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.5,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.535,
+      "dev": 0.9856,
+      "val": 0.9816,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 1.0,
+      "beta": 1.0,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.54,
+      "dev": 0.9856,
+      "val": 0.9816,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 1.0,
+      "beta": 2.0,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.55,
+      "dev": 0.9856,
+      "val": 0.9819,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 0.0,
+      "beta": 0.0,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.6,
+      "dev": 0.9856,
+      "val": 0.9819,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 1.0,
+      "beta": 1.0,
+      "cap": 8.0,
+      "space": "prob",
+      "t": 0.505,
+      "dev": 0.9853,
+      "val": 0.9821,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 0.0,
+      "beta": 1.0,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.51,
+      "dev": 0.9853,
+      "val": 0.981,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.5,
+      "cap": 5.0,
+      "space": "prob",
+      "t": 0.51,
+      "dev": 0.9853,
+      "val": 0.9819,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.0,
+      "cap": 8.0,
+      "space": "prob",
+      "t": 0.515,
+      "dev": 0.9853,
+      "val": 0.9797,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.5,
+      "cap": 8.0,
+      "space": "prob",
+      "t": 0.525,
+      "dev": 0.9853,
+      "val": 0.9819,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.5,
+      "cap": 8.0,
+      "space": "logit",
+      "t": 0.45,
+      "dev": 0.9853,
+      "val": 0.9808,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 0.0,
+      "beta": 0.5,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.445,
+      "dev": 0.9853,
+      "val": 0.9788,
+      "val_oracle": 0.9824
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.5,
+      "cap": 5.0,
+      "space": "logit",
+      "t": 0.445,
+      "dev": 0.9853,
+      "val": 0.981,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.0,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.565,
+      "dev": 0.9853,
+      "val": 0.9808,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 0.5,
+      "beta": 2.0,
+      "cap": 8.0,
+      "space": "prob",
+      "t": 0.585,
+      "dev": 0.9853,
+      "val": 0.9821,
+      "val_oracle": 0.983
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.0,
+      "cap": 5.0,
+      "space": "logit",
+      "t": 0.6,
+      "dev": 0.9853,
+      "val": 0.9816,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.5,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.605,
+      "dev": 0.9853,
+      "val": 0.9816,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.5,
+      "cap": 8.0,
+      "space": "prob",
+      "t": 0.51,
+      "dev": 0.9849,
+      "val": 0.9821,
+      "val_oracle": 0.9824
+    },
+    {
+      "alpha": 1.0,
+      "beta": 2.0,
+      "cap": 8.0,
+      "space": "prob",
+      "t": 0.51,
+      "dev": 0.9849,
+      "val": 0.9824,
+      "val_oracle": 0.9824
+    },
+    {
+      "alpha": 1.0,
+      "beta": 2.0,
+      "cap": 5.0,
+      "space": "prob",
+      "t": 0.52,
+      "dev": 0.9849,
+      "val": 0.9816,
+      "val_oracle": 0.9827
+    },
+    {
+      "alpha": 0.5,
+      "beta": 0.0,
+      "cap": 8.0,
+      "space": "logit",
+      "t": 0.46,
+      "dev": 0.9849,
+      "val": 0.981,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 0.5,
+      "beta": 1.0,
+      "cap": 5.0,
+      "space": "logit",
+      "t": 0.46,
+      "dev": 0.9849,
+      "val": 0.9813,
+      "val_oracle": 0.9824
+    },
+    {
+      "alpha": 0.5,
+      "beta": 1.0,
+      "cap": 8.0,
+      "space": "logit",
+      "t": 0.46,
+      "dev": 0.9849,
+      "val": 0.981,
+      "val_oracle": 0.9824
+    },
+    {
+      "alpha": 0.5,
+      "beta": 2.0,
+      "cap": 5.0,
+      "space": "logit",
+      "t": 0.43,
+      "dev": 0.9849,
+      "val": 0.9813,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 0.5,
+      "beta": 2.0,
+      "cap": 8.0,
+      "space": "logit",
+      "t": 0.43,
+      "dev": 0.9849,
+      "val": 0.981,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 0.5,
+      "beta": 1.0,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.42,
+      "dev": 0.9849,
+      "val": 0.9794,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 0.5,
+      "beta": 2.0,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.405,
+      "dev": 0.9849,
+      "val": 0.9791,
+      "val_oracle": 0.9813
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.0,
+      "cap": 3.0,
+      "space": "prob",
+      "t": 0.51,
+      "dev": 0.9846,
+      "val": 0.9805,
+      "val_oracle": 0.9813
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.5,
+      "cap": 5.0,
+      "space": "logit",
+      "t": 0.51,
+      "dev": 0.9846,
+      "val": 0.9813,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.0,
+      "cap": 5.0,
+      "space": "logit",
+      "t": 0.53,
+      "dev": 0.9846,
+      "val": 0.9813,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 1.0,
+      "beta": 1.0,
+      "cap": 5.0,
+      "space": "logit",
+      "t": 0.545,
+      "dev": 0.9846,
+      "val": 0.9816,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 1.0,
+      "beta": 2.0,
+      "cap": 5.0,
+      "space": "logit",
+      "t": 0.6,
+      "dev": 0.9846,
+      "val": 0.9813,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.5,
+      "cap": 8.0,
+      "space": "logit",
+      "t": 0.5,
+      "dev": 0.9842,
+      "val": 0.981,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 1.0,
+      "beta": 2.0,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.51,
+      "dev": 0.9842,
+      "val": 0.9813,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 1.0,
+      "beta": 1.0,
+      "cap": 8.0,
+      "space": "logit",
+      "t": 0.515,
+      "dev": 0.9842,
+      "val": 0.9813,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.0,
+      "cap": 8.0,
+      "space": "prob",
+      "t": 0.52,
+      "dev": 0.9842,
+      "val": 0.9813,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.0,
+      "cap": 8.0,
+      "space": "logit",
+      "t": 0.52,
+      "dev": 0.9842,
+      "val": 0.9819,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 1.0,
+      "beta": 2.0,
+      "cap": 8.0,
+      "space": "logit",
+      "t": 0.555,
+      "dev": 0.9842,
+      "val": 0.9819,
+      "val_oracle": 0.9821
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.0,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.575,
+      "dev": 0.9842,
+      "val": 0.9805,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.5,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.575,
+      "dev": 0.9842,
+      "val": 0.9816,
+      "val_oracle": 0.9816
+    },
+    {
+      "alpha": 1.0,
+      "beta": 1.0,
+      "cap": 3.0,
+      "space": "logit",
+      "t": 0.595,
+      "dev": 0.9842,
+      "val": 0.981,
+      "val_oracle": 0.9819
+    },
+    {
+      "alpha": 1.0,
+      "beta": 0.0,
+      "cap": 5.0,
+      "space": "prob",
+      "t": 0.5,
+      "dev": 0.9839,
+      "val": 0.9808,
+      "val_oracle": 0.9816
+    }
+  ]
+}
