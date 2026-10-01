@@ -63,7 +63,8 @@ if ! is_done decide_power; then
     --out "$ROOT/decisions/power.json" > "$ROOT/logs/decide_power.log"
   done_mark decide_power
 fi
-P=$("$PY" -c "import json,sys; print(json.load(open(sys.argv[1], encoding='utf-8'))['choice'])" "$ROOT/decisions/power.json")
+# Windows 의 python 출력은 줄 끝이 CRLF 라 CR 을 지운다 (남으면 경로·산술에서 깨진다)
+P=$("$PY" -c "import json,sys; print(json.load(open(sys.argv[1], encoding='utf-8'))['choice'])" "$ROOT/decisions/power.json" | tr -d '\r')
 log "3. 결정 p=$P"
 
 # 4. TAPT: 학습용 분할 본문만으로 MLM (평가 CSV 없음)
@@ -91,7 +92,7 @@ fi
 read -r RECIPE EPOCH C W NMEM < <("$PY" -c "
 import json,sys
 d=json.load(open(sys.argv[1], encoding='utf-8'))['decision']
-print(d['recipe'], d['epoch'], d['tfidf_C'], d['tfidf_weight'], d['n_members'])" "$ROOT/decisions/final.json")
+print(d['recipe'], d['epoch'], d['tfidf_C'], d['tfidf_weight'], d['n_members'])" "$ROOT/decisions/final.json" | tr -d '\r')
 log "6. 결정 recipe=$RECIPE epoch=$EPOCH C=$C w=$W members=$NMEM"
 
 # 7. 최종 학습: Training 전체, 정한 epoch 에서 저장 (dev 분할은 진행 기록용, 선택에 쓰지 않음)
