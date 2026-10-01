@@ -15,8 +15,9 @@ TRAIN_CSV=${1:?Training CSV 경로가 필요합니다}
 VAL_LABEL_DIR=${2:?Validation label 폴더가 필요합니다 (10 단계 확인용)}
 [ -f "$TRAIN_CSV" ] || { echo "Training CSV 가 없습니다: $TRAIN_CSV" >&2; exit 1; }
 [ -d "$VAL_LABEL_DIR" ] || { echo "label 폴더가 없습니다: $VAL_LABEL_DIR" >&2; exit 1; }
-TRAIN_CSV="$(cd "$(dirname "$TRAIN_CSV")" && pwd -W)/$(basename "$TRAIN_CSV")"
-VAL_LABEL_DIR="$(cd "$VAL_LABEL_DIR" && pwd -W)"
+abs_dir() { (cd "$1" && (pwd -W 2>/dev/null || pwd)); }   # Git Bash 는 Windows 경로(C:/...), 그 밖은 pwd
+TRAIN_CSV="$(abs_dir "$(dirname "$TRAIN_CSV")")/$(basename "$TRAIN_CSV")"
+VAL_LABEL_DIR="$(abs_dir "$VAL_LABEL_DIR")"
 compgen -G "$VAL_LABEL_DIR/*.json" > /dev/null || { echo "label 폴더에 JSON 이 없습니다: $VAL_LABEL_DIR" >&2; exit 1; }
 cd "$(dirname "$0")"
 PY=${PYTHON:-python}

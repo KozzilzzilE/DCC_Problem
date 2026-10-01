@@ -2,7 +2,7 @@
 
 119 신고 통화 전사(`utterances[].text`)만 보고 9개 증상(고열·구토·두통·복통·어지러움·열상·오심·전신쇠약·호흡곤란)을 다중 라벨로 분류한다.
 
-- **Validation macro F1@0.5 = 0.6599** (3,640건). 하이퍼파라미터를 Training 내부 dev 로 모두 정한 뒤, 이 폴더의 `inference.py` 로 확인한 값이다.
+- **Validation macro F1@0.5 = 0.6599** (3,640건). 하이퍼파라미터를 Training 내부 dev 로 모두 정한 뒤, 이 폴더의 `inference.py` 로 확인한 값이다 (Validation 은 선택에 쓰지 않았다).
 - 결정 임계값은 **모든 클래스 0.5 고정**이다 (대회 규정). 클래스별·튜닝된 임계값은 쓰지 않는다.
 
 ## 폴더 구성
@@ -12,7 +12,7 @@ mission3_symptom/
 ├── inference.py            # 추론 진입점 — 한 번 실행으로 결과 CSV 생성
 ├── m3/                     # 전처리·모델·추론·학습 모듈
 ├── ckpt/                   # 제출 번들 (tokenizer/config/가중치 포함, 인터넷 불필요)
-│   ├── ensemble.json       # 번들 진입점: 멤버 4개 균등 평균, precision fp16
+│   ├── ensemble.json       # 번들 진입점: 멤버 4개 균등 평균, 추론 정밀도 fp16 (가중치는 fp32 저장)
 │   └── final_s42 ~ final_s45/   # KLUE-RoBERTa-base 분류 모델 (TAPT + LLRD, seed 별)
 ├── make_csv.py             # 원본 JSON -> 학습 CSV
 ├── make_dev_split.py       # Training 내부 dev 분할 (하이퍼파라미터 선택 전용)

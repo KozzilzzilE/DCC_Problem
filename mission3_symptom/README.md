@@ -16,7 +16,7 @@
 **제출 모델:**
 - KLUE-RoBERTa-base 에 TAPT 20ep + LLRD 0.8 (lr 5e-5) + pos_weight^0.5 를 적용했다. 3 epoch 스케줄의 2 epoch 시점 가중치다.
 - seed 42~45 네 모델의 확률을 균등 평균한다. TF-IDF 블렌드는 쓰지 않는다 (dev 에서 w=0 이 최고).
-- **Validation macro F1@0.5 = 0.6599** (결정이 끝난 뒤 1회 확인).
+- **Validation macro F1@0.5 = 0.6599** (결정이 모두 끝난 뒤 확인. Validation 은 선택에 쓰지 않음).
 
 제출 폴더 안내는 `SUBMISSION_README.md` 다. 제출 폴더에서는 이 파일이 `README.md` 가 된다.
 - **설치:** `python -m pip install -r requirements.txt` (Python 3.12 이상)
