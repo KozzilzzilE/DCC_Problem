@@ -8,7 +8,7 @@
 업샘플)가 같은 캐시를 공유한다. 덕분에 두 갈래의 속도 비교가 I/O 차이가 아닌
 모델 차이를 반영한다.
 
-용량: 통화당 신고자 음성 34.0 초 -> 약 544 KB. 전체 29,200 통화 기준 15.9 GB.
+용량: 통화당 신고자 음성 평균 33.5 초 -> 약 536 KB. Training 29,200 통화 캐시는 15.67 GB (실측).
 """
 from __future__ import annotations
 
@@ -39,6 +39,7 @@ class CacheRow:
     gender: str | None
 
     def as_tuple(self) -> tuple:
+        """인덱스 CSV 한 줄과 같은 순서의 튜플."""
         return (self.call_id, self.seg_idx, self.offset, self.length, self.gender)
 
 
@@ -51,9 +52,11 @@ class CacheIndex:
 
     @property
     def segment_dir(self) -> Path:
+        """통화별 .npy 가 모이는 하위 폴더."""
         return self.cache_dir / SEGMENT_DIRNAME
 
     def call_path(self, call_id: str) -> Path:
+        """통화 하나의 신고자 조각을 이어 붙인 .npy 경로."""
         return self.segment_dir / f"{call_id}.npy"
 
     def load_segment(self, row: CacheRow) -> np.ndarray:
@@ -62,12 +65,14 @@ class CacheIndex:
         return np.asarray(data[row.offset : row.offset + row.length])
 
     def by_call(self) -> dict[str, list[CacheRow]]:
+        """조각을 통화 ID 별로 묶는다."""
         groups: dict[str, list[CacheRow]] = {}
         for row in self.rows:
             groups.setdefault(row.call_id, []).append(row)
         return groups
 
     def save(self) -> Path:
+        """조각 목록을 index.csv 로 쓴다."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         path = self.cache_dir / INDEX_NAME
         with path.open("w", encoding="utf-8", newline="") as f:
@@ -81,6 +86,7 @@ class CacheIndex:
 
     @classmethod
     def load(cls, cache_dir: str | Path) -> "CacheIndex":
+        """index.csv 를 읽는다. 없으면 빈 인덱스를 돌려준다."""
         cache_dir = Path(cache_dir)
         path = cache_dir / INDEX_NAME
         if not path.exists():
@@ -188,6 +194,7 @@ def build_cache(
 
 
 def _drain(results, total: int, progress: bool) -> list[tuple]:
+    """통화별 결과를 모으며 500 통화마다 진행 상황을 출력한다."""
     produced: list[tuple] = []
     for done, meta in enumerate(results, start=1):
         produced.extend(meta)
@@ -197,6 +204,7 @@ def _drain(results, total: int, progress: bool) -> list[tuple]:
 
 
 def cache_size_bytes(cache_dir: str | Path) -> int:
+    """캐시 조각 파일(.npy)의 총 바이트 수."""
     seg_dir = Path(cache_dir) / SEGMENT_DIRNAME
     if not seg_dir.exists():
         return 0
@@ -204,4 +212,5 @@ def cache_size_bytes(cache_dir: str | Path) -> int:
 
 
 def default_workers() -> int:
+    """캐시 빌드 병렬 프로세스 수 기본값 (CPU 코어 수 - 1)."""
     return max(1, (os.cpu_count() or 2) - 1)

@@ -45,11 +45,9 @@ def parse_args(argv=None):
     p.add_argument("--out", type=Path, default=Path("mission1_gender/reports/comparison"))
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--num-workers", type=int, default=None,
-                   help="기본값은 갈래에 맞춰 자동 (resnet 0 / 16k 업샘플 갈래 4)")
+                   help="기본값은 갈래에 맞춰 자동 (resnet 0 / w2v2 4)")
     p.add_argument("--eval-mode", choices=("center", "sliding"), default="sliding")
     p.add_argument("--latency-calls", type=int, default=200)
-    p.add_argument("--use-ckpt-threshold", action="store_true",
-                   help="(연구용) 체크포인트에 저장된 보정 임계값으로 채점. 기본은 규정대로 0.5 고정")
     return p.parse_args(argv)
 
 
@@ -123,7 +121,7 @@ def evaluate_checkpoint(path: Path, args, device) -> dict:
         batch_size=args.batch_size, mode=args.eval_mode, num_workers=args.num_workers if args.num_workers is not None else suggested_workers(branch),
     )
     val_seconds = time.perf_counter() - started
-    threshold = decision_threshold(payload, use_checkpoint=args.use_ckpt_threshold)
+    threshold = decision_threshold(payload)
     metrics = score(samples, probs, truth, threshold)
 
     history_path = path.with_suffix(".history.json")

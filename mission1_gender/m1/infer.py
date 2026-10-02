@@ -21,7 +21,7 @@ from .config import FeatureConfig
 from .datasets import RESAMPLE_BRANCHES, crop_or_pad, to_waveform
 from .features import sliding_windows
 from .labels import CallRecord, caller_utterances, iter_calls
-from .models import checkpoint_threshold, decision_threshold, load_checkpoint
+from .models import decision_threshold, load_checkpoint
 
 OUTPUT_COLUMNS = ["audio file name", "gender"]
 MIN_SEGMENT_MS = 100
@@ -33,8 +33,8 @@ def suggested_batch_size(branch: str) -> int:
     """갈래별 기본 추론 배치. 8 GB GPU 에서 VRAM 을 넘기지 않는 값.
 
     w2v2 는 16 kHz 창(48,896 샘플)이라 배치 128 이면 예약 메모리가 9.2 GB 로 8 GB 를
-    넘어 Windows WDDM 이 시스템 RAM 으로 페이징한다 — OOM 없이 조용히 10배 느려진다
-    (통화당 616 ms). 배치 32 는 3.2 GB, 통화당 58 ms. ResNet 은 8 kHz 멜이라 128 도 안전.
+    넘어 Windows WDDM 이 시스템 RAM 으로 페이징한다 — OOM 없이 조용히 10배 느려진다.
+    배치 32 는 예약 메모리 3.2 GB 다. ResNet 은 8 kHz 멜이라 128 도 안전하다.
     """
     return 32 if branch in RESAMPLE_BRANCHES else 128
 
@@ -113,11 +113,12 @@ def predict_directory(
         batch_size = suggested_batch_size(branch)
     if verbose:
         trained = payload.get("metrics", {}).get("dev_call_accuracy")
+        # 체크포인트에 예전 보정 임계값이 남아 있어도 판정에는 쓰지 않는다.
         stored = (payload.get("extra") or {}).get("decision_threshold")
         print(f"[Mission 1] branch={branch} device={device} feature={cfg.kind}"
               f" threshold={threshold:.3f} (규정 고정) batch_size={batch_size}"
               + (f" dev_call_acc={trained:.4f}" if trained else "")
-              + (f" | ckpt 저장값 {checkpoint_threshold(payload):.3f} 은 무시" if stored is not None else ""))
+              + (f" | ckpt 저장값 {stored} 은 쓰지 않음" if stored is not None else ""))
 
     records = list(iter_calls(label_dir))
 
@@ -129,6 +130,7 @@ def predict_directory(
     flushes = 0
 
     def flush() -> None:
+        """모아 둔 창 배치를 추론해 조각별 확률 합/개수에 더한다."""
         nonlocal flushes
         if not batch:
             return

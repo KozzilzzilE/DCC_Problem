@@ -11,10 +11,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from .aggregate import FEMALE, GENDER_OUTPUT, call_label, call_probability, gender_to_target
+from .aggregate import FEMALE, GENDER_OUTPUT, MALE, call_label, call_probability, gender_to_target
 from .cache import CacheIndex
 from .config import FeatureConfig
-from .datasets import Sample, SegmentWindowDataset, SlidingWindowDataset
+from .datasets import RESAMPLE_BRANCHES, Sample, SegmentWindowDataset, SlidingWindowDataset
 
 
 # 이 간격마다 torch.cuda.empty_cache(). 긴 루프의 할당자 단편화 방지.
@@ -23,6 +23,8 @@ EMPTY_CACHE_EVERY = 200
 
 @dataclass
 class CallMetrics:
+    """통화 단위 평가 결과. confusion 키는 '정답->예측' (예: 'M->F')."""
+
     call_accuracy: float
     segment_accuracy: float
     n_calls: int
@@ -31,12 +33,16 @@ class CallMetrics:
     per_gender_accuracy: dict[str, float]
 
     def summary(self) -> str:
-        return (
-            f"call acc {self.call_accuracy:.4f} ({self.n_calls} calls) | "
-            f"seg acc {self.segment_accuracy:.4f} ({self.n_segments} segs) | "
-            f"남 {self.per_gender_accuracy.get('남', float('nan')):.4f} "
-            f"여 {self.per_gender_accuracy.get('여', float('nan')):.4f}"
-        )
+        """학습 로그 한 줄용 요약 문자열."""
+        parts = [
+            f"call acc {self.call_accuracy:.4f} ({self.n_calls} calls)",
+            f"seg acc {self.segment_accuracy:.4f} ({self.n_segments} segs)",
+            " ".join(
+                f"{g} {self.per_gender_accuracy.get(g, float('nan')):.4f}"
+                for g in (GENDER_OUTPUT[MALE], GENDER_OUTPUT[FEMALE])
+            ),
+        ]
+        return " | ".join(parts)
 
 
 def suggested_workers(branch: str) -> int:
@@ -48,7 +54,7 @@ def suggested_workers(branch: str) -> int:
     - w2v2   : 창마다 resample_poly 로 8k -> 16k 업샘플을 한다. 실제 CPU 작업이
       있어 워커가 필요하다.
     """
-    return 4 if branch in ("w2v2", "audeering") else 0
+    return 4 if branch in RESAMPLE_BRANCHES else 0
 
 
 @torch.no_grad()
@@ -64,7 +70,7 @@ def predict_segment_probs(
     num_workers: int = 0,
     amp: bool = True,
 ) -> np.ndarray:
-    """각 조각의 P(여) 를 돌려준다 (samples 와 같은 순서, 길이)."""
+    """각 조각의 P(F) 를 돌려준다 (samples 와 같은 순서, 길이)."""
     model.eval()
 
     if mode == "sliding":
@@ -133,10 +139,11 @@ def score(
     truth: dict[str, str],
     threshold: float = 0.5,
 ) -> CallMetrics:
-    """truth: call_id -> 'M' | 'F'. threshold 는 대회 규정상 0.5 고정 (보정값은 연구용 분석에서만)."""
+    """truth: call_id -> 'M' | 'F'. threshold 는 대회 규정상 0.5 고정."""
     call_probs = call_probabilities(samples, segment_probs)
 
-    confusion = {"남->남": 0, "남->여": 0, "여->남": 0, "여->여": 0}
+    labels = (GENDER_OUTPUT[MALE], GENDER_OUTPUT[FEMALE])
+    confusion = {f"{gold}->{pred}": 0 for gold in labels for pred in labels}
     correct = 0
     for cid, prob in call_probs.items():
         gold = GENDER_OUTPUT[gender_to_target(truth[cid])]
@@ -145,9 +152,9 @@ def score(
         correct += gold == pred
 
     per_gender = {}
-    for gold in ("남", "여"):
+    for gold in labels:
         hit = confusion[f"{gold}->{gold}"]
-        total = hit + confusion[f"{gold}->{'여' if gold == '남' else '남'}"]
+        total = sum(confusion[f"{gold}->{pred}"] for pred in labels)
         per_gender[gold] = hit / total if total else float("nan")
 
     seg_pred = (segment_probs >= 0.5).astype(int)
@@ -164,6 +171,7 @@ def score(
 
 
 def truth_from_samples(samples: list[Sample]) -> dict[str, str]:
+    """샘플에서 통화별 정답 라벨(call_id -> 'M' | 'F')을 모은다."""
     return {s.row.call_id: s.row.gender for s in samples if s.row.gender}
 
 

@@ -56,8 +56,8 @@ def mission1_inference(audio_dir, label_dir, ckpt_path):
     """신고자 성별 분류.
 
     라벨 JSON 에서는 startAt / endAt / speaker 만 읽어 신고자(speaker=1) 발화
-    구간을 잘라내고, 조각별 확률을 통화 단위로 평균(soft voting)해 남/여를
-    정한다. 전처리 설정은 체크포인트에 함께 저장돼 있어 자동 복원된다.
+    구간을 잘라내고, 조각별 확률을 통화 단위로 평균(soft voting)해 라벨 원값
+    M/F 를 정한다. 전처리 설정은 체크포인트에 함께 저장돼 있어 자동 복원된다.
     """
     print("Mission 1 추론 시작 (신고자 조각 -> 통화 단위 소프트 보팅)...")
 

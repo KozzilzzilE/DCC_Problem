@@ -12,17 +12,10 @@ from transformers import AutoConfig, Wav2Vec2Config, Wav2Vec2Model
 
 from ..datasets import W2V2_SAMPLE_RATE
 
-# 공개된 한국어 wav2vec2 는 large(24층/hidden 1024) 뿐이고 base 크기는 없다.
-# (kresnik/Bingsu 의 base-korean 은 존재하지 않음을 확인)
-#
 # 성별 판별의 단서는 F0 와 포먼트 같은 음향 특성이라 언어 의존도가 낮고, base 가
-# 8 GB VRAM 에 여유롭게 들어가므로 기본 비교 대상은 base 로 둔다. 한국어 large 는
-# --w2v2-model 로 지정해 추가 실험할 수 있다.
-KOREAN_LARGE = "kresnik/wav2vec2-large-xlsr-korean"
-DEFAULT_CANDIDATES = (
-    "facebook/wav2vec2-base",
-    KOREAN_LARGE,
-)
+# 8 GB VRAM 에 여유롭게 들어가므로 영어 사전학습 base 를 쓴다. 공개된 한국어
+# wav2vec2 는 large(24층/hidden 1024) 뿐이다. 다른 백본은 --w2v2-model 로 지정한다.
+DEFAULT_CANDIDATES = ("facebook/wav2vec2-base",)
 
 
 def resolve_checkpoint(candidates=DEFAULT_CANDIDATES) -> str:
@@ -49,7 +42,7 @@ def build_backbone(model_name: str, hf_config: dict | None) -> Wav2Vec2Model:
 
 
 class Wav2Vec2Gender(nn.Module):
-    """(B, samples@16k) -> (B,) logit. 양수면 '여'(class 1)."""
+    """(B, samples@16k) -> (B,) logit. 양수면 'F'(class 1)."""
 
     def __init__(
         self,
@@ -80,4 +73,5 @@ class Wav2Vec2Gender(nn.Module):
 
     @property
     def input_sample_rate(self) -> int:
+        """모델이 기대하는 입력 샘플레이트 (16 kHz)."""
         return W2V2_SAMPLE_RATE

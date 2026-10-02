@@ -6,6 +6,10 @@
 
     python mission1_gender/build_notebook.py            # 노트북 생성
     python mission1_gender/build_notebook.py --execute  # 생성 후 실행까지
+
+nbformat·nbconvert 가 필요하다 (requirements-dev.txt). 이 파일은 제출 폴더에 넣지 않는다.
+--execute 는 저장소 루트에 data/{train,val}/{audio,label} 이 있어야 돌고(셀 3 이 data/train/label 을 읽는다),
+cache/ 가 없으면 만들고 mission1_gender/ckpt/w2v2_full.pt 가 없으면 학습한다.
 """
 from __future__ import annotations
 
@@ -37,7 +41,7 @@ Wav2Vec2(음성 특화 파인튜닝) 갈래를 올려 비교했고, **제출 모
 섞여 있다. 규칙상 추론 시에도 `startAt`/`endAt`/`speaker`를 쓸 수 있으므로:
 
 1. `speaker == 1`(신고자) 발화 조각만 잘라 조각 단위로 이진 분류기를 학습
-2. 한 통화의 조각별 확률을 평균(soft voting)해 통화의 남/여를 결정
+2. 한 통화의 조각별 확률을 평균(soft voting)해 통화의 성별을 라벨 원값 `M`/`F` 로 결정
 
 통화당 신고자 조각이 평균 15.8개라, 조각 하나하나의 오류가 집계에서 상쇄된다."""),
 
@@ -51,7 +55,7 @@ os.chdir(REPO)
 import numpy as np
 import torch
 
-print("repo      :", REPO)
+print("repo      :", REPO.name)   # 로컬 절대 경로는 기록하지 않는다
 print("python    :", sys.version.split()[0])
 print("torch     :", torch.__version__)
 print("CUDA      :", torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else "")
@@ -148,8 +152,8 @@ print("=> 모델이 이 값을 못 넘으면 아무것도 학습하지 못한 �
 
 설치된 `torch 2.13+cu130`에 맞는 torchaudio 빌드가 없어(cu130 채널 최대 2.11)
 `torch.stft` + 자체 mel 필터뱅크로 직접 구현했다. 부수 효과로 피처 계산이 GPU에서
-배치 단위로 돌아간다. 수치가 librosa와 일치함은 `tests/test_features.py`에서
-대조 검증한다.
+배치 단위로 돌아간다. 수치가 librosa와 일치함은 저장소의 `tests/test_features.py`에서
+대조 검증한다 (제출 폴더에는 테스트를 넣지 않았다).
 
 8 kHz 기준 `n_fft=1024`(128 ms)는 성별 판별의 주 단서인 F0(남 85–180 Hz /
 여 165–255 Hz)를 7.8 Hz 해상도로 분해한다."""),
@@ -205,22 +209,26 @@ plt.show()"""),
 체크포인트에 `FeatureConfig`·갈래·HF config 가 함께 저장돼, 아래처럼 `load_checkpoint`
 하나로 학습과 동일한 전처리가 복원되고 허브 접속도 필요 없다. 결정 임계값은 체크포인트와
 무관하게 0.5 고정이다 (`m1.models.decision_threshold`).
-비교용 ResNet50 갈래(`resnet_aug_m80.pt`, Validation 0.9821)는 폴백으로 둔다."""),
+비교 실험한 ResNet50 갈래(`resnet_aug_m80.pt`, Validation 0.9821)는 결과만 기록으로 남기고 제출에는
+넣지 않았다."""),
 
     ("code", """from m1.models import load_checkpoint, decision_threshold
 
 CKPT = Path("mission1_gender/ckpt/w2v2_full.pt")
-model, branch, ckpt_cfg, payload = load_checkpoint(CKPT, device="cpu")
-n_params = sum(p.numel() for p in model.parameters())
-print("branch      :", branch, "|", payload["extra"].get("model_name"))
-print("파라미터 수 :", "%.1fM" % (n_params / 1e6))
-print("결정 임계값 :", decision_threshold(payload), "(대회 규정 0.5 고정)")
-print("HF config 동봉:", bool(payload["extra"].get("hf_config")), "-> 오프라인 로딩 가능")
-print("head        :", model.head)
+if CKPT.exists():
+    model, branch, ckpt_cfg, payload = load_checkpoint(CKPT, device="cpu")
+    n_params = sum(p.numel() for p in model.parameters())
+    print("branch      :", branch, "|", payload["extra"].get("model_name"))
+    print("파라미터 수 :", "%.1fM" % (n_params / 1e6))
+    print("결정 임계값 :", decision_threshold(payload), "(대회 규정 0.5 고정)")
+    print("HF config 동봉:", bool(payload["extra"].get("hf_config")), "-> 오프라인 로딩 가능")
+    print("head        :", model.head)
 
-with torch.no_grad():
-    dummy = torch.zeros(2, ckpt_cfg.window_samples * 2)   # 16 kHz
-    print("\\n(B, samples@16k) %s -> logits %s" % (tuple(dummy.shape), tuple(model(dummy).shape)))"""),
+    with torch.no_grad():
+        dummy = torch.zeros(2, ckpt_cfg.window_samples * 2)   # 16 kHz
+        print("\\n(B, samples@16k) %s -> logits %s" % (tuple(dummy.shape), tuple(model(dummy).shape)))
+else:
+    print("체크포인트가 아직 없다. 6절 학습 셀이 만든 뒤 7절에서 불러온다.")"""),
 
     ("md", """## 6. 학습
 
@@ -229,10 +237,10 @@ with torch.no_grad():
 없다. Validation 폴더는 학습·모델선택에 일절 쓰지 않는다 (대회 규칙).
 
 학습은 `python -m m1.train --branch w2v2 --cache cache/train --out mission1_gender/ckpt/w2v2_full.pt
---epochs 3 --lr 3e-5 --batch-size 32` CLI 로 실행했고, 그 로그는 `ckpt/w2v2_full.history.json` 에
+--epochs 3 --lr 3e-5 --batch-size 32 --num-workers 6` CLI 로 실행했고, 그 로그는 `ckpt/w2v2_full.history.json` 에
 epoch 별로 남아 있다. 아래 셀은 체크포인트가 이미 있으면 그 학습 로그를 읽어 보여주고, 없으면 그
 자리에서 같은 설정으로 학습한다. 표의 dev 는 학습 중 `center` 모드(조각당 창 1개, 임계값 0.5) 값이다.
-제출 경로와 같은 `sliding` 모드 dev 수치는 README 의 제출 모델 선정 표에 있다."""),
+제출 경로와 같은 `sliding` 모드 dev 수치는 README 의 '제출 모델 선정' 표에 있다."""),
 
     ("code", """HISTORY = CKPT.with_suffix(".history.json")
 
@@ -324,7 +332,9 @@ print("결정 경계에서 0.1 이내인 애매한 통화: %d / %d (%.1f%%)" % (
     ("md", """## 8. 갈래 비교 — CNN vs 음성 특화 파인튜닝
 
 두 갈래가 같은 캐시·같은 조각 분할·같은 집계를 쓰므로 표에 남는 차이는 모델에서
-나온 것이다. `m1.benchmark`가 생성한 결과를 읽어온다."""),
+나온 것이다. 저장소의 `m1.benchmark` 가 생성한 결과 `reports/comparison.json` 을 읽어온다
+(`m1.benchmark` 스크립트는 제출 폴더에 없고, 그 결과 `comparison.json`·`comparison.md` 가 `reports/` 에 들어 있다). 표의 `audeering_full` 행은 제출 정리 때 코드에서 뺀 세 번째 비교 갈래
+(전화 음성 사전학습 `audeering/wav2vec2-large-robust-6-ft-age-gender`)의 기록이다."""),
 
     ("code", """report = Path("mission1_gender/reports/comparison.json")
 if report.exists():
@@ -336,26 +346,23 @@ if report.exists():
             row["label"], row["branch"], row["n_params_m"], row["val_call_accuracy"],
             row["train_seconds_per_epoch"], row["inference_ms_per_call"], row["peak_vram_mb"]))
 else:
-    print("비교표가 아직 없습니다. 다음을 먼저 실행하세요:")
-    print("  python -m m1.benchmark --ckpt mission1_gender/ckpt/w2v2_full.pt \\\\")
-    print("                         --ckpt mission1_gender/ckpt/w2v2_full.pt")"""),
+    print("비교표가 없습니다. 저장소의 m1.benchmark 로 생성한다.")"""),
 
     ("md", """## 9. 제출 규격 확인
 
-대회가 실제로 실행하는 명령을 그대로 한 번 돌려 CSV 형식을 확인한다. 이 노트북은 저장소 루트에서
-실행해 루트 `inference.py`(세 미션 공용 진입점)를 불렀다. 제출 폴더에서는 폴더 안의
-`inference.py` 로 같은 결과가 나온다: `python inference.py --audio_dir <wav> --label_dir <json>
---ckpt_path ckpt/w2v2_full.pt --output ./outputs/mission1.csv`.
+대회가 실제로 실행하는 명령 형식 그대로 제출 폴더의 `inference.py` 를 한 번 돌려 CSV 형식을 확인한다.
+이 노트북은 저장소 루트에서 실행하므로 경로에 `mission1_gender/` 가 붙는다. 제출 폴더 안에서는
+다음과 같다:
 
 ```
-python inference.py --audio_dir {wav} --label_dir {json} --ckpt_path {ckpt} --output ./outputs/mission1.csv
+python inference.py --audio_dir {wav} --label_dir {json} --ckpt_path ckpt/w2v2_full.pt --output ./outputs/mission1.csv
 ```
 
-Mission 1 CSV: `[audio file name], [gender]`"""),
+Mission 1 CSV: `[audio file name], [gender]`. `gender` 값은 라벨 원값 `M`/`F` 다."""),
 
     ("code", """import subprocess, pandas as pd
 
-cmd = [sys.executable, "inference.py",
+cmd = [sys.executable, "mission1_gender/inference.py",
        "--audio_dir", "./data/val/audio",
        "--label_dir", "./data/val/label",
        "--ckpt_path", str(CKPT),
@@ -382,8 +389,8 @@ print("\\ngender 분포:", df["gender"].value_counts().to_dict())"""),
 - 8 kHz 전화 음성을 16 kHz 로 올려 넣어도 Wav2Vec2 가 다수결 기준선(0.538)을 크게
   넘어선다. 임계값 0.5 고정 기준으로 스펙트로그램 CNN(ResNet50, 0.9821)보다 0.14%p
   앞서고 dev 에서도 같은 방향(+0.31%p)이라, 통계적으로 분리되지는 않아도 일관된 우위로
-  본다. 여러 갈래가 같은 통화에서 틀리는 것이 이 데이터의 상한이다 — 오류 분석과
-  단일 시드 한계는 `mission1_gender/README.md`.
+  본다. 여러 갈래가 같은 통화에서 틀리는 것이 이 데이터의 상한이다 — README 의 '오류 분석'과
+  '단일 시드의 한계' 절 참고.
 
 **사회안전 관점의 시사점**
 

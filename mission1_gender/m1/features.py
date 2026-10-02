@@ -4,7 +4,7 @@
 STFT 와 mel 필터뱅크를 직접 구현한다. 부수 효과로 피처 계산이 GPU 에서 배치
 단위로 돌아, 두 모델 갈래의 속도 비교가 I/O 가 아닌 모델 차이를 반영하게 된다.
 
-수치는 librosa 와 일치하도록 맞췄고 tests/test_features.py 에서 대조 검증한다.
+수치는 librosa 와 일치하도록 맞췄고 저장소 루트의 tests/test_features.py 에서 대조 검증한다.
 
 규칙 준수: 이 모듈의 어떤 함수도 label 을 인자로 받지 않는다. 따라서
 "sample instance 마다 label 에 따라 상이한 전처리" 가 구조적으로 불가능하다.
@@ -33,6 +33,7 @@ def _hz_to_mel(freq: np.ndarray) -> np.ndarray:
 
 
 def _mel_to_hz(mels: np.ndarray) -> np.ndarray:
+    """Slaney mel scale 역변환 (librosa htk=False)."""
     f_sp = 200.0 / 3
     freqs = f_sp * mels
     min_log_hz = 1000.0
