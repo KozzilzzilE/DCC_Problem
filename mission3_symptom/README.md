@@ -74,7 +74,7 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 | Active 파라미터 | **442,500,132** (앙상블 멤버가 모두 매 샘플 추론에 쓰이는 dense 구조) |
 | 학습·추론 환경 | NVIDIA GeForce RTX 5060 8GB (드라이버 610.62, CUDA 13.0), AMD Ryzen 5 9600 (6코어 12스레드), RAM 31GB, Windows 10, Python 3.14.6, torch 2.13.0+cu130, transformers 5.15.0 |
 | Validation 추론 batch size | 16 |
-| Validation 전체 추론 시간 | 3,640건 **약 43초 (샘플당 약 12 ms)**, `--ckpt_path ckpt/mission3.pt`, fp16, 모델 로딩·CSV 저장 포함 (10-02 여러 번 실측 42.7~45.1초) |
+| Validation 전체 추론 시간 | 3,640건 **약 43초 (샘플당 약 12 ms)**, `--ckpt_path ckpt/mission3.pt`, fp16, 모델 로딩·CSV 저장 포함 (10-02 여러 번 실측 42.7~45.1초). 단 .pt 를 막 복사했거나 학습 직후처럼 파일 캐시가 비어 있는 첫 실행은 더 걸린다 (제출 폴더로 복사한 직후 .pt 55.4초, 10-01 학습 직후 같은 가중치의 폴더 번들 50.8초) |
 | 학습 시간 | 약 5시간 10분 (`run_dev_selection.sh` 전체) |
 
 학습 시간 내역:
