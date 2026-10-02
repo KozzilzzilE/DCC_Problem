@@ -155,6 +155,8 @@ def read_transcript(
     call_id = path.stem
 
     data = _read_json_robust(path)
+    if not isinstance(data, dict):
+        raise ValueError(f"라벨 JSON 의 최상위가 객체가 아닙니다 ({type(data).__name__}): {path.name}")
 
     # 허용된 text만 추출 (시간/화자/인적사항 등 영구 제거)
     text = _parse_dialogue_text(data.get("utterances"), resolve_utterance_sep(sep_mode))
@@ -173,15 +175,11 @@ def read_transcript(
 
 def load_transcripts_dir(
     label_dir: Union[str, Path],
-    max_samples: Optional[int] = None,
     sep_mode: str = DEFAULT_UTTERANCE_SEP_MODE,
 ) -> List[TranscriptRecord]:
-    """라벨 폴더 내의 모든 JSON을 일괄 파싱하여 모델에 바로 넣을 수 있는 리스트로 반환."""
+    """라벨 폴더 내의 모든 JSON을 일괄 파싱하여 모델에 바로 넣을 수 있는 리스트로 반환 (읽지 못한 파일은 건너뜀)."""
     label_dir = Path(label_dir)
     json_files = sorted(label_dir.glob("*.json"))
-
-    if max_samples is not None:
-        json_files = json_files[:max_samples]
 
     resolve_utterance_sep(sep_mode)  # 잘못된 모드는 파일을 읽기 전에 즉시 실패시킨다
 
@@ -193,31 +191,3 @@ def load_transcripts_dir(
             continue
 
     return records
-
-
-def load_transcripts_dataframe(
-    label_dir: Union[str, Path],
-    max_samples: Optional[int] = None,
-    sep_mode: str = DEFAULT_UTTERANCE_SEP_MODE,
-):
-    """KoBERT 모델 학습에 바로 넘길 수 있도록 pandas DataFrame 형태로 반환.
-    
-    컬럼:
-      - call_id: 통화 식별자
-      - text: 순수 발화 전사 텍스트
-      - symptoms: 필터링된 타겟 증상명 리스트
-      - label_vector: 9차원 이진 리스트 ([0, 1, 0, ...])
-    """
-    import pandas as pd
-
-    records = load_transcripts_dir(label_dir, max_samples=max_samples, sep_mode=sep_mode)
-    data = [
-        {
-            "call_id": r.call_id,
-            "text": r.text,
-            "symptoms": list(r.symptoms),
-            "label_vector": r.label_vector.tolist() if r.label_vector is not None else None,
-        }
-        for r in records
-    ]
-    return pd.DataFrame(data)

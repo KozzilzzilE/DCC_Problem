@@ -1,7 +1,9 @@
-"""Training 전용 TF-IDF + LogisticRegression 보조 멤버.
+"""Training 전용 TF-IDF + LogisticRegression 보조 멤버 (선택 사항).
 
-제출 추론에서 트랜스포머 확률과 **9개 클래스 공통 가중치 하나**로 섞인다. 판정 임계값은
-대회 규정대로 0.5 그대로다.
+dev 선택 단계(`devsel.py final`)가 (C, w) 격자를 평가할 때 이 모듈로 적합한다. 규칙이 블렌드 가중치
+w > 0 을 고를 때만 최종 번들에 들어가고, 그때 제출 추론에서 트랜스포머 확률과 **9개 클래스 공통
+가중치 하나**로 섞인다. 현재 제출 번들(`ckpt/mission3.pt`)은 w=0 으로 정해져 TF-IDF 멤버가 없다.
+판정 임계값은 어느 경우든 대회 규정대로 0.5 그대로다.
 
 규정과 재현성을 위해 지키는 것:
   - 입력은 공백으로 이어 붙인 `utterances[].text` 뿐이다 (발화 경계 토큰 없음).
@@ -46,6 +48,8 @@ def build_vectorizers(min_df: int = DEFAULT_MIN_DF):
 
 @dataclass
 class TfidfLRMember:
+    """char_wb 2-4gram + word 1-2gram TF-IDF 와 증상별 로지스틱 회귀 9개를 묶은 보조 멤버."""
+
     char_vectorizer: object
     word_vectorizer: object
     models: List[object]
@@ -55,6 +59,7 @@ class TfidfLRMember:
     sklearn_version: str
 
     def _features(self, texts: Sequence[str]):
+        """두 TF-IDF 특징을 옆으로 이어 붙인 희소 행렬."""
         from scipy import sparse
 
         texts = list(texts)
@@ -110,6 +115,7 @@ def fit_tfidf_member(
 
 
 def save_tfidf_member(member: TfidfLRMember, path: Union[str, Path]) -> Path:
+    """멤버를 형식·버전·증상 순서와 함께 joblib 으로 저장한다."""
     import joblib
 
     path = Path(path)
@@ -134,7 +140,7 @@ def load_tfidf_member(path: Union[str, Path]) -> TfidfLRMember:
     import joblib
     import sklearn
 
-    payload = joblib.load(Path(path))
+    payload = joblib.load(path if hasattr(path, "read") else Path(path))  # 파일 경로 또는 .pt 번들 안의 바이트
     if not isinstance(payload, dict) or payload.get("format") != MEMBER_FORMAT:
         raise ValueError(f"TF-IDF 멤버 형식이 아닙니다: {path}")
     if payload.get("version") != MEMBER_VERSION:

@@ -11,17 +11,17 @@ run_config.json 이 dev 분할로 평가됐는지 확인하고, 아니면 멈춘
         --power-decision runs/devsel/decisions/power.json \\
         --arm original=runs/devsel/p0.5_s42,runs/devsel/orig_s43 \\
         --arm tapt_llrd=runs/devsel/tl_s42,runs/devsel/tl_s43 --out runs/devsel/decisions/final.json
-    python devsel.py assemble --member runs/devsel/final_s42 ... [--tfidf X.joblib --tfidf-weight W] --out BUNDLE
+    python devsel.py assemble --member runs/devsel/final_s42 ... [--tfidf X.joblib --tfidf-weight W] \\
+        --out runs/devsel/mission3.pt                                      # 제출 번들 .pt 파일 하나
     python devsel.py score --pred pred.csv --label-dir <val label 폴더>      # 마지막 확인 1회에만
 """
 from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
-from typing import Dict, List, Mapping, Sequence, Tuple
+from typing import Dict, List, Mapping, Sequence
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -104,6 +104,7 @@ def decide_members(seed_probs: Sequence, tfidf_probs, weight: float, labels) -> 
 # ---------------------------------------------------------------- run 읽기 + Validation 차단
 
 def _same_file(a, b) -> bool:
+    """두 경로가 같은 파일을 가리키는가 (상대·절대 경로 차이는 무시)."""
     try:
         return Path(a).resolve() == Path(b).resolve()
     except OSError:
@@ -140,6 +141,7 @@ def load_epoch_probs(run_dir: Path, dev_labels) -> Dict[int, object]:
 
 
 def load_split_labels(csv_path: Path):
+    """분할 CSV 를 읽어 `(DataFrame, (n, 9) 정수 라벨)` 을 돌려준다. 행 순서는 CSV 그대로다."""
     from m3.dataset import labels_from_dataframe, load_symptom_csv
 
     frame = load_symptom_csv(csv_path)
@@ -149,6 +151,11 @@ def load_split_labels(csv_path: Path):
 # ---------------------------------------------------------------- 단계
 
 def stage_power(args) -> Dict[str, object]:
+    """pos_weight 지수 p 를 정한다 (run_dev_selection.sh 3 단계).
+
+    `--run p=run폴더` 마다 run_config 가 학습용/dev 분할과 그 p 로 학습됐는지 확인하고, epoch 별 dev
+    macro F1@0.5 중 최고값을 그 p 의 점수로 삼아 가장 높은 p 를 고른다 (같으면 먼저 적은 후보).
+    """
     _, dev_labels = load_split_labels(Path(args.dev_csv))
     scores: Dict[str, float] = {}
     details = {}
@@ -173,6 +180,13 @@ def stage_power(args) -> Dict[str, object]:
 
 
 def stage_final(args) -> Dict[str, object]:
+    """레시피·저장 epoch·TF-IDF (C, w)·모델 수를 차례로 정한다 (run_dev_selection.sh 6 단계).
+
+    1. 레시피(`--arm 이름=run1,run2`)마다 seed 평균 dev F1 이 최고인 epoch 를 찾고, 그 값이 큰 레시피를 고른다.
+    2. 고른 레시피의 그 epoch seed 평균 확률에 학습용 분할로 적합한 TF-IDF 를 섞어 (C, w) 격자에서 dev F1 최고를 고른다.
+    3. seed 평균 블렌드가 단일 seed 블렌드 평균보다 높으면 4개 앙상블, 아니면 1개로 정한다.
+    모든 run 은 학습용/dev 분할과 3 단계에서 정한 p 로 학습됐는지 먼저 확인한다. Validation 은 읽지 않는다.
+    """
     import numpy as np
 
     from m3.tfidf_member import fit_tfidf_member
@@ -246,35 +260,37 @@ def stage_final(args) -> Dict[str, object]:
 
 
 def stage_assemble(args) -> Dict[str, object]:
+    """최종 run 들의 best_model 과 (w > 0 이면) TF-IDF 멤버를 제출용 `.pt` 파일 하나로 묶는다 (m3/bundle.py)."""
+    from m3.bundle import describe, load_bundle, pack_bundle
+
     out = Path(args.out)
-    if out.exists() and any(out.iterdir()):
-        raise FileExistsError(f"비어 있지 않은 번들 폴더입니다: {out}")
-    out.mkdir(parents=True, exist_ok=True)
-    names = []
-    for run in args.member:
-        run_dir = Path(run)
-        source = run_dir / "best_model"
-        if not (source / "config.json").is_file():
-            raise FileNotFoundError(f"{source} 에 모델이 없습니다")
-        name = run_dir.name
-        shutil.copytree(source, out / name)
-        names.append(f"./{name}")
-    manifest: Dict[str, object] = {"members": names}
-    if args.tfidf and args.tfidf_weight > 0:
-        tfidf = Path(args.tfidf)
-        (out / "tfidf").mkdir()
-        shutil.copy2(tfidf, out / "tfidf" / tfidf.name)
-        sidecar = tfidf.with_suffix(".json")
-        if sidecar.is_file():
-            meta = json.loads(sidecar.read_text(encoding="utf-8"))
-            meta["train_csv"] = Path(str(meta.get("train_csv", "")).replace("\\", "/")).name
-            (out / "tfidf" / sidecar.name).write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        manifest["tfidf_member"] = f"./tfidf/{tfidf.name}"
-        manifest["tfidf_weight"] = args.tfidf_weight
-    manifest["precision"] = args.precision
-    manifest["note"] = args.note
-    (out / "ensemble.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return manifest
+    if out.suffix != ".pt":
+        raise ValueError(f"--out 은 .pt 파일 경로여야 합니다: {out}")
+    if out.exists():
+        raise FileExistsError(f"이미 있는 번들 파일입니다: {out}")
+    # 멤버는 run 폴더(안의 best_model)를 그대로 받는다. 없거나 가중치가 빠졌으면 pack_bundle 이 멈춘다.
+    use_tfidf = bool(args.tfidf) and args.tfidf_weight > 0
+    pack_bundle(
+        args.member,
+        out,
+        precision=args.precision,
+        tfidf_path=args.tfidf if use_tfidf else None,
+        tfidf_weight=args.tfidf_weight if use_tfidf else 0.0,
+        note=args.note,
+    )
+    # 다시 읽어 형식을 확인하고, 구성(멤버·파라미터 수·정밀도·TF-IDF 가중치)을 기록으로 남긴다.
+    bundle = load_bundle(out)
+    result = {
+        "stage": "assemble",
+        "bundle": str(out),
+        "members": [member.name for member in bundle.members],
+        "precision": bundle.precision,
+        "tfidf_weight": bundle.tfidf_weight,
+        "note": bundle.note,
+        "summary": describe(bundle),
+    }
+    del bundle  # mmap 으로 연 가중치를 바로 놓는다
+    return result
 
 
 def stage_score(args) -> Dict[str, object]:
@@ -303,6 +319,7 @@ def stage_score(args) -> Dict[str, object]:
 # ---------------------------------------------------------------- CLI
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """하위 명령(power, final, assemble, score)과 각 인자."""
     p = argparse.ArgumentParser(description="Mission 3 Training 내부 dev 하이퍼파라미터 선택")
     sub = p.add_subparsers(dest="stage", required=True)
 
@@ -322,12 +339,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     final.add_argument("--out", required=True)
 
     assemble = sub.add_parser("assemble")
-    assemble.add_argument("--member", action="append", required=True)
-    assemble.add_argument("--tfidf")
-    assemble.add_argument("--tfidf-weight", type=float, default=0.0)
-    assemble.add_argument("--precision", choices=("fp32", "fp16"), default="fp16")
+    assemble.add_argument("--member", action="append", required=True, help="최종 학습 run 디렉터리 (적은 순서대로 담긴다)")
+    assemble.add_argument("--tfidf", help="TF-IDF 멤버 .joblib (--tfidf-weight 가 0 보다 클 때만 담는다)")
+    assemble.add_argument("--tfidf-weight", type=float, default=0.0, help="9개 클래스 공통 블렌드 가중치 w")
+    assemble.add_argument("--precision", choices=("fp32", "fp16"), default="fp16", help="추론 정밀도 (가중치는 fp32 로 저장)")
     assemble.add_argument("--note", default="Training 내부 dev 로 하이퍼파라미터를 정한 제출 번들 (reports/dev_selection_protocol.md)")
-    assemble.add_argument("--out", required=True)
+    assemble.add_argument("--out", required=True, help="저장할 번들 파일 경로 (.pt)")
 
     score = sub.add_parser("score")
     score.add_argument("--pred", required=True)
@@ -337,6 +354,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """하위 명령을 실행하고 결과 JSON 을 출력한다. --out 이 있으면 저장한다 (assemble 은 .pt 를 직접 쓴다)."""
     args = parse_args(argv)
     result = {"power": stage_power, "final": stage_final, "assemble": stage_assemble, "score": stage_score}[args.stage](args)
     text = json.dumps(result, ensure_ascii=False, indent=2, default=float)

@@ -57,7 +57,7 @@ python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --
 
 **Mission 3 (환자의 증상 인식)**
 ```bash
-python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --ckpt_path ./mission3_symptom/best_model.pt --output ./outputs/mission3.csv
+python inference.py --audio_dir ./data/val/audio --label_dir ./data/val/label --ckpt_path ./mission3_symptom/ckpt/mission3.pt --output ./outputs/mission3.csv
 ```
 
 ---

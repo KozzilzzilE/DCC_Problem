@@ -19,7 +19,6 @@ for mod in [
     "torch.utils",
     "torch.utils.data",
     "transformers",
-    "sentencepiece",
     "pandas",
     "tqdm",
     "tqdm.auto",
@@ -34,14 +33,15 @@ from m3.training import TrainingConfig, _validate_config
 
 
 class CheckpointMetricTest(unittest.TestCase):
-    def test_default_checkpoint_metric_is_val_loss(self) -> None:
-        """기존 코드와 100% 호환되도록 기본값은 val_loss여야 함."""
+    def test_default_checkpoint_metric_is_fixed_epoch(self) -> None:
+        """기본 저장 기준은 평가 점수를 보지 않는 fixed_epoch(마지막 epoch)다."""
         config = TrainingConfig(
             train_csv="train.csv",
             val_csv="val.csv",
             output_dir="output",
         )
-        self.assertEqual(config.checkpoint_metric, "val_loss")
+        self.assertEqual(config.checkpoint_metric, "fixed_epoch")
+        self.assertIsNone(config.checkpoint_epoch)
 
     def test_custom_checkpoint_metric_val_macro_f1(self) -> None:
         """대회 공식 평가지표인 val_macro_f1 옵션 정상 설정 확인."""
@@ -92,7 +92,8 @@ class CheckpointMetricTest(unittest.TestCase):
         from m3.training import checkpoint_mode
 
         base = dict(train_csv="train.csv", val_csv="val.csv", output_dir="output")
-        self.assertEqual(checkpoint_mode(TrainingConfig(**base)), "min")
+        self.assertEqual(checkpoint_mode(TrainingConfig(**base)), "epoch 3")  # 기본: fixed_epoch, 마지막 epoch
+        self.assertEqual(checkpoint_mode(TrainingConfig(**base, checkpoint_metric="val_loss")), "min")
         self.assertEqual(checkpoint_mode(TrainingConfig(**base, checkpoint_metric="val_macro_f1")), "max")
         self.assertEqual(
             checkpoint_mode(TrainingConfig(**base, checkpoint_metric="fixed_epoch")), "epoch 3")
