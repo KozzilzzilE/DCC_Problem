@@ -53,6 +53,53 @@ class CheckpointMetricTest(unittest.TestCase):
         )
         self.assertEqual(config.checkpoint_metric, "val_macro_f1")
 
+    def test_fixed_epoch_accepts_epoch_within_range(self) -> None:
+        config = TrainingConfig(
+            train_csv="train.csv",
+            val_csv="val.csv",
+            output_dir="output",
+            checkpoint_metric="fixed_epoch",
+            checkpoint_epoch=2,
+        )
+        _validate_config(config)
+        self.assertEqual(config.checkpoint_epoch, 2)
+
+    def test_fixed_epoch_rejects_epoch_out_of_range(self) -> None:
+        for epoch in (0, 4):
+            config = TrainingConfig(
+                train_csv="train.csv",
+                val_csv="val.csv",
+                output_dir="output",
+                epochs=3,
+                checkpoint_metric="fixed_epoch",
+                checkpoint_epoch=epoch,
+            )
+            with self.assertRaises(ValueError):
+                _validate_config(config)
+
+    def test_checkpoint_epoch_requires_fixed_epoch_metric(self) -> None:
+        config = TrainingConfig(
+            train_csv="train.csv",
+            val_csv="val.csv",
+            output_dir="output",
+            checkpoint_metric="val_macro_f1",
+            checkpoint_epoch=2,
+        )
+        with self.assertRaises(ValueError):
+            _validate_config(config)
+
+    def test_checkpoint_mode_labels(self) -> None:
+        from m3.training import checkpoint_mode
+
+        base = dict(train_csv="train.csv", val_csv="val.csv", output_dir="output")
+        self.assertEqual(checkpoint_mode(TrainingConfig(**base)), "min")
+        self.assertEqual(checkpoint_mode(TrainingConfig(**base, checkpoint_metric="val_macro_f1")), "max")
+        self.assertEqual(
+            checkpoint_mode(TrainingConfig(**base, checkpoint_metric="fixed_epoch")), "epoch 3")
+        self.assertEqual(
+            checkpoint_mode(TrainingConfig(**base, checkpoint_metric="fixed_epoch", checkpoint_epoch=2)),
+            "epoch 2")
+
     def test_invalid_checkpoint_metric_raises_error(self) -> None:
         """지원하지 않는 이상한 메트릭 이름 입력 시 ValueError 발생 확인."""
         config = TrainingConfig(

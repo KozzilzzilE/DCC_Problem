@@ -1,5 +1,7 @@
 # Mission 3 — 임계값 0.5 고정 기준 보정·오심·블렌드 검증
 
+> **2026-10-01 주의:** 이 보고서의 비교와 하이퍼파라미터 선택(p, TF-IDF 의 C·w, 레시피, 체크포인트)은 Validation 을 보며 했다. 2026-09-30 주최 측 답변(하이퍼파라미터는 Training 내부 dev/OOF 로 정하고 Validation 은 결정된 모델 확인에만 쓴다) 이후, 이 문서의 값은 탐색 이력으로만 남기고 제출 모델 선택에는 쓰지 않는다. 제출 모델은 `dev_selection_eval.md` 를 따른다.
+
 - **평가 지표**: 제출과 같은 **macro F1@0.5** (클래스별 임계값 없음)
 - **검증 데이터**: Validation 3,640건, 원본 JSON 에서 `inference.py` 로 재채점
 - **환경**: 로컬 RTX 5060 8GB, torch 2.13.0+cu130, transformers 5.15.0, AMP

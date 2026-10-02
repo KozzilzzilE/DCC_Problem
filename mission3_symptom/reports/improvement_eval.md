@@ -1,5 +1,7 @@
 # Mission 3 개선 실험: 백본·TAPT·LLRD (2026-09-28 ~ 09-29)
 
+> **2026-10-01 주의:** 이 보고서의 비교와 하이퍼파라미터 선택(p, TF-IDF 의 C·w, 레시피, 체크포인트)은 Validation 을 보며 했다. 2026-09-30 주최 측 답변(하이퍼파라미터는 Training 내부 dev/OOF 로 정하고 Validation 은 결정된 모델 확인에만 쓴다) 이후, 이 문서의 값은 탐색 이력으로만 남기고 제출 모델 선택에는 쓰지 않는다. 제출 모델은 `dev_selection_eval.md` 를 따른다.
+
 > 모든 수치는 로컬 Validation 3,640건의 **macro F1@0.5 (임계값 0.5 고정)** 다. 학습(역전파)은 Training 29,200건만 썼다. Validation 은 체크포인트 선택(`--checkpoint-metric val_macro_f1`), 레시피·하이퍼파라미터 선택, 평가, 오류 분석에 썼다(FAQ 허용 범위). 공통 레시피는 `calibration_eval.md` 의 권장 설정(KLUE-RoBERTa-base, `--use-pos-weight --pos-weight-power 0.5`, 3 epoch, 유효 배치 16, AMP)이다.
 
 ## 1. 요약
