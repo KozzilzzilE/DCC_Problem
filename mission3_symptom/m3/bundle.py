@@ -11,7 +11,7 @@
      "tfidf": None | {"weight": float, "joblib": bytes},   # 선택: Training 전용 TF-IDF 멤버와 혼합 가중치
      "note": str}
 
-- 임계값은 담지 않는다. 판정은 `m3.infer.DECISION_THRESHOLD`(0.5) 고정이다.
+- 판정 임계값은 `m3.infer.DECISION_THRESHOLD`(0.5) 고정이다. 멤버 inference_config.json 의 threshold 0.5 는 기록용이며 읽지 않는다.
 - 멤버는 균등 평균한다. 클래스별 가중치를 넣을 자리는 없다.
 - 불러올 때 tokenizer/config 는 작은 임시 폴더에 풀어 Hugging Face 표준 로더로 읽고, 가중치는 메모리에서
   바로 넣는다. 인터넷에 접속하지 않는다.

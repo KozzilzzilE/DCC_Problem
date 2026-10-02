@@ -254,7 +254,7 @@ pd.DataFrame(rows).set_index(["seed", "epoch"])
 
 최종 4개의 `best_model` 을 `.pt` 파일 하나로 묶는다 (`devsel.py assemble`, `m3/bundle.py`). 제출 폴더에서는 이 파일이 `ckpt/mission3.pt` 이고, `--ckpt_path ckpt/mission3.pt` 로 추론한다.
 - **멤버마다:** tokenizer·config·추론 설정 파일 원문과 가중치(fp32)가 모두 들어 있어 인터넷 없이 로드된다.
-- **번들 공통:** 추론 정밀도(fp16, CUDA 에서만 적용)와 TF-IDF 멤버(이번 결정은 w=0 이라 없음)를 담는다. 임계값은 담지 않는다 (0.5 고정).
+- **번들 공통:** 추론 정밀도(fp16, CUDA 에서만 적용)와 TF-IDF 멤버(이번 결정은 w=0 이라 없음)를 담는다. 판정 임계값은 코드의 0.5 고정이다 (멤버 설정의 threshold 0.5 는 기록용).
 """),
     code("""
 from m3.bundle import describe, load_bundle

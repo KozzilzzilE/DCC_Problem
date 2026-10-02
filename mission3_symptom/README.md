@@ -133,7 +133,8 @@ bash run_dev_selection.sh data_csv/mission3_train.csv <data>/val/label
 - **하이퍼파라미터 선택:** p, 레시피, 저장 epoch, TF-IDF 블렌드 C·w, 모델 수는 모두 Training 내부 dev 로 정했다.
   - 이는 주최 측 답변을 따른 것이다. p·w·C 는 Validation 이 아니라 Training 내부 dev/OOF 로 정하고, Validation 은 결정된 모델의 성능 확인에만 쓴다.
   - `devsel.py` 는 선택에 쓰는 모든 run 이 dev 분할로 평가됐는지 확인한다.
+  - 다만 dev 가 비교한 레시피 후보 두 개(원래 레시피, TAPT 20 epoch + LLRD 0.8·lr 5e-5)는 9/30 답변 이전의 Validation 탐색에서 나온 것이다. dev 는 두 후보 중 무엇을 쓸지와 위 값들을 정했고, 레시피 안의 값(20 epoch, LLRD 0.8, lr 5e-5)은 다시 고르지 않았다 (`reports/dev_selection_protocol.md` '한계' 절에 실행 전부터 적어 둠).
 - **Validation 사용:** 결정이 모두 끝난 번들의 성능 확인에만 썼다.
 - **입력:** 대화 본문 텍스트뿐이다. 화자·시간·인적사항은 파싱 단계(`m3/labels.py`)에서 버린다.
-- **결정 임계값:** 모든 클래스 0.5 고정이다 (`m3/infer.py` 의 `DECISION_THRESHOLD`). 번들에도 임계값을 담지 않는다.
+- **결정 임계값:** 모든 클래스 0.5 고정이다 (`m3/infer.py` 의 `DECISION_THRESHOLD`). 판정은 이 값 하나로만 한다. 번들 안 `inference_config.json` 에는 학습 때 기록한 `threshold: 0.5` 가 있지만 추론은 이 값을 읽지 않는다.
 - **사전학습 모델:** 공개 모델(klue/roberta-base)만 썼고, 모델 학습·추론에 상용 API 는 쓰지 않았다.
