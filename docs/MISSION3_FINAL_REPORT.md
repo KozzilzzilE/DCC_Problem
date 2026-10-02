@@ -1,5 +1,11 @@
 # Mission 3 최종 보고서
 
+> **읽기 전에 (2026-10-02 추가):** 이 보고서는 2026-09-30 주최 측 답변 이전에 정리한 탐색 기록이다.
+> 여기서 제출 모델로 적은 0.6593 구성(네 시드 + TF-IDF 0.3)은 p·w·C 와 epoch 를 Validation 을 보며 골랐기 때문에,
+> 답변(하이퍼파라미터는 Training 내부 dev/OOF 로 정하고 Validation 은 결정된 모델 확인에만 쓴다)에 따라 제출본에서 뺐다.
+> 현재 제출본은 Training 내부 dev 로 다시 정한 TAPT+LLRD 네 시드 앙상블(TF-IDF 없음, Validation macro F1@0.5 0.6599)이며,
+> 근거는 `mission3_symptom/README.md` 와 `mission3_symptom/reports/dev_selection_eval.md` 에 있다. 그림 원본은 `docs/mission3_figures/` 다.
+
 119 신고 대화문으로 아홉 가지 증상을 동시에 예측하는 다중 라벨 분류 문제다. 데이터를 본 뒤 KLUE-RoBERTa baseline을 만들고, 고정 임계값 0.5에서 클래스 불균형을 확인했다. 백본·손실·구조를 바꿔 보았으나 큰 이득은 없었고, 학습 손실에 양성 가중(pos_weight power=0.5)을 넣는 쪽이 Macro F1@0.5를 0.5967에서 0.6496까지 올렸다. Training만으로 학습한 TF-IDF를 0.3으로 섞으면 0.6536이 되었다. 네 시드 앙상블은 당시 0.6546으로 이득이 약 0.001이라 한때는 단일 시드도 검토했다. 이후 상담 문장에 맞춘 TAPT와 층별 학습률(LLRD)을 더해 네 시드+TF-IDF가 **0.6593**이 되었고, 추론은 fp32 **101~113초**에서 fp16 **42초**로 줄어 이 구성을 제출 모델로 선정했다.
 
 아래에 나오는 점수는 모두 Validation 3,640건, **Macro F1@0.5**다. 클래스마다 다른 임계값으로 올린 옛 분석값은 제출 점수가 아니다.
@@ -31,7 +37,7 @@ Threshold = 0.5
 오심 0.31 → 0
 ```
 
-![그림 1: 공식 평가 경로](../mission3_symptom/reports/figures/01_eval_flow.png)
+![그림 1: 공식 평가 경로](mission3_figures/01_eval_flow.png)
 *<그림 1> 공식 평가 경로. 아홉 클래스 임계값 0.5, Macro F1.*
 
 ### 증상별 양성 샘플 수 (Training)
@@ -52,10 +58,10 @@ Threshold = 0.5
 
 오심은 전체의 11.4%다. 빈도만 보면 중간이지만, 뒤에서 보듯 0.5 기준 F1은 처음에 매우 낮았다.
 
-![그림 2: 증상별 양성 샘플 수](../mission3_symptom/reports/figures/02_class_counts.png)
+![그림 2: 증상별 양성 샘플 수](mission3_figures/02_class_counts.png)
 *<그림 2> 증상별 양성 샘플 수 (Training / Validation). 오심 Training 11.4%.*
 
-![그림 3: Training 상위 동시출현 쌍](../mission3_symptom/reports/figures/05_cooccurrence_pairs.png)
+![그림 3: Training 상위 동시출현 쌍](mission3_figures/05_cooccurrence_pairs.png)
 *<그림 3> Training 상위 동시출현 쌍.*
 
 ### 한 신고에 포함된 증상 수 (Training)
@@ -70,7 +76,7 @@ Threshold = 0.5
 
 평균 약 1.43개, 최대 5개다. 증상이 0개인 통화는 없다. 한 신고에 여러 증상이 같이 나오므로, 증상을 하나만 고르는 분류가 아니라 동시에 여러 개를 맞춰야 한다.
 
-![그림 4: 신고당 증상 개수](../mission3_symptom/reports/figures/03_label_cardinality.png)
+![그림 4: 신고당 증상 개수](mission3_figures/03_label_cardinality.png)
 *<그림 4> 신고당 증상 개수. 평균 Training 1.43, Validation 1.44.*
 
 ### 텍스트 길이와 512 토큰
@@ -79,7 +85,7 @@ Validation 기준 문자 수 평균 468, 중앙값 427, 상위 5% 859, 최댓값
 
 모델 입력은 max_length 512에서 앞을 남기고 자른다(truncate). 초과 비율이 작고, 뒤에서 앞뒤를 이어 붙이는 실험이 점수를 올리지 못해 이 설정을 유지했다.
 
-![그림 5: KLUE 토큰 길이 요약](../mission3_symptom/reports/figures/04_token_length.png)
+![그림 5: KLUE 토큰 길이 요약](mission3_figures/04_token_length.png)
 *<그림 5> KLUE 토큰 길이 요약. Validation에서 512 초과는 98건(2.69%).*
 
 ---
@@ -90,7 +96,7 @@ Validation 기준 문자 수 평균 468, 중앙값 427, 상위 5% 859, 최댓값
 
 처음 시도는 KoBERT였고 tokenizer가 맞지 않아 F1@0.5가 0이었다. 전용 tokenizer로 고친 뒤 0.5737이 나왔고, KoELECTRA를 거쳐 **KLUE-RoBERTa-base**를 기본 백본으로 두었다. 이후 개선 표의 기준선은 같은 환경에서 다시 학습한 KLUE + plain BCE다.
 
-![그림 6: KoBERT tokenizer 수정](../mission3_symptom/reports/figures/06_tokenizer_fix.png)
+![그림 6: KoBERT tokenizer 수정](mission3_figures/06_tokenizer_fix.png)
 *<그림 6> KoBERT tokenizer 수정. F1@0.5 0 → 0.5737.*
 
 ```
@@ -137,13 +143,13 @@ KLUE 하나만 돌린 것이 아니라, 백본과 손실·구조를 바꿔 고�
 
 백본을 KLUE에서 KF나 large로 바꿔도 F1@0.5의 이득은 작거나 비용이 컸다. 손실·attention·샘플링은 공식 0.5에서 일관된 큰 개선을 주지 못했다. **구조를 키우는 것만으로는 고정 임계값 성능이 잘 오르지 않았다.** 그래서 다음은 클래스 불균형을 학습 손실에 직접 넣는 쪽으로 갔다.
 
-![그림 7: 백본별 Macro F1@0.5](../mission3_symptom/reports/figures/07_backbone_f1.png)
+![그림 7: 백본별 Macro F1@0.5](mission3_figures/07_backbone_f1.png)
 *<그림 7> 백본별 Macro F1@0.5. 제출 백본은 KLUE-RoBERTa-base.*
 
-![그림 8: 초기 가설 실험 흐름](../mission3_symptom/reports/figures/10_hypothesis_funnel.png)
+![그림 8: 초기 가설 실험 흐름](mission3_figures/10_hypothesis_funnel.png)
 *<그림 8> 초기 가설 실험 흐름.*
 
-![그림 9: 기각과 채택](../mission3_symptom/reports/figures/11_reject_vs_adopt.png)
+![그림 9: 기각과 채택](mission3_figures/11_reject_vs_adopt.png)
 *<그림 9> 기각과 채택. 공식 지표는 F1@0.5.*
 
 ---
@@ -173,10 +179,10 @@ Macro는 plain 대비 **+0.0529**다. power=1은 오심을 많이 살리지만 �
 
 시드 42~45에서 power=0.5 Macro는 0.6453~0.6496, 평균 0.6475다. 특정 클래스 하나 때문에 Macro만 오른 것이 아니라, 불균형을 완만하게 반영한 손실이 0.5 작동점 전반을 끌어올렸다.
 
-![그림 10: pos_weight 강도별 Macro F1@0.5](../mission3_symptom/reports/figures/08_posweight_macro.png)
+![그림 10: pos_weight 강도별 Macro F1@0.5](mission3_figures/08_posweight_macro.png)
 *<그림 10> pos_weight 강도별 Macro F1@0.5. 가장 큰 이득은 power=0.5.*
 
-![그림 11: 클래스별 F1@0.5](../mission3_symptom/reports/figures/09_posweight_per_class.png)
+![그림 11: 클래스별 F1@0.5](mission3_figures/09_posweight_per_class.png)
 *<그림 11> 클래스별 F1@0.5. power=0.5는 아홉 클래스 모두 개선.*
 
 ---
@@ -200,7 +206,7 @@ pos_weight로 큰 폭의 개선을 얻은 뒤에는 Transformer 구조를 계속
 
 향상은 **+0.0040**이다. 시드 43·44·45에서도 혼합이 모두 올랐다. 임계값은 그대로 0.5다. TF-IDF 가중 0.3은 아홉 클래스에 공통인 스칼라 하나다.
 
-![그림 12: Transformer 0.7 + TF-IDF 0.3](../mission3_symptom/reports/figures/12_tfidf_blend_flow.png)
+![그림 12: Transformer 0.7 + TF-IDF 0.3](mission3_figures/12_tfidf_blend_flow.png)
 *<그림 12> Transformer 0.7 + TF-IDF 0.3. 판정은 다시 0.5.*
 
 ---
@@ -224,10 +230,10 @@ TF-IDF를 붙인 뒤 시드 평균도 보았다.
 
 이 네 모델에 TF-IDF 0.3을 섞으면 Validation Macro F1@0.5는 **0.6593**이다. RTX 5060 8GB에서 Validation 3,640건을 추론한 결과, 긴 문장 우선 배치로 GPU 예비 메모리를 약 4.5GB에서 0.9GB로 줄였고, FP16을 적용하여 추론 시간을 FP32 **101~113초**에서 **약 42초**로 단축했다. 가중치를 평균해 한 번만 추론하는 model soup 방식은 0.6503으로 성능이 낮아 채택하지 않았다.
 
-![그림 13: 점수와 추론 시간](../mission3_symptom/reports/figures/13_score_cost.png)
+![그림 13: 점수와 추론 시간](mission3_figures/13_score_cost.png)
 *<그림 13> 점수와 추론 시간. 제출은 0.6593, fp16 약 42초.*
 
-![그림 14: 추론 최적화](../mission3_symptom/reports/figures/15_infer_opt.png)
+![그림 14: 추론 최적화](mission3_figures/15_infer_opt.png)
 *<그림 14> 추론 최적화. fp32 101~113초 → fp16 약 42초.*
 
 | | TAPT 이전 single+TF-IDF | TAPT 이전 4-seed | **제출 (TAPT+LLRD 4-seed+TF-IDF)** |
@@ -268,7 +274,7 @@ Baseline → 불균형 대응 → 가중 강도 조절 → 다른 표현(TF-IDF)
 
 가장 큰 한 칸은 pos_weight power=0.5(+0.0529)다. TF-IDF와 TAPT는 그 위의 보완이다.
 
-![그림 15: Validation Macro F1@0.5 흐름](../mission3_symptom/reports/figures/14_waterfall.png)
+![그림 15: Validation Macro F1@0.5 흐름](mission3_figures/14_waterfall.png)
 *<그림 15> Validation Macro F1@0.5 흐름. 제출 끝점은 0.6593.*
 
 ---

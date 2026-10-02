@@ -1,6 +1,6 @@
-"""앙상블·블렌드 제출 추론 테스트.
+"""앙상블·블렌드 제출 추론 테스트 (.pt 번들).
 
-`--ckpt_path` 가 `ensemble.json` 을 가리키면 트랜스포머 멤버 확률을 균등 평균하고,
+`--ckpt_path` 가 `.pt` 제출 번들이면 트랜스포머 멤버 확률을 균등 평균하고, (번들에 있으면)
 Training 전용 TF-IDF 멤버와 전역 가중치 하나로 섞은 뒤 **임계값 0.5** 로 판정한다.
 클래스별 가중치·임계값은 없다 (대회 규정: 결정 임계값 0.5 고정).
 """
@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Optional, Sequence
 from unittest.mock import patch
 
 import numpy as np
@@ -22,30 +23,38 @@ for path in (MISSION3_DIR, TESTS_DIR):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from m3 import bundle as bundle_module
 from m3 import infer
 from m3.config import NUM_CLASSES, TARGET_SYMPTOMS
-from m3.infer import (
-    ENSEMBLE_MANIFEST_NAME,
-    find_ensemble_manifest,
-    load_ensemble_spec,
-    predict_directory,
-)
+from m3.infer import bundle_probabilities, predict_directory
 
 OSIM = TARGET_SYMPTOMS.index("오심")
 GUTO = TARGET_SYMPTOMS.index("구토")
 
 
-def make_run(root: Path, name: str) -> Path:
-    run_dir = root / name
-    (run_dir / "best_model").mkdir(parents=True)
-    (run_dir / "best_model" / "config.json").write_text("{}", encoding="utf-8")
-    return run_dir
+def write_fake_bundle(
+    path: Path,
+    member_names: Sequence[str],
+    precision: Optional[object] = "fp16",
+    tfidf_weight: Optional[float] = None,
+) -> Path:
+    """가중치 없이 형식만 맞춘 .pt 번들. 모델 로드를 흉내 내는 테스트에서 load_bundle 을 통과시킨다.
 
+    precision 에 None 을 주면 키 자체를 뺀다 (구버전 번들처럼).
+    """
+    import torch
 
-def write_manifest(directory: Path, payload: dict) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / ENSEMBLE_MANIFEST_NAME
-    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    payload = {
+        "format": bundle_module.BUNDLE_FORMAT,
+        "version": bundle_module.BUNDLE_VERSION,
+        "members": [{"name": name, "files": {}, "state_dict": {}} for name in member_names],
+        "tfidf": None if tfidf_weight is None else {"weight": tfidf_weight, "joblib": b"x"},
+        "note": "test",
+    }
+    if precision is not None:
+        payload["precision"] = precision
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, path)
     return path
 
 
@@ -57,54 +66,6 @@ def write_labels(label_dir: Path, n: int = 3) -> None:
             {"speaker": "1", "startAt": 1, "endAt": 2, "text": f"속이 안 좋아요 {index}"},
         ]}
         (label_dir / f"call-{index}.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-
-
-class ManifestTest(unittest.TestCase):
-    def test_finds_manifest_in_directory_or_as_file(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            make_run(root, "a")
-            manifest = write_manifest(root / "bundle", {"members": ["../a"]})
-            self.assertEqual(find_ensemble_manifest(root / "bundle"), manifest)
-            self.assertEqual(find_ensemble_manifest(manifest), manifest)
-            self.assertIsNone(find_ensemble_manifest(root / "a"))
-
-    def test_member_paths_are_relative_to_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            a, b = make_run(root, "a"), make_run(root, "b")
-            (root / "tfidf").mkdir()
-            (root / "tfidf" / "m.joblib").write_bytes(b"x")
-            manifest = write_manifest(root / "bundle", {
-                "members": ["../a", "../b"], "tfidf_member": "../tfidf/m.joblib", "tfidf_weight": 0.3})
-
-            spec = load_ensemble_spec(manifest)
-
-            self.assertEqual([p.resolve() for p in spec.members], [a.resolve(), b.resolve()])
-            self.assertEqual(spec.tfidf_path.resolve(), (root / "tfidf" / "m.joblib").resolve())
-            self.assertEqual(spec.tfidf_weight, 0.3)
-
-    def test_rejects_invalid_manifests(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            make_run(root, "a")
-            (root / "m.joblib").write_bytes(b"x")
-            cases = {
-                "no members": {"members": []},
-                "missing member": {"members": ["../missing"]},
-                "weight without member": {"members": ["../a"], "tfidf_weight": 0.3},
-                "member without weight": {"members": ["../a"], "tfidf_member": "../m.joblib"},
-                "weight too large": {"members": ["../a"], "tfidf_member": "../m.joblib", "tfidf_weight": 1.0},
-                "negative weight": {"members": ["../a"], "tfidf_member": "../m.joblib", "tfidf_weight": -0.1},
-                "per-class weight": {"members": ["../a"], "tfidf_member": "../m.joblib", "tfidf_weight": [0.3] * 9},
-                "missing tfidf file": {"members": ["../a"], "tfidf_member": "../nope.joblib", "tfidf_weight": 0.3},
-                "threshold override": {"members": ["../a"], "threshold": 0.4},
-            }
-            for name, payload in cases.items():
-                with self.subTest(case=name):
-                    manifest = write_manifest(root / "bundle", payload)
-                    with self.assertRaises((ValueError, FileNotFoundError)):
-                        load_ensemble_spec(manifest)
 
 
 class FakeTfidf:
@@ -121,28 +82,22 @@ class BlendMathTest(unittest.TestCase):
     """멤버 평균 -> 전역 가중 블렌드 -> 0.5 판정 순서를 숫자로 고정한다."""
 
     def _run(self, member_probs: dict, tfidf_value, weight):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             root = Path(tmp)
-            for name in member_probs:
-                make_run(root, name)
-            payload = {"members": [f"../{name}" for name in member_probs]}
-            fake = None
-            if tfidf_value is not None:
-                (root / "m.joblib").write_bytes(b"x")
-                payload.update({"tfidf_member": "../m.joblib", "tfidf_weight": weight})
-                fake = FakeTfidf(np.asarray(tfidf_value, dtype=float))
-            manifest = write_manifest(root / "bundle", payload)
+            pt = write_fake_bundle(root / "b.pt", list(member_probs), tfidf_weight=weight)
+            fake = None if tfidf_value is None else FakeTfidf(np.asarray(tfidf_value, dtype=float))
             label_dir = root / "labels"
             write_labels(label_dir)
             names = sorted(p.name for p in label_dir.glob("*.json"))
+            members = iter(member_probs.values())   # 번들에 담긴 순서대로 한 번씩 불린다
 
-            def fake_transformer(label_dir_arg, ckpt_path, batch_size=16, device=None, precision="fp32"):
-                vector = np.asarray(member_probs[Path(ckpt_path).name], dtype=float)
+            def fake_transformer(label_dir_arg, ckpt_path, batch_size=16, device=None, precision="fp32", loader=None):
+                vector = np.asarray(next(members), dtype=float)
                 return names, np.tile(vector, (len(names), 1))
 
             with patch.object(infer, "transformer_probabilities", side_effect=fake_transformer), \
-                    patch.object(infer, "load_tfidf_member", return_value=fake):
-                frame = predict_directory(label_dir, manifest.parent)
+                    patch.object(bundle_module, "load_bundle_tfidf", return_value=fake):
+                frame = predict_directory(label_dir, pt)
             return frame, fake
 
     def test_members_are_averaged_equally_before_the_fixed_threshold(self) -> None:
@@ -171,20 +126,45 @@ class BlendMathTest(unittest.TestCase):
         self.assertTrue(all(text.startswith("119입니다 속이 안 좋아요") for text in fake.seen_texts))
 
     def test_member_file_order_mismatch_is_an_error(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             root = Path(tmp)
-            make_run(root, "a"), make_run(root, "b")
-            manifest = write_manifest(root / "bundle", {"members": ["../a", "../b"]})
+            pt = write_fake_bundle(root / "b.pt", ["a", "b"])
             label_dir = root / "labels"
             write_labels(label_dir)
+            orders = iter([["x.json", "y.json"], ["y.json", "x.json"]])
 
-            def fake_transformer(label_dir_arg, ckpt_path, batch_size=16, device=None, precision="fp32"):
-                names = ["x.json", "y.json"] if Path(ckpt_path).name == "a" else ["y.json", "x.json"]
-                return names, np.zeros((2, NUM_CLASSES))
+            def fake_transformer(label_dir_arg, ckpt_path, batch_size=16, device=None, precision="fp32", loader=None):
+                return next(orders), np.zeros((2, NUM_CLASSES))
 
             with patch.object(infer, "transformer_probabilities", side_effect=fake_transformer):
                 with self.assertRaisesRegex(RuntimeError, "순서"):
-                    predict_directory(label_dir, manifest.parent)
+                    predict_directory(label_dir, pt)
+
+    def test_blend_probabilities_are_exactly_weighted(self) -> None:
+        transformer = np.linspace(0.05, 0.85, NUM_CLASSES)
+        tfidf = np.linspace(0.9, 0.1, NUM_CLASSES)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            pt = write_fake_bundle(root / "b.pt", ["a"], tfidf_weight=0.3)
+            label_dir = root / "labels"
+            write_labels(label_dir)
+            names = sorted(p.name for p in label_dir.glob("*.json"))
+            with patch.object(infer, "transformer_probabilities",
+                              return_value=(names, np.tile(transformer, (len(names), 1)))), \
+                    patch.object(bundle_module, "load_bundle_tfidf", return_value=FakeTfidf(tfidf)):
+                _, blended = bundle_probabilities(pt, label_dir)
+
+        np.testing.assert_allclose(blended, np.tile(0.7 * transformer + 0.3 * tfidf, (len(names), 1)))
+
+    def test_old_ensemble_manifest_is_not_a_checkpoint_any_more(self) -> None:
+        """ensemble.json 폴더 번들은 .pt 로 대체됐다. 조용히 다른 경로로 새지 않고 멈춘다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bundle").mkdir()
+            (root / "bundle" / "ensemble.json").write_text(json.dumps({"members": ["./a"]}), encoding="utf-8")
+            write_labels(root / "labels")
+            with self.assertRaises(FileNotFoundError):
+                predict_directory(root / "labels", root / "bundle")
 
 
 try:
@@ -195,101 +175,40 @@ except ImportError:  # pragma: no cover
 
 
 @unittest.skipUnless(HAS_TORCH, "torch/transformers 가 설치된 환경에서만 실행")
-class EnsembleEndToEndTest(unittest.TestCase):
+class BundleEndToEndTest(unittest.TestCase):
     def test_real_members_and_tfidf_member_produce_submission_rows(self) -> None:
+        import gc
+
+        from m3.bundle import pack_bundle
         from m3.tfidf_member import fit_tfidf_member, save_tfidf_member
         from test_tfidf_member import toy_corpus
 
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             root = Path(tmp)
             low = write_run(root / "low", sep_mode="sep", bias=-6.0)     # 모든 확률 약 0.0025
             high = write_run(root / "high", sep_mode="space", bias=6.0)  # 모든 확률 약 0.9975
+            for run, sep_mode in ((low, "sep"), (high, "space")):
+                # 학습은 best_model/inference_config.json 을 남긴다. 번들에는 best_model 폴더 파일만 담긴다.
+                (run / "best_model" / "inference_config.json").write_text(json.dumps(
+                    {"utterance_sep_mode": sep_mode, "encode_mode": "truncate", "max_length": 128}), encoding="utf-8")
             texts, labels = toy_corpus()
             tfidf_path = save_tfidf_member(fit_tfidf_member(texts, labels, min_df=1), root / "m.joblib")
-            manifest = write_manifest(root / "bundle", {
-                "members": [str(low), str(high)], "tfidf_member": str(tfidf_path), "tfidf_weight": 0.3})
+            pt = pack_bundle([low, high], root / "mission3.pt", precision="fp32",
+                             tfidf_path=tfidf_path, tfidf_weight=0.3)
             label_dir = root / "labels"
             write_e2e_labels(label_dir)
 
-            frame = predict_directory(label_dir, manifest.parent, batch_size=2)
+            frame = predict_directory(label_dir, pt, batch_size=2, device="cpu")
+            gc.collect()
 
         # write_e2e_labels 는 통화 3건 + 본문이 빈 통화 1건을 만든다.
         self.assertEqual(len(frame), 4)
         self.assertEqual(list(frame.columns), ["label file name", "symptom"])
 
 
-class ReviewFollowUpTest(unittest.TestCase):
-    """PR 전 리뷰에서 확인된 문제들의 회귀 테스트."""
-
-    def test_manifest_with_utf8_bom_loads(self) -> None:
-        # Windows PowerShell 5.1 의 Out-File -Encoding utf8 은 BOM 을 붙인다.
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            make_run(root, "a")
-            bundle = root / "bundle"
-            bundle.mkdir()
-            manifest = bundle / ENSEMBLE_MANIFEST_NAME
-            manifest.write_text(json.dumps({"members": ["../a"]}), encoding="utf-8-sig")
-
-            spec = load_ensemble_spec(manifest)
-
-        self.assertEqual(len(spec.members), 1)
-
-    def test_self_contained_bundle_can_be_moved_alone(self) -> None:
-        import shutil
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            bundle = root / "bundle"
-            make_run(bundle, "seed42")
-            (bundle / "tfidf").mkdir()
-            (bundle / "tfidf" / "m.joblib").write_bytes(b"x")
-            write_manifest(bundle, {"members": ["./seed42"], "tfidf_member": "./tfidf/m.joblib", "tfidf_weight": 0.3})
-            (root / "elsewhere").mkdir()
-            moved = Path(shutil.move(str(bundle), str(root / "elsewhere" / "submission")))
-
-            spec = load_ensemble_spec(moved / ENSEMBLE_MANIFEST_NAME)
-
-        self.assertEqual(spec.members[0].name, "seed42")
-        self.assertEqual(spec.tfidf_path.name, "m.joblib")
-
-    def test_warns_when_bundle_points_outside_itself(self) -> None:
-        import contextlib
-        import io
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            make_run(root, "a")
-            manifest = write_manifest(root / "bundle", {"members": ["../a"]})
-            buffer = io.StringIO()
-            with contextlib.redirect_stdout(buffer):
-                load_ensemble_spec(manifest)
-
-        self.assertIn("번들 밖", buffer.getvalue())
-
-    def test_blend_probabilities_are_exactly_weighted(self) -> None:
-        from m3.infer import ensemble_probabilities
-
-        transformer = np.linspace(0.05, 0.85, NUM_CLASSES)
-        tfidf = np.linspace(0.9, 0.1, NUM_CLASSES)
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            make_run(root, "a")
-            (root / "m.joblib").write_bytes(b"x")
-            manifest = write_manifest(root / "bundle", {
-                "members": ["../a"], "tfidf_member": "../m.joblib", "tfidf_weight": 0.3})
-            label_dir = root / "labels"
-            write_labels(label_dir)
-            names = sorted(p.name for p in label_dir.glob("*.json"))
-            with patch.object(infer, "transformer_probabilities",
-                              return_value=(names, np.tile(transformer, (len(names), 1)))), \
-                    patch.object(infer, "load_tfidf_member", return_value=FakeTfidf(tfidf)):
-                _, blended = ensemble_probabilities(load_ensemble_spec(manifest), label_dir)
-
-        np.testing.assert_allclose(blended, np.tile(0.7 * transformer + 0.3 * tfidf, (len(names), 1)))
-
+class SingleRunTest(unittest.TestCase):
     def test_nan_logit_class_is_dropped_like_before_not_a_crash(self) -> None:
-        """기존 단일 모델 경로는 NaN 확률 클래스를 0.5 미만으로 보고 버렸다. 그대로여야 한다."""
+        """단일 모델 경로는 NaN 확률 클래스를 0.5 미만으로 보고 버린다. 죽으면 안 된다."""
         import contextlib
         import io
         from types import SimpleNamespace
@@ -317,7 +236,9 @@ class ReviewFollowUpTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            run_dir = make_run(root, "run")
+            run_dir = root / "run"
+            (run_dir / "best_model").mkdir(parents=True)
+            (run_dir / "best_model" / "config.json").write_text("{}", encoding="utf-8")
             (run_dir / "run_config.json").write_text(json.dumps({"utterance_sep_mode": "space"}), encoding="utf-8")
             label_dir = root / "labels"
             write_labels(label_dir)

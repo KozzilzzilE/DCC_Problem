@@ -138,44 +138,89 @@ class RunGuardTest(unittest.TestCase):
                 devsel.load_epoch_probs(run, labels)
 
 
-class AssembleTest(unittest.TestCase):
-    def test_assemble_writes_loadable_manifest(self) -> None:
-        from m3.infer import load_ensemble_spec
+def _fake_run(root: Path, name: str, value: float = 0.0) -> Path:
+    """config·토크나이저 파일과 작은 가중치 하나만 있는 최종 run (번들 조립만 확인한다)."""
+    import torch
+    from safetensors.torch import save_file
 
-        with tempfile.TemporaryDirectory() as tmp:
+    model = root / name / "best_model"
+    model.mkdir(parents=True)
+    (model / "config.json").write_text("{}", encoding="utf-8")
+    (model / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (model / "inference_config.json").write_text(json.dumps({"utterance_sep_mode": "space"}), encoding="utf-8")
+    save_file({"w": torch.full((2, 3), value)}, str(model / "model.safetensors"))
+    return root / name
+
+
+class AssembleTest(unittest.TestCase):
+    def test_assemble_writes_loadable_pt_bundle(self) -> None:
+        import gc
+
+        import torch
+
+        from m3.bundle import load_bundle
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             root = Path(tmp)
             members = []
-            for seed in (42, 43):
-                model = root / f"final_s{seed}" / "best_model"
-                model.mkdir(parents=True)
-                (model / "config.json").write_text("{}", encoding="utf-8")
-                members += ["--member", str(root / f"final_s{seed}")]
+            for index, seed in enumerate((42, 43)):
+                members += ["--member", str(_fake_run(root, f"final_s{seed}", value=float(index)))]
             tfidf = root / "tfidf" / "tfidf_lr.joblib"
             tfidf.parent.mkdir()
-            tfidf.write_bytes(b"x")
-            tfidf.with_suffix(".json").write_text(json.dumps({"train_csv": "C:\\Users\\x\\train.csv"}), encoding="utf-8")
-            out = root / "bundle"
+            tfidf.write_bytes(b"joblib-bytes")
+            out = root / "mission3.pt"
             devsel.main(["assemble", *members, "--tfidf", str(tfidf), "--tfidf-weight", "0.2", "--out", str(out)])
-            manifest = json.loads((out / "ensemble.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["members"], ["./final_s42", "./final_s43"])
-            self.assertEqual(manifest["tfidf_weight"], 0.2)
-            self.assertEqual(manifest["precision"], "fp16")
-            meta = json.loads((out / "tfidf" / "tfidf_lr.json").read_text(encoding="utf-8"))
-            self.assertEqual(meta["train_csv"], "train.csv")
-            spec = load_ensemble_spec(out / "ensemble.json")
-            self.assertEqual(len(spec.members), 2)
+
+            bundle = load_bundle(out)
+            self.assertEqual([m.name for m in bundle.members], ["final_s42", "final_s43"])
+            self.assertEqual(bundle.precision, "fp16")          # 기본값: CUDA 추론 fp16
+            self.assertEqual(bundle.tfidf_weight, 0.2)
+            self.assertEqual(bundle.tfidf_joblib, b"joblib-bytes")
+            self.assertIn("dev_selection_protocol", bundle.note)
+            self.assertEqual(sorted(bundle.members[0].files), ["config.json", "inference_config.json", "tokenizer.json"])
+            self.assertTrue(torch.equal(bundle.members[1].state_dict["w"], torch.ones(2, 3)))
+            self.assertEqual(bundle.members[0].inference_config(), {"utterance_sep_mode": "space"})
+            del bundle
+            gc.collect()
 
     def test_assemble_without_tfidf_when_weight_zero(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        import gc
+
+        from m3.bundle import load_bundle
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            run = _fake_run(root, "final_s42")
+            out = root / "mission3.pt"
+            devsel.main(["assemble", "--member", str(run), "--tfidf", str(root / "none.joblib"),
+                         "--tfidf-weight", "0", "--precision", "fp32", "--out", str(out)])
+            bundle = load_bundle(out)
+            self.assertIsNone(bundle.tfidf_joblib)
+            self.assertEqual(bundle.tfidf_weight, 0.0)
+            self.assertEqual(bundle.precision, "fp32")
+            del bundle
+            gc.collect()
+
+    def test_assemble_refuses_non_pt_output_and_existing_file(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            run = _fake_run(root, "final_s42")
+            with self.assertRaisesRegex(ValueError, ".pt"):
+                devsel.main(["assemble", "--member", str(run), "--out", str(root / "bundle")])
+            existing = root / "mission3.pt"
+            existing.write_bytes(b"old")
+            with self.assertRaises(FileExistsError):
+                devsel.main(["assemble", "--member", str(run), "--out", str(existing)])
+            self.assertEqual(existing.read_bytes(), b"old")
+
+    def test_assemble_refuses_member_without_weights(self) -> None:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             root = Path(tmp)
             model = root / "final_s42" / "best_model"
             model.mkdir(parents=True)
             (model / "config.json").write_text("{}", encoding="utf-8")
-            out = root / "bundle"
-            devsel.main(["assemble", "--member", str(root / "final_s42"), "--tfidf", str(root / "none.joblib"),
-                         "--tfidf-weight", "0", "--out", str(out)])
-            manifest = json.loads((out / "ensemble.json").read_text(encoding="utf-8"))
-            self.assertNotIn("tfidf_member", manifest)
+            with self.assertRaises(FileNotFoundError):
+                devsel.main(["assemble", "--member", str(root / "final_s42"), "--out", str(root / "m.pt")])
 
 
 if __name__ == "__main__":

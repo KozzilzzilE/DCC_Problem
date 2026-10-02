@@ -48,6 +48,7 @@ def split_frame(frame, dev_fraction: float = 0.1, seed: int = 1234) -> Tuple[obj
 
 
 def _sha256(path: Path) -> str:
+    """원본 CSV 의 sha256. split.json 에 남겨 같은 CSV 로 나눴는지 확인한다."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
@@ -56,12 +57,14 @@ def _sha256(path: Path) -> str:
 
 
 def _positives(frame) -> dict:
+    """증상별 양성 수 (분할 뒤 라벨 분포 기록용)."""
     from m3.config import TARGET_SYMPTOMS
 
     return {symptom: int(frame[symptom].sum()) for symptom in TARGET_SYMPTOMS}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """분할 CLI 인자. 기본값 dev 10%, seed 1234 는 사전 등록한 값이다."""
     p = argparse.ArgumentParser(description="Mission 3 Training 내부 dev 분할 (하이퍼파라미터 선택 전용)")
     p.add_argument("--train-csv", required=True, help="Training CSV (make_csv.py 출력). Validation 을 넣지 않는다")
     p.add_argument("--out-dir", required=True)
@@ -71,6 +74,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Training CSV 를 학습용/dev 로 나눠 train_split.csv, dev_split.csv, split.json 을 쓴다."""
     import pandas as pd
 
     from m3.config import TARGET_SYMPTOMS

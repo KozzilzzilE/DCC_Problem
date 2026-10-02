@@ -5,7 +5,7 @@
   2) Training 내부 dev 로 하이퍼파라미터를 정한 각 단계의 로그와 결정 기록을 보여 준다.
      (runs/devsel/*/history.json, decisions/*.json)
   3) 결정이 끝난 제출 번들로 Validation 전체를 추론해 점수와 시간을 기록한다.
-RUN_TRAINING=True 로 바꾸면 같은 스크립트로 처음부터 다시 학습한다.
+처음부터 다시 학습하려면 명령줄에서 `bash run_dev_selection.sh <train.csv> <val label 폴더>` 를 먼저 돌린다.
 
     python build_notebook.py            # 노트북 생성 + 실행 (학습 작업공간의 runs/devsel 필요)
     python build_notebook.py --no-exec  # 생성만
@@ -52,7 +52,7 @@ CELLS = [
 이 노트북은 학습 작업공간(`runs/devsel` 이 있는 폴더)에서 실행한 기록이다.
 - **학습 방식:** `run_dev_selection.sh` 로 CLI 에서 학습했다. 각 셀은 그 스크립트가 남긴 로그를 읽어 출력한다.
 - **제출 폴더에서:** `runs/` 가 없으므로 저장된 셀 출력으로 확인한다.
-- **처음부터 재현:** `RUN_TRAINING = True` 로 바꾸면 같은 스크립트로 다시 학습한다 (약 5시간 10분, RTX 5060 기준).
+- **처음부터 재현:** 명령줄에서 `bash run_dev_selection.sh <mission3_train.csv> <val label 폴더>` 로 다시 학습한 뒤(약 5시간 10분, RTX 5060 기준) 이 노트북을 실행한다. 명령은 2절에 출력된다.
 """),
     code("""
 import json, os, platform, subprocess, sys, time
@@ -67,10 +67,9 @@ sys.path.insert(0, str(HERE))
 from m3.config import TARGET_SYMPTOMS
 from m3.labels import load_transcripts_dir
 
-RUN_TRAINING = False                    # True 면 run_dev_selection.sh 로 다시 학습 (약 5시간 10분)
 DEVSEL = HERE / "runs" / "devsel"
 DECISIONS = DEVSEL / "decisions"
-BUNDLE = DEVSEL / "bundle"
+BUNDLE = DEVSEL / "mission3.pt"         # 제출 번들 (.pt 하나). 제출 폴더에서는 ckpt/mission3.pt
 SEEDS = [42, 43, 44, 45]
 
 def find_data_root(start: Path) -> Path:
@@ -159,9 +158,7 @@ print(f"학습용 {split['train_rows']:,}건 / dev {split['dev_rows']:,}건, see
 print("dev 양성:", split["dev_positives"])
 
 TRAIN_CMD = ["bash", "run_dev_selection.sh", used_train_csv, str(DATA_ROOT / "val" / "label")]
-print("\\n재현 명령:", " ".join(TRAIN_CMD))
-if RUN_TRAINING:
-    subprocess.run(TRAIN_CMD, check=True)
+print("\\n재현 명령 (명령줄에서 실행):", " ".join(TRAIN_CMD))
 """),
     md("""
 ## 3. pos_weight 지수 p — 원래 레시피, seed 42
@@ -188,7 +185,8 @@ table.round(4)
 """),
     code("""
 tapt = load_json(DEVSEL / "tapt" / "tapt_config.json")
-print(f"학습 시간 {tapt['training_seconds'] / 60:.1f}분, 본문 {tapt['num_texts']:,}건, eval_csv={tapt['eval_csv']}")
+print(f"학습 시간 {tapt['training_seconds'] / 60:.1f}분, 본문 {tapt['num_texts']:,}건 ({tapt['train_csv']})")
+print("데이터 출처:", tapt["source"])
 pd.DataFrame(tapt["history"]).set_index("epoch").round(4).T
 """),
     md("""
@@ -254,19 +252,25 @@ pd.DataFrame(rows).set_index(["seed", "epoch"])
     md("""
 ## 8. 제출 번들
 
-최종 4개의 `best_model` 을 한 폴더에 모으고 `ensemble.json` 에 구성과 정밀도를 적는다. 제출 폴더에서는 이 번들이 `ckpt/` 이고, `--ckpt_path ckpt/ensemble.json` 으로 추론한다. 멤버 폴더에는 tokenizer·config·가중치가 모두 있어 인터넷 없이 로드된다.
+최종 4개의 `best_model` 을 `.pt` 파일 하나로 묶는다 (`devsel.py assemble`, `m3/bundle.py`). 제출 폴더에서는 이 파일이 `ckpt/mission3.pt` 이고, `--ckpt_path ckpt/mission3.pt` 로 추론한다.
+- **멤버마다:** tokenizer·config·추론 설정 파일 원문과 가중치(fp32)가 모두 들어 있어 인터넷 없이 로드된다.
+- **번들 공통:** 추론 정밀도(fp16, CUDA 에서만 적용)와 TF-IDF 멤버(이번 결정은 w=0 이라 없음)를 담는다. 판정 임계값은 코드의 0.5 고정이다 (멤버 설정의 threshold 0.5 는 기록용).
 """),
     code("""
-print(json.dumps(load_json(BUNDLE / "ensemble.json"), ensure_ascii=False, indent=2))
-for member in sorted(p for p in BUNDLE.iterdir() if p.is_dir()):
-    print(f"{member.name}/: " + ", ".join(sorted(f.name for f in member.iterdir())))
+from m3.bundle import describe, load_bundle
+
+bundle = load_bundle(BUNDLE)
+print("\\n".join(describe(bundle)))
+print("note:", bundle.note)
+for member in bundle.members:
+    print(f"{member.name}: " + ", ".join(sorted(member.files)) + " + 가중치(state_dict)")
 """),
     md("""
 ## 9. Validation 확인 — 결정이 끝난 번들로 전체 추론
 
 결정은 모두 끝난 상태다. 이 단계는 성능 확인일 뿐이다.
 - **첫 확인 기록:** 2026-10-01 22:42 에 `run_dev_selection.sh` 10 단계에서 한 번 확인했다. 그때의 점수와 번들 해시가 `decisions/validation_once.json`, `logs/validation_attempts.log` 에 있다.
-- **이 셀:** 같은 번들로 제출과 같은 명령을 다시 실행해 시간을 재고, 첫 확인과 예측이 같은지 본다.
+- **이 셀:** 같은 가중치를 담은 `.pt` 번들로 제출과 같은 명령을 다시 실행해 시간을 재고, 첫 확인과 예측이 같은지 본다. (첫 확인 때 번들은 `best_model` 폴더 4개와 `ensemble.json` 을 모은 폴더 형식이었고, 이후 같은 가중치를 `.pt` 파일 하나로 옮겼다.)
 - **판정 임계값:** 0.5 고정이다.
 """),
     code("""
@@ -277,11 +281,11 @@ print((DEVSEL / "logs" / "validation_attempts.log").read_text(encoding="utf-8").
 val_df = build_dataframe(DATA_ROOT / "val" / "label")
 out_csv = HERE / "outputs" / "mission3_val.csv"
 INFER_CMD = [sys.executable, "inference.py", "--audio_dir", str(DATA_ROOT / "val"), "--label_dir", str(DATA_ROOT / "val" / "label"),
-             "--ckpt_path", str(BUNDLE / "ensemble.json"), "--output", str(out_csv)]
+             "--ckpt_path", BUNDLE.relative_to(HERE).as_posix(), "--output", str(out_csv)]   # runs/devsel/mission3.pt
 t0 = time.perf_counter()
 result = subprocess.run(INFER_CMD, capture_output=True, text=True, encoding="utf-8", errors="replace")
 elapsed = time.perf_counter() - t0
-print("\\n".join(line for line in result.stdout.splitlines() if any(k in line for k in ["정밀도", "완료", "증상 0개", "구성"])))
+print("\\n".join(line for line in result.stdout.splitlines() if any(k in line for k in ["번들", "정밀도", "완료", "증상 0개"])))
 print(f"전체 실행 시간(프로세스 시작~종료) {elapsed:.1f}초, 샘플당 {elapsed / len(val_df) * 1000:.1f} ms")
 """),
     code("""
@@ -314,7 +318,7 @@ pd.DataFrame({"precision": tp / np.maximum(tp + fp, 1), "recall": tp / np.maximu
 
 **최종 번들 Validation 확인 (1회): 0.6599**
 
-참고 (선택에는 쓰지 않음): 이 절차 전에 Validation 을 보며 했던 탐색 기록은 저장소의 `reports/calibration_eval.md`, `reports/improvement_eval.md` 에 있다.
+참고 (선택에는 쓰지 않음): 이 절차 전에 Validation 을 보며 했던 탐색 기록이다. 제출 폴더에서는 해당 보고서(`reports/calibration_eval.md`, `reports/improvement_eval.md`)를 정리해 뺐고, 저장소 이력에 남아 있다.
 - 기준선 plain BCE 0.5967
 - pos_weight^0.5 0.6496
 - 다른 백본(KoELECTRA·KF-DeBERTa·RoBERTa-large)은 이득 없음
@@ -325,11 +329,8 @@ pd.DataFrame({"precision": tp / np.maximum(tp + fp, 1), "recall": tp / np.maximu
 ## 11. 계산 효율
 """),
     code("""
-from safetensors import safe_open
-member_params = []
-for member in sorted(p for p in BUNDLE.iterdir() if p.is_dir()):
-    with safe_open(str(member / "model.safetensors"), framework="pt") as f:
-        member_params.append(sum(int(np.prod(f.get_slice(k).get_shape())) for k in f.keys()))
+# 파라미터 수는 .pt 번들에 담긴 멤버 가중치(state_dict)에서 센다.
+member_params = [sum(int(t.numel()) for t in member.state_dict.values()) for member in bundle.members]
 total = sum(member_params)
 pd.DataFrame({
     "값": [f"{total:,} (KLUE-RoBERTa-base {member_params[0]:,} × {len(member_params)})",

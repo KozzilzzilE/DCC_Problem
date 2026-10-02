@@ -24,6 +24,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 
 def parse_args(argv=None):
+    """TF-IDF 보조 멤버 학습 CLI 인자."""
     from m3.tfidf_member import DEFAULT_C, DEFAULT_MIN_DF
 
     p = argparse.ArgumentParser(description="Mission 3 Training 전용 TF-IDF + LR 보조 멤버")
@@ -36,6 +37,7 @@ def parse_args(argv=None):
 
 
 def main(argv=None) -> int:
+    """Training CSV 로 TF-IDF + LR 멤버를 적합해 .joblib 과 같은 이름의 설명 .json 을 저장한다."""
     args = parse_args(argv)
 
     from m3.config import TARGET_SYMPTOMS
