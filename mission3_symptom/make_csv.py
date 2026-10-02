@@ -45,6 +45,7 @@ def build_dataframe(label_dir: Path) -> pd.DataFrame:
 
 
 def main(argv=None) -> None:
+    """원본 라벨 JSON 폴더를 학습 CSV(call_id, text, 9개 라벨)로 바꿔 저장한다."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--label-dir", required=True, help="원본 라벨 JSON 폴더 (예: data/train/label)")
     parser.add_argument("--output", required=True, help="저장할 CSV 경로")

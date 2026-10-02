@@ -155,6 +155,8 @@ def read_transcript(
     call_id = path.stem
 
     data = _read_json_robust(path)
+    if not isinstance(data, dict):
+        raise ValueError(f"라벨 JSON 의 최상위가 객체가 아닙니다 ({type(data).__name__}): {path.name}")
 
     # 허용된 text만 추출 (시간/화자/인적사항 등 영구 제거)
     text = _parse_dialogue_text(data.get("utterances"), resolve_utterance_sep(sep_mode))
@@ -173,15 +175,11 @@ def read_transcript(
 
 def load_transcripts_dir(
     label_dir: Union[str, Path],
-    max_samples: Optional[int] = None,
     sep_mode: str = DEFAULT_UTTERANCE_SEP_MODE,
 ) -> List[TranscriptRecord]:
-    """라벨 폴더 내의 모든 JSON을 일괄 파싱하여 모델에 바로 넣을 수 있는 리스트로 반환."""
+    """라벨 폴더 내의 모든 JSON을 일괄 파싱하여 모델에 바로 넣을 수 있는 리스트로 반환 (읽지 못한 파일은 건너뜀)."""
     label_dir = Path(label_dir)
     json_files = sorted(label_dir.glob("*.json"))
-
-    if max_samples is not None:
-        json_files = json_files[:max_samples]
 
     resolve_utterance_sep(sep_mode)  # 잘못된 모드는 파일을 읽기 전에 즉시 실패시킨다
 

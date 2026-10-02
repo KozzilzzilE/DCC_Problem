@@ -53,7 +53,7 @@ def write_train_csv(path: Path) -> None:
 class TaptArgumentsTest(unittest.TestCase):
     def test_extra_csv_options_are_rejected(self) -> None:
         required = ["--train-csv", "train.csv", "--output-dir", "out"]
-        for extra in (["--eval-csv", "dev.csv"], ["--eval-samples", "256"]):
+        for extra in (["--eval-csv", "dev.csv"], ["--eval-samples", "256"], ["--max-train-samples", "8"]):
             with self.subTest(extra=extra), patch("sys.stderr"):
                 with self.assertRaises(SystemExit):
                     tapt_mlm.parse_args([*required, *extra])

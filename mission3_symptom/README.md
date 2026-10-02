@@ -31,9 +31,9 @@ mission3_symptom/
 ├── train_tfidf_member.py   # TF-IDF 멤버 학습
 ├── run_dev_selection.sh    # 위 단계를 순서대로 실행하는 학습 스크립트
 ├── model_train.ipynb       # 학습 과정·로그·dev 선택 결과·Validation 평가 기록
-├── build_notebook.py       # model_train.ipynb 생성 스크립트
+├── build_notebook.py       # model_train.ipynb 생성 스크립트 (git 저장소에만 있음, 제출 폴더에서는 뺌)
 ├── reports/                # dev_selection_protocol.md(사전 등록 규칙), dev_selection_eval.md(결과)
-├── tests/                  # 단위·통합 테스트 (pytest)
+├── tests/                  # 단위·통합 테스트 (git 저장소에만 있음, 제출 폴더에서는 뺌)
 ├── requirements.txt
 └── README.md
 ```
@@ -74,7 +74,7 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 | Active 파라미터 | **442,500,132** (앙상블 멤버가 모두 매 샘플 추론에 쓰이는 dense 구조) |
 | 학습·추론 환경 | NVIDIA GeForce RTX 5060 8GB (드라이버 610.62, CUDA 13.0), AMD Ryzen 5 9600 (6코어 12스레드), RAM 31GB, Windows 10, Python 3.14.6, torch 2.13.0+cu130, transformers 5.15.0 |
 | Validation 추론 batch size | 16 |
-| Validation 전체 추론 시간 | 3,640건 **약 44초 (샘플당 약 12 ms)**, `--ckpt_path ckpt/mission3.pt`, fp16, 모델 로딩·CSV 저장 포함 (실측 43.0~45.1초) |
+| Validation 전체 추론 시간 | 3,640건 **약 43초 (샘플당 약 12 ms)**, `--ckpt_path ckpt/mission3.pt`, fp16, 모델 로딩·CSV 저장 포함 (10-02 여러 번 실측 42.7~45.1초) |
 | 학습 시간 | 약 5시간 10분 (`run_dev_selection.sh` 전체) |
 
 학습 시간 내역:
@@ -125,7 +125,7 @@ bash run_dev_selection.sh data_csv/mission3_train.csv <data>/val/label
 
 끝나면 `runs/devsel/mission3.pt` 를 `ckpt/mission3.pt` 로 복사한다.
 
-테스트는 이 폴더에서 `python -m pytest tests` 로 돌린다 (pytest 는 따로 설치).
+테스트는 git 저장소의 이 폴더에서 `python -m pytest tests` 로 돌린다 (pytest 는 따로 설치. 제출 폴더에는 `tests/` 가 없다).
 
 ## 규정 준수
 

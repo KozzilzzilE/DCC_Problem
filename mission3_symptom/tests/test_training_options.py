@@ -174,7 +174,8 @@ class TrainingOptionCliTest(unittest.TestCase):
         self.assertEqual(config.llrd_decay, 1.0)
         self.assertEqual(config.encode_mode, "truncate")
         self.assertEqual(config.utterance_sep_mode, "space")
-        self.assertEqual(config.checkpoint_metric, "val_loss")
+        self.assertEqual(config.checkpoint_metric, "fixed_epoch")
+        self.assertIsNone(config.checkpoint_epoch)
 
     def test_final_training_command_reaches_config(self) -> None:
         """run_dev_selection.sh 7 단계(최종 학습)와 같은 인자가 그대로 설정이 된다."""
@@ -204,6 +205,7 @@ class TrainingOptionCliTest(unittest.TestCase):
         removed = (
             ["--gradient-checkpointing"], ["--loss-type", "asl"], ["--pooling-type", "label_attention"],
             ["--encode-mode", "head_tail"], ["--use-pure-nausea-sampling"],
+            ["--smoke-test"], ["--max-steps", "2"], ["--max-train-samples", "8"], ["--max-val-samples", "8"],
         )
         for argv in removed:
             with self.subTest(argv=argv), patch("sys.stderr"):

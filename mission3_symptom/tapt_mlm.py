@@ -59,7 +59,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--local-files-only", action="store_true")
-    parser.add_argument("--max-train-samples", type=int)
     return parser.parse_args(argv)
 
 
@@ -73,7 +72,7 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     amp = bool(args.amp and device.type == "cuda")
 
-    frame = load_symptom_csv(args.train_csv, max_samples=args.max_train_samples, sample_seed=args.seed)
+    frame = load_symptom_csv(args.train_csv)
     texts = frame["text"].tolist()
     # 분류 학습(공백 결합)과 같은 입력 분포여야 한다.
     verify_utterance_sep_mode(texts[:200], DEFAULT_UTTERANCE_SEP_MODE, source=args.train_csv)

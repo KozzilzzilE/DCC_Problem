@@ -201,10 +201,18 @@ def read_texts(label_dir: Union[str, Path], sep_mode: str) -> Tuple[List[str], L
 
     names: List[str] = []
     texts: List[str] = []
+    unreadable: List[str] = []
     for path in paths:
         names.append(path.name)
         # read_transcript 가 본문 외 메타데이터를 파싱 단계에서 버린다 (대회 규정).
-        texts.append(read_transcript(path, sep_mode=sep_mode).text)
+        # 채점은 1회 실행이라 깨진 JSON 하나로 전체 CSV 가 사라지지 않게, 그 파일만 빈 본문으로 두고 경고한다.
+        try:
+            texts.append(read_transcript(path, sep_mode=sep_mode).text)
+        except Exception as exc:  # JSON 형식 오류, 루트가 객체가 아닌 파일 등
+            unreadable.append(f"{path.name} ({type(exc).__name__}: {exc})")
+            texts.append("")
+    if unreadable:
+        print(f"[경고] 읽지 못한 라벨 파일 {len(unreadable):,}건은 빈 본문으로 추론합니다: {unreadable[:5]}")
     return names, texts
 
 
@@ -382,7 +390,7 @@ def transformer_probabilities(
     print(f"정밀도: {precision_label}  배치: {batch_size}")
 
     def make_batch(indices: List[int], target_device):
-        # 학습과 같은 encode_text(truncate)로 토큰화하고, 배치 안에서만 padding 한다.
+        """학습과 같은 encode_text(truncate)로 토큰화하고, 배치 안에서만 padding 해 device 로 옮긴다."""
         features = [
             encode_text(tokenizer, texts[index], settings.max_length)
             for index in indices
@@ -419,7 +427,7 @@ def bundle_probabilities(
     precision: Optional[str] = None,
 ):
     """`.pt` 제출 번들: 멤버 확률 균등 평균 -> (번들에 있으면) TF-IDF 전역 가중 블렌드. 판정은 하지 않는다."""
-    from .bundle import describe, load_bundle, load_bundle_tfidf, load_member_model
+    from .bundle import INFERENCE_CONFIG_FILE, describe, load_bundle, load_bundle_tfidf, load_member_model
 
     bundle = load_bundle(bundle_path)
     print("\n".join(describe(bundle)) + f"\n임계값 {DECISION_THRESHOLD:.3f} (대회 규정 고정)")
@@ -427,8 +435,8 @@ def bundle_probabilities(
     names: Optional[List[str]] = None
     total = None
     for member in bundle.members:
-        # 멤버마다 저장 당시 inference_config.json 으로 발화 경계·인코딩·max_length 를 복원한다.
         def loader(member=member):
+            """멤버 하나의 (설정, tokenizer, 모델). 저장 당시 inference_config.json 으로 발화 경계·인코딩·max_length 를 복원한다."""
             config = member.inference_config()
             encode_mode = config.get("encode_mode") or ENCODE_MODE
             max_length = config.get("max_length") or DEFAULT_MAX_LENGTH
@@ -437,7 +445,9 @@ def bundle_probabilities(
                 sep_mode=resolve_sep_mode(config),
                 encode_mode=check_encode_mode(str(encode_mode)),
                 max_length=int(max_length),
-                config_path=None,
+                # 로그의 '설정 출처' 는 번들 안의 파일을 가리킨다. 파일이 없을 때만 '없음(기본값 사용)' 이 찍힌다.
+                config_path=(Path(f"{bundle.path.name}:{member.name}") / INFERENCE_CONFIG_FILE
+                             if INFERENCE_CONFIG_FILE in member.files else None),
             )
             tokenizer, model = load_member_model(member)
             return settings, tokenizer, model

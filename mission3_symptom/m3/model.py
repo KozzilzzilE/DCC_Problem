@@ -32,8 +32,8 @@ def _console_safe_text(value: object) -> str:
 def validate_tokenizer_model_compatibility(tokenizer, model) -> Dict[str, object]:
     """토크나이저와 모델의 호환성을 검증합니다.
 
-    모델마다 토큰 규격이 조금씩 다를 수 있으므로(예: BERT는 CLS/SEP, RoBERTa는 BOS/EOS),
-    각 모델의 스페셜 토큰 규격에 맞춰 범용적으로 유효성을 체크합니다.
+    KLUE-RoBERTa 토크나이저는 CLS/SEP 를 쓰고, 토큰 수(32,000)가 모델 임베딩 크기와 같아야 합니다.
+    어긋나면 예외를 내서, 점수만 조용히 떨어지는 상태로 학습·추론이 진행되지 않게 합니다.
     """
     # 1. 한글 자모 분해 깨짐 현상 체크
     tokens = tokenizer.tokenize(TOKENIZER_SANITY_TEXT)
@@ -63,13 +63,14 @@ def validate_tokenizer_model_compatibility(tokenizer, model) -> Dict[str, object
     else:
         unknown_ratio = 0.0
 
-    # 4. 토크나이저와 모델 임베딩 크기 동기화
-    # 일부 사전학습 토크나이저는 추가 토큰이 있어 임베딩 레이어보다 클 수 있습니다.
+    # 4. 토크나이저가 만드는 토큰 id 가 모두 모델 임베딩 안에 있어야 한다.
+    # 임베딩을 늘리면 새 행이 무작위로 채워져 학습·저장한 모델과 달라지므로, 늘리지 않고 멈춘다.
     embedding_size = int(model.get_input_embeddings().num_embeddings)
     if len(tokenizer) > embedding_size:
-        print(f"[안내] 토크나이저 크기({len(tokenizer)})에 맞춰 모델 임베딩 레이어 크기를 자동 확장합니다.")
-        model.resize_token_embeddings(len(tokenizer))
-        embedding_size = int(model.get_input_embeddings().num_embeddings)
+        raise ValueError(
+            f"토크나이저 크기({len(tokenizer)})가 모델 임베딩 크기({embedding_size})보다 큽니다. "
+            "같은 체크포인트의 tokenizer 와 모델인지 확인하세요."
+        )
 
     result = {
         "tokenizer_class": type(tokenizer).__name__,

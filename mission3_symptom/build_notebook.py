@@ -5,7 +5,7 @@
   2) Training 내부 dev 로 하이퍼파라미터를 정한 각 단계의 로그와 결정 기록을 보여 준다.
      (runs/devsel/*/history.json, decisions/*.json)
   3) 결정이 끝난 제출 번들로 Validation 전체를 추론해 점수와 시간을 기록한다.
-RUN_TRAINING=True 로 바꾸면 같은 스크립트로 처음부터 다시 학습한다.
+처음부터 다시 학습하려면 명령줄에서 `bash run_dev_selection.sh <train.csv> <val label 폴더>` 를 먼저 돌린다.
 
     python build_notebook.py            # 노트북 생성 + 실행 (학습 작업공간의 runs/devsel 필요)
     python build_notebook.py --no-exec  # 생성만
@@ -52,7 +52,7 @@ CELLS = [
 이 노트북은 학습 작업공간(`runs/devsel` 이 있는 폴더)에서 실행한 기록이다.
 - **학습 방식:** `run_dev_selection.sh` 로 CLI 에서 학습했다. 각 셀은 그 스크립트가 남긴 로그를 읽어 출력한다.
 - **제출 폴더에서:** `runs/` 가 없으므로 저장된 셀 출력으로 확인한다.
-- **처음부터 재현:** `RUN_TRAINING = True` 로 바꾸면 같은 스크립트로 다시 학습한다 (약 5시간 10분, RTX 5060 기준).
+- **처음부터 재현:** 명령줄에서 `bash run_dev_selection.sh <mission3_train.csv> <val label 폴더>` 로 다시 학습한 뒤(약 5시간 10분, RTX 5060 기준) 이 노트북을 실행한다. 명령은 2절에 출력된다.
 """),
     code("""
 import json, os, platform, subprocess, sys, time
@@ -67,7 +67,6 @@ sys.path.insert(0, str(HERE))
 from m3.config import TARGET_SYMPTOMS
 from m3.labels import load_transcripts_dir
 
-RUN_TRAINING = False                    # True 면 run_dev_selection.sh 로 다시 학습 (약 5시간 10분)
 DEVSEL = HERE / "runs" / "devsel"
 DECISIONS = DEVSEL / "decisions"
 BUNDLE = DEVSEL / "mission3.pt"         # 제출 번들 (.pt 하나). 제출 폴더에서는 ckpt/mission3.pt
@@ -159,9 +158,7 @@ print(f"학습용 {split['train_rows']:,}건 / dev {split['dev_rows']:,}건, see
 print("dev 양성:", split["dev_positives"])
 
 TRAIN_CMD = ["bash", "run_dev_selection.sh", used_train_csv, str(DATA_ROOT / "val" / "label")]
-print("\\n재현 명령:", " ".join(TRAIN_CMD))
-if RUN_TRAINING:
-    subprocess.run(TRAIN_CMD, check=True)
+print("\\n재현 명령 (명령줄에서 실행):", " ".join(TRAIN_CMD))
 """),
     md("""
 ## 3. pos_weight 지수 p — 원래 레시피, seed 42
@@ -188,7 +185,8 @@ table.round(4)
 """),
     code("""
 tapt = load_json(DEVSEL / "tapt" / "tapt_config.json")
-print(f"학습 시간 {tapt['training_seconds'] / 60:.1f}분, 본문 {tapt['num_texts']:,}건, eval_csv={tapt.get('eval_csv')}")
+print(f"학습 시간 {tapt['training_seconds'] / 60:.1f}분, 본문 {tapt['num_texts']:,}건 ({tapt['train_csv']})")
+print("데이터 출처:", tapt["source"])
 pd.DataFrame(tapt["history"]).set_index("epoch").round(4).T
 """),
     md("""

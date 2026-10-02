@@ -48,6 +48,8 @@ def build_vectorizers(min_df: int = DEFAULT_MIN_DF):
 
 @dataclass
 class TfidfLRMember:
+    """char_wb 2-4gram + word 1-2gram TF-IDF 와 증상별 로지스틱 회귀 9개를 묶은 보조 멤버."""
+
     char_vectorizer: object
     word_vectorizer: object
     models: List[object]
@@ -57,6 +59,7 @@ class TfidfLRMember:
     sklearn_version: str
 
     def _features(self, texts: Sequence[str]):
+        """두 TF-IDF 특징을 옆으로 이어 붙인 희소 행렬."""
         from scipy import sparse
 
         texts = list(texts)
@@ -112,6 +115,7 @@ def fit_tfidf_member(
 
 
 def save_tfidf_member(member: TfidfLRMember, path: Union[str, Path]) -> Path:
+    """멤버를 형식·버전·증상 순서와 함께 joblib 으로 저장한다."""
     import joblib
 
     path = Path(path)

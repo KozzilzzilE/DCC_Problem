@@ -62,17 +62,14 @@ class TrainingConfig:
     device: str = "auto"
     amp: bool = False
     use_pos_weight: bool = False
-    # pos_weight = (negative / positive) ** power. 1.0 은 기존 동작, 0 은 plain BCE 와 같다.
-    # 임계값 0.5 고정에서는 1.0 이 모든 클래스를 과보정해 0.5 가 로컬 실측 최적이었다.
+    # pos_weight = (negative / positive) ** power. 1.0 은 원래 공식, 0 은 plain BCE 와 같다.
+    # 제출 모델의 값 0.5 는 run_dev_selection.sh 3 단계가 Training 내부 dev 로 정했다 (decisions/power.json).
     pos_weight_power: float = 1.0
     local_files_only: bool = False
-    max_train_samples: Optional[int] = None
-    max_val_samples: Optional[int] = None
-    max_steps: Optional[int] = None
-    smoke_test: bool = False
-    # 최적 모델(Best Checkpoint) 선정 기준: "val_loss" (기본값), "val_macro_f1" (대회 평가 지표 최고점),
-    # "fixed_epoch" (평가 점수와 무관하게 checkpoint_epoch 번째 epoch 를 저장하고 학습을 멈춘다).
-    checkpoint_metric: str = "val_loss"
+    # 저장할 체크포인트 선정 기준. val_* 는 --val-csv(Training 내부 dev 분할) 위의 값이다.
+    #   "fixed_epoch" (기본): 평가 점수를 보지 않고 checkpoint_epoch 번째 epoch 를 저장하고 학습을 멈춘다.
+    #   "val_loss" / "val_macro_f1": dev 손실 최저 / dev macro F1 최고 epoch 를 저장한다.
+    checkpoint_metric: str = "fixed_epoch"
     # fixed_epoch 일 때 저장할 epoch (None 이면 마지막 epoch). 학습률 스케줄은 epochs 기준 그대로라
     # epochs=3, checkpoint_epoch=2 는 3 epoch 학습의 2 epoch 시점과 같은 가중치가 된다.
     checkpoint_epoch: Optional[int] = None
@@ -147,16 +144,14 @@ def train_one_epoch(
     gradient_accumulation_steps: int,
     max_grad_norm: float,
     global_step: int,
-    max_steps: Optional[int],
     epoch: int,
     total_epochs: int,
-) -> Tuple[float, int, bool]:
-    """한 epoch을 학습하고 optimizer update 기준 global step을 반환."""
+) -> Tuple[float, int]:
+    """한 epoch을 학습하고 (평균 학습 loss, optimizer update 기준 global step)을 반환."""
     model.train()
     optimizer.zero_grad(set_to_none=True)
     total_loss = 0.0
     total_samples = 0
-    reached_max_steps = False
     progress = tqdm(
         dataloader,
         desc=f"Train {epoch}/{total_epochs}",
@@ -199,12 +194,8 @@ def train_one_epoch(
             optimizer.zero_grad(set_to_none=True)
             global_step += 1
 
-            if max_steps is not None and global_step >= max_steps:
-                reached_max_steps = True
-                break
-
     mean_loss = total_loss / max(total_samples, 1)
-    return mean_loss, global_step, reached_max_steps
+    return mean_loss, global_step
 
 
 def evaluate(
@@ -213,9 +204,9 @@ def evaluate(
     loss_fn,
     device: torch.device,
     amp_enabled: bool,
-    description: str = "Validation",
+    description: str = "평가",
 ) -> Dict[str, object]:
-    """Validation 전체를 평가하고 threshold 0.5 성능과 원본 출력을 반환."""
+    """평가 CSV(--val-csv, Training 내부 dev 분할) 전체를 추론해 threshold 0.5 성능과 원본 출력을 반환."""
     model.eval()
     logits_list: List[np.ndarray] = []
     labels_list: List[np.ndarray] = []
@@ -319,8 +310,6 @@ def _validate_config(config: TrainingConfig) -> None:
         raise ValueError("max_grad_norm은 양수여야 합니다.")
     if config.num_workers < 0:
         raise ValueError("num_workers는 0 이상이어야 합니다.")
-    if config.max_steps is not None and config.max_steps <= 0:
-        raise ValueError("max_steps는 양수여야 합니다.")
     if not 0.0 <= config.warmup_ratio < 1.0:
         raise ValueError("warmup_ratio는 0 이상 1 미만이어야 합니다.")
     if not math.isfinite(config.pos_weight_power) or config.pos_weight_power < 0:
@@ -507,16 +496,8 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
     if config.amp and not amp_enabled:
         print("AMP는 CUDA 환경에서만 활성화됩니다. 현재 실행에서는 비활성화합니다.")
 
-    train_df = load_symptom_csv(
-        config.train_csv,
-        max_samples=config.max_train_samples,
-        sample_seed=config.seed,
-    )
-    val_df = load_symptom_csv(
-        config.val_csv,
-        max_samples=config.max_val_samples,
-        sample_seed=config.seed,
-    )
+    train_df = load_symptom_csv(config.train_csv)
+    val_df = load_symptom_csv(config.val_csv)
     verify_utterance_sep_mode(
         train_df["text"].head(200), config.utterance_sep_mode, source=config.train_csv)
     verify_utterance_sep_mode(
@@ -564,8 +545,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
     optimizer = _build_optimizer(
         model, config.learning_rate, config.weight_decay, llrd_decay=config.llrd_decay)
     updates_per_epoch = math.ceil(len(train_loader) / config.gradient_accumulation_steps)
-    planned_steps = updates_per_epoch * config.epochs
-    total_steps = min(planned_steps, config.max_steps) if config.max_steps else planned_steps
+    total_steps = updates_per_epoch * config.epochs  # fixed_epoch 로 일찍 멈춰도 스케줄은 epochs 기준
     warmup_steps = int(total_steps * config.warmup_ratio)
     scheduler = get_linear_schedule_with_warmup(
         optimizer,
@@ -615,7 +595,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
     training_started_at = time.perf_counter()
 
     for epoch in range(1, config.epochs + 1):
-        train_loss, global_step, reached_max_steps = train_one_epoch(
+        train_loss, global_step = train_one_epoch(
             model=model,
             dataloader=train_loader,
             optimizer=optimizer,
@@ -627,7 +607,6 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             gradient_accumulation_steps=config.gradient_accumulation_steps,
             max_grad_norm=config.max_grad_norm,
             global_step=global_step,
-            max_steps=config.max_steps,
             epoch=epoch,
             total_epochs=config.epochs,
         )
@@ -637,7 +616,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             loss_fn,
             device,
             amp_enabled,
-            description=f"Validation {epoch}/{config.epochs}",
+            description=f"평가 {epoch}/{config.epochs}",
         )
         epoch_result = {
             "epoch": epoch,
@@ -673,8 +652,8 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
                 best_val_macro_f1 = current_f1
                 is_best = True
         elif config.checkpoint_metric == "fixed_epoch":
-            # 평가 점수를 보지 않는다. 정해 둔 epoch(또는 max_steps 로 먼저 끝난 시점)를 저장한다.
-            is_best = epoch == fixed_checkpoint_epoch(config) or reached_max_steps
+            # 평가 점수를 보지 않는다. 정해 둔 epoch 를 저장한다.
+            is_best = epoch == fixed_checkpoint_epoch(config)
 
         if is_best:
             best_epoch = epoch
@@ -687,8 +666,6 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
             score_str = f"loss={current_loss:.4f}" if config.checkpoint_metric == "val_loss" else f"macro_f1={current_f1:.4f}"
             print(f"  -> Best Checkpoint 갱신 (Epoch {epoch}, {config.checkpoint_metric}: {score_str})")
 
-        if reached_max_steps:
-            break
         if config.checkpoint_metric == "fixed_epoch" and epoch >= fixed_checkpoint_epoch(config):
             break
 
@@ -701,7 +678,7 @@ def run_training(config: TrainingConfig) -> Dict[str, object]:
         loss_fn,
         device,
         amp_enabled,
-        description="Validation best checkpoint",
+        description="평가 (저장한 체크포인트)",
     )
 
     np.save(output_dir / "val_logits.npy", best_validation["logits"])

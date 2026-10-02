@@ -80,12 +80,14 @@ class TokenizerSanityTest(unittest.TestCase):
             validate_tokenizer_model_compatibility(tokenizer, model)
         self.assertIn("한국어가 자모 단위로 분해되었습니다", str(ctx.exception))
 
-    def test_tokenizer_resizes_embedding_if_needed(self) -> None:
+    def test_tokenizer_larger_than_embedding_is_rejected(self) -> None:
+        """임베딩을 조용히 늘리지 않고 멈춘다 (늘린 행은 무작위라 저장한 모델과 달라진다)."""
         tokenizer = DummyGenericTokenizer(vocab_size=1500)
         model = DummyModel(1000)
-        result = validate_tokenizer_model_compatibility(tokenizer, model)
-        self.assertEqual(model.get_input_embeddings().num_embeddings, 1500)
-        self.assertEqual(result["embedding_size"], 1500)
+        with self.assertRaises(ValueError) as ctx:
+            validate_tokenizer_model_compatibility(tokenizer, model)
+        self.assertIn("토크나이저 크기(1500)", str(ctx.exception))
+        self.assertEqual(model.get_input_embeddings().num_embeddings, 1000)
 
 
 class BuildModelTest(unittest.TestCase):

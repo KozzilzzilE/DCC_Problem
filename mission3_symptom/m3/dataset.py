@@ -16,11 +16,7 @@ from .config import NUM_CLASSES, TARGET_SYMPTOMS
 REQUIRED_COLUMNS = ["call_id", "text", *TARGET_SYMPTOMS]
 
 
-def load_symptom_csv(
-    csv_path: Union[str, Path],
-    max_samples: Optional[int] = None,
-    sample_seed: int = 42,
-) -> pd.DataFrame:
+def load_symptom_csv(csv_path: Union[str, Path]) -> pd.DataFrame:
     """CSV를 읽고 모델에 필요한 text와 9개 이진 라벨을 검증."""
     path = Path(csv_path)
     if not path.is_file():
@@ -44,12 +40,6 @@ def load_symptom_csv(
         raise ValueError("9개 타겟 라벨에 결측값이 있습니다.")
     if not label_frame.isin([0, 1]).all().all():
         raise ValueError("9개 타겟 라벨에는 0 또는 1만 허용됩니다.")
-
-    if max_samples is not None:
-        if max_samples <= 0:
-            raise ValueError("max_samples는 양수여야 합니다.")
-        if max_samples < len(dataframe):
-            dataframe = dataframe.sample(n=max_samples, random_state=sample_seed)
 
     return dataframe.reset_index(drop=True)
 

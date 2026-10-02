@@ -319,6 +319,7 @@ def stage_score(args) -> Dict[str, object]:
 # ---------------------------------------------------------------- CLI
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    """하위 명령(power, final, assemble, score)과 각 인자."""
     p = argparse.ArgumentParser(description="Mission 3 Training 내부 dev 하이퍼파라미터 선택")
     sub = p.add_subparsers(dest="stage", required=True)
 
@@ -353,6 +354,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """하위 명령을 실행하고 결과 JSON 을 출력한다. --out 이 있으면 저장한다 (assemble 은 .pt 를 직접 쓴다)."""
     args = parse_args(argv)
     result = {"power": stage_power, "final": stage_final, "assemble": stage_assemble, "score": stage_score}[args.stage](args)
     text = json.dumps(result, ensure_ascii=False, indent=2, default=float)

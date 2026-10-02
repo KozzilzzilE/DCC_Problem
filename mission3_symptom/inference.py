@@ -34,6 +34,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 
 def parse_args(argv=None):
+    """추론 CLI 인자. 출제문제 11쪽 형식(--audio_dir, --label_dir, --ckpt_path, --output)을 받는다."""
     p = argparse.ArgumentParser(description="Mission 3 환자 증상 다중 라벨 추론")
     p.add_argument("--audio_dir", default=None,
                    help="받기만 하고 사용하지 않는다. Mission 3 는 대화 본문만 입력으로 허용된다")
@@ -48,6 +49,7 @@ def parse_args(argv=None):
 
 
 def main(argv=None) -> int:
+    """label 폴더 전체를 추론해 제출 CSV(label file name, symptom)를 쓰고 걸린 시간을 출력한다."""
     args = parse_args(argv)
 
     from m3.infer import predict_directory  # 폴더 안의 m3 패키지

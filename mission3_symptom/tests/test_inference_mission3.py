@@ -210,6 +210,26 @@ class SubmissionRobustnessTest(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             read_texts("/존재하지/않는/폴더", "space")
 
+    def test_broken_label_file_becomes_empty_text_instead_of_stopping(self) -> None:
+        """깨진 JSON·최상위가 리스트인 JSON 이 섞여도 전체가 멈추지 않고, 그 파일만 빈 본문으로 행을 유지한다."""
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            write_transcript(directory, "a-ok", ["여보세요", "열이 나요"])
+            (directory / "b-truncated.json").write_text('{"utterances": [{"text": "끊긴', encoding="utf-8")
+            (directory / "c-list.json").write_text('[{"text": "목록"}]', encoding="utf-8")
+            write_transcript(directory, "d-ok", ["숨이 차요"])
+
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                names, texts = read_texts(directory, "space")
+
+        self.assertEqual(names, ["a-ok.json", "b-truncated.json", "c-list.json", "d-ok.json"])
+        self.assertEqual(texts, ["여보세요 열이 나요", "", "", "숨이 차요"])
+        self.assertIn("읽지 못한 라벨 파일 2건", out.getvalue())
+
     def test_best_model_alone_still_restores_settings(self) -> None:
         """best_model/ 만 제출해도 학습 설정이 복원돼야 한다 (부모 run_config 없이)."""
         with tempfile.TemporaryDirectory() as tmp:

@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import gc
+import io
 import json
 import sys
 import tempfile
@@ -125,11 +127,16 @@ class PackLoadRoundTripTest(unittest.TestCase):
             pt = pack_bundle([run], root / "mission3.pt", precision="fp32")
 
             names_run, probs_run = transformer_probabilities(label_dir, run, batch_size=2, device="cpu")
-            names_pt, probs_pt = bundle_probabilities(pt, label_dir, batch_size=2, device="cpu")
+            log = io.StringIO()
+            with contextlib.redirect_stdout(log):
+                names_pt, probs_pt = bundle_probabilities(pt, label_dir, batch_size=2, device="cpu")
             gc.collect()
 
         self.assertEqual(names_run, names_pt)
         np.testing.assert_array_equal(probs_run, probs_pt)
+        # 설정은 번들 안의 inference_config.json 에서 복원했다고 찍혀야 한다 (기본값으로 돈 것처럼 보이면 안 된다).
+        self.assertIn("설정 출처: mission3.pt:final_s42", log.getvalue())
+        self.assertNotIn("없음(기본값 사용)", log.getvalue())
 
     def test_tfidf_member_round_trip(self) -> None:
         from m3.tfidf_member import fit_tfidf_member, save_tfidf_member

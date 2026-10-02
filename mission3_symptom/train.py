@@ -14,14 +14,18 @@ import argparse
 from pathlib import Path
 
 from m3.config import DEFAULT_UTTERANCE_SEP_MODE, UTTERANCE_SEP_MODES
-from m3.training import BASELINE_MODEL_NAME, TrainingConfig, run_training
+from m3.training import BASELINE_MODEL_NAME, CHECKPOINT_METRICS, TrainingConfig, run_training
 
 
 def parse_args() -> argparse.Namespace:
+    """학습 CLI 인자. 기본값은 원래 레시피(lr 2e-5, 3 epoch, 배치 8 x 누적 2, 512 토큰)이다."""
     parser = argparse.ArgumentParser(description="Mission 3 KLUE-RoBERTa 다중 라벨 학습")
     # 데이터·출력 경로
     parser.add_argument("--train-csv", required=True, help="학습 CSV 경로")
-    parser.add_argument("--val-csv", required=True, help="Validation CSV 경로")
+    parser.add_argument(
+        "--val-csv", required=True,
+        help="평가 CSV 경로. run_dev_selection.sh 는 Training 내부 dev 분할을 넘긴다 (epoch 별 기록·확률 저장용, 제공 Validation 으로 선택하지 않는다)",
+    )
     parser.add_argument("--output-dir", required=True, help="실험 산출물 저장 경로")
     # 시작 모델 (공개 모델 이름 또는 TAPT 결과 폴더)
     parser.add_argument("--model-name-or-path", default=BASELINE_MODEL_NAME)
@@ -46,20 +50,15 @@ def parse_args() -> argparse.Namespace:
         "--pos-weight-power",
         type=float,
         default=1.0,
-        help="pos_weight = (negative/positive) ** power. 1.0 은 기존 동작, 0.5 가 임계값 0.5 고정 기준 실측 최적",
+        help="pos_weight = (negative/positive) ** power. 1.0 은 원래 공식. 제출 모델의 0.5 는 run_dev_selection.sh 3 단계(Training 내부 dev)가 정했다",
     )
     parser.add_argument("--local-files-only", action="store_true")
-    # 빠른 점검용 축소 실행
-    parser.add_argument("--max-train-samples", type=int)
-    parser.add_argument("--max-val-samples", type=int)
-    parser.add_argument("--max-steps", type=int)
-    parser.add_argument("--smoke-test", action="store_true")
-    # 저장할 체크포인트 선정 기준
+    # 저장할 체크포인트 선정 기준 (val_* 는 --val-csv 위의 값)
     parser.add_argument(
         "--checkpoint-metric",
-        choices=("val_loss", "val_macro_f1", "fixed_epoch"),
-        default="val_loss",
-        help="최적 모델 저장 기준: val_loss(기본), val_macro_f1, fixed_epoch(평가 점수와 무관하게 --checkpoint-epoch 저장)",
+        choices=CHECKPOINT_METRICS,
+        default="fixed_epoch",
+        help="저장 기준: fixed_epoch(기본, 평가 점수와 무관하게 --checkpoint-epoch 저장), val_loss, val_macro_f1",
     )
     parser.add_argument(
         "--checkpoint-epoch",
@@ -82,42 +81,19 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_config(args: argparse.Namespace) -> TrainingConfig:
-    """CLI 인자를 TrainingConfig 로 옮긴다. --smoke-test 면 크기를 줄이고 출력 폴더에 _smoke 를 붙인다."""
-    output_dir = Path(args.output_dir)
-    max_length = args.max_length
-    train_batch_size = args.train_batch_size
-    val_batch_size = args.val_batch_size
-    epochs = args.epochs
-    max_train_samples = args.max_train_samples
-    max_val_samples = args.max_val_samples
-    max_steps = args.max_steps
-
-    if args.smoke_test:
-        output_dir = output_dir.parent / f"{output_dir.name}_smoke"
-        max_length = min(max_length, 128)
-        train_batch_size = min(train_batch_size, 2)
-        val_batch_size = min(val_batch_size, 2)
-        epochs = 1
-        max_train_samples = min(max_train_samples or 64, 64)
-        max_val_samples = min(max_val_samples or 32, 32)
-        max_steps = min(max_steps or 2, 2)
-
-    checkpoint_epoch = args.checkpoint_epoch
-    if args.smoke_test and checkpoint_epoch is not None:
-        checkpoint_epoch = min(checkpoint_epoch, epochs)  # smoke 는 epochs 를 1 로 줄이므로 맞춘다
-
+    """CLI 인자를 TrainingConfig 로 그대로 옮긴다 (값 검증은 run_training 이 한다)."""
     return TrainingConfig(
         train_csv=args.train_csv,
         val_csv=args.val_csv,
-        output_dir=str(output_dir),
+        output_dir=str(Path(args.output_dir)),
         model_name_or_path=args.model_name_or_path,
         model_revision=args.model_revision,
         seed=args.seed,
-        max_length=max_length,
-        train_batch_size=train_batch_size,
-        val_batch_size=val_batch_size,
+        max_length=args.max_length,
+        train_batch_size=args.train_batch_size,
+        val_batch_size=args.val_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
-        epochs=epochs,
+        epochs=args.epochs,
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
         warmup_ratio=args.warmup_ratio,
@@ -128,23 +104,20 @@ def build_config(args: argparse.Namespace) -> TrainingConfig:
         use_pos_weight=args.use_pos_weight,
         pos_weight_power=args.pos_weight_power,
         local_files_only=args.local_files_only,
-        max_train_samples=max_train_samples,
-        max_val_samples=max_val_samples,
-        max_steps=max_steps,
-        smoke_test=args.smoke_test,
         checkpoint_metric=args.checkpoint_metric,
-        checkpoint_epoch=checkpoint_epoch,
+        checkpoint_epoch=args.checkpoint_epoch,
         utterance_sep_mode=args.utterance_sep_mode,
         llrd_decay=args.llrd_decay,
     )
 
 
 def main() -> None:
+    """학습 한 번을 실행하고 저장한 epoch 와 그 시점의 평가(dev) macro F1@0.5 를 출력한다."""
     args = parse_args()
     metrics = run_training(build_config(args))
     print(
-        f"학습 완료: best_epoch={metrics['best_epoch']}, "
-        f"val_macro_f1@0.5={metrics['val_macro_f1']:.4f}"
+        f"학습 완료: 저장 epoch={metrics['best_epoch']}, "
+        f"평가 macro_f1@0.5={metrics['val_macro_f1']:.4f}"
     )
 
 
