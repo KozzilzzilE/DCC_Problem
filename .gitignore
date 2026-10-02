@@ -34,3 +34,7 @@ outputs/**
 mission3_symptom/runs/**
 !mission3_symptom/runs/**/.gitignore
 !mission3_symptom/runs/**/.gitkeep
+
+# Archives
+*.zip
+*.tar.gz
