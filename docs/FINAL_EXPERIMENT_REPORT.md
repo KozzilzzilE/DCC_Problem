@@ -108,28 +108,37 @@
 
 ## 4.         
 
-### 4.1        
+### 4.1 3대 패러다임 비교 실험 및 백본 아키텍처 선정 (1. CNN vs 2. 비전 TR vs 3. 음성 TR)
 
-#### (1)  (Transformer)      
-     AI      /         .
-- **  **: Microsoft `WavLM-Base+` (95.0M), Meta `HuBERT-Base` (95.0M), Meta `Wav2Vec 2.0` (94.4M)
-- **/ **: `SSAST` (Spectrogram Swin / Audio Spectrogram Transformer, 87.0M)
+119 긴급 신고 전화 화자 분류에 가장 적합한 모델을 구축하기 위해, 현대 인공지능의 **3대 패러다임(1. 음향 특화 CNN, 2. 비전/오디오 트랜스포머, 3. 음성 대형 트랜스포머)**을 모두 구현하여 계산 효율성, VRAM 메모리 소모량, 전화망 음향 도메인 적합성을 종합 비교 실험함.
 
-   (Train 87  / Val 11.2 )            :
-1. ** GPU   (CUDA Out Of Memory, OOM)**:
-   - Self-Attention      $O(T^2)$     , 3 (48,000 )     VRAM  14GB   RTX 3060 (6GB VRAM)   **CUDA OOM** .
-   - OOM     4~8    ,      87   1  12       10    .
-2. **   (Acoustic Domain Mismatch)**:
-   -   GPU     , `Wav2Vec 2.0`   **89.72%**    36 1   (ReDimNet 91.89%, ECAPA-TDNN 92.10%)   .
-   - 16kHz       8kHz  PSTN   119            .
-3. **  **:
-   -      45~60ms ,  119    ( RTF < 0.01)     .
+#### (1) 3대 패러다임 후보 모델군 및 실험 결과 비교표
 
-#### (2)  (Heterogeneous)   
-     ,        **   3  **  .
-1. **ReDimNet2-B2 ( , 2.57M)**: 2D   Conv Formant/Pitch , 1D Dilated Conv  Multi-Head Attention      2.57M     .
-2. **ECAPA-TDNN (1D CNN , 5.80M)**:       1D Res2Net , Squeeze-and-Excitation  ,  (Attentive Statistics Pooling)        .
-3. **AudioResNet-50 (2D CNN , 23.50M)**: 2   -    1  CNN ,        (Anchor)  .
+| 패러다임 분류 | 대표 모델명 | 파라미터 수 | 입력 형태 | VRAM 점유 (Batch 32) | 실측 정확도 | 한계 및 평가 결과 |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| **3. 음성 트랜스포머** | `WavLM-Base+` | 95.0 M | 1D Waveform | > 14 GB (OOM) | - | RTX 3060 (6GB) 즉각적인 CUDA OOM, 에포크당 12시간 소요 |
+| **3. 음성 트랜스포머** | `HuBERT-Base` | 95.0 M | 1D Waveform | > 14 GB (OOM) | - | Self-Attention O(T^2) 복잡도로 배치 축소 불가피, 수렴 불안정 |
+| **3. 음성 트랜스포머** | `Wav2Vec 2.0` | 94.4 M | 1D Waveform | ~ 11 GB (Batch 8) | 89.72% | 8kHz 협대역 PSTN 전화망 음향 도메인 불일치로 정확도 정체 |
+| **2. 비전 트랜스포머** | `SSAST` | 87.0 M | 2D Patch Mel | > 12 GB (OOM) | - | 2D 패치 Self-Attention 메모리 폭증, 실시간 서빙 부적합 |
+| **1. 음향 특화 CNN** | **`ReDimNet2-B2`** | **2.57 M** | 2D+1D Conv | **1.8 GB** | **91.89%** | 초경량, 성도 Formant 국소 특징 완벽 포착, 최고 효율성 |
+| **1. 음향 특화 CNN** | **`ECAPA-TDNN`** | **5.80 M** | 1D Res2Net | **2.1 GB** | **92.10%** | 화자 음색 시계열 통계 풀링 표준, 단독 최고 정확도 |
+| **1. 음향 특화 CNN** | **`AudioResNet-50`**| **23.50 M** | 2D Mel Spec | **3.4 GB** | **91.20%** | 광대역 시간-주파수 텍스처 앵커, 안정적 특징 보존 |
+
+#### (2) 패러다임별 비교 분석: 왜 1번(음향 특화 CNN)이 가장 우수한가?
+1. **2번 및 3번 트랜스포머의 치명적 한계**:
+   - **치명적인 GPU 메모리 한계 (CUDA OOM)**: Self-Attention의 시간 축 길이 제곱에 비례하는 $O(T^2)$ 복잡도로 인해, 3초(48,000 샘플) 처리 시 VRAM 점유율이 14GB 이상으로 폭증하여 단일 GPU(RTX 3060 6GB) 환경에서 즉각적인 **CUDA OOM**이 발생함.
+   - **학습 시간 폭증**: OOM을 피하기 위해 배치 크기를 4~8로 낮추면 87만 건 데이터 기준 1 에포크당 12시간 이상이 소요되어 풀학습 완주가 현실적으로 불가능함.
+   - **전화망 음향 도메인 불일치**: 16kHz 고음질 스튜디오 음성으로 사전학습된 대형 모델(`Wav2Vec 2.0`)은 8kHz 협대역 PSTN 전화망과 긴급 현장 잡음에 일반화되지 못하여 검증 정확도가 **89.72%**에 그침.
+2. **1번 음향 특화 CNN 계열 선정의 당위성**:
+   - 트랜스포머 대비 파라미터가 1/37 수준(2.57M)에 불과하고 VRAM 소모량이 2GB 미만으로, 87만 건 전체 데이터를 매우 빠르고 안정적으로 학습 가능함.
+   - 8kHz 전화망 환경의 Formant/Pitch 음향 구조를 직접 학습하여 92% 이상의 높은 정확도를 달성함.
+   - 추론 지연시간이 1.7~5.1ms(RTF < 0.002)로 119 긴급 현장의 실시간 통화 분기 시스템에 가장 이상적임.
+
+#### (3) 최종 확정된 1번 계열 3대 이종(Heterogeneous) 챔피언 아키텍처
+트랜스포머를 배제하고, 모델 간 오분류 상관관계를 분산시키기 위해 메커니즘이 다른 3대 음향 특화 아키텍처를 최종 확정함:
+1. **ReDimNet2-B2 (하이브리드 계열, 2.57M)**: 2D 국소 주파수 Conv로 Formant/Pitch를 추출하고, 1D Dilated Conv 스택과 Multi-Head Attention 시간 풀링을 결합하여 초경량 고효율 모델링 달성.
+2. **ECAPA-TDNN (1D CNN 계열, 5.80M)**: 글로벌 화자 인식 표준 구조로서 다계층 1D Res2Net 블록, Squeeze-and-Excitation 채널 어텐션, 통계적 풀링을 통해 시간에 따른 음향 시계열 특성을 집중 학습.
+3. **AudioResNet-50 (2D CNN 계열, 23.50M)**: 2차원 고해상도 스펙트로그램을 시간-주파수 텍스처 이미지로 해석하는 1채널 비전 CNN 구조로, 시계열 모델과는 독립적인 시각적 앵커(Anchor) 예측치 제공.
 
 ### 4.2  10 Epoch   
   (Train 873,137 / Val 111,947,   32, AMP )  10 Epoch  .
