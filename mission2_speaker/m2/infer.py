@@ -96,17 +96,29 @@ def load_model_weights(model: nn.Module, ckpt_path: Path, device: torch.device) 
         else:
             state_dict = state
 
-        # Remove prefix if present
-        clean_state_dict = {}
-        for k, v in state_dict.items():
-            k_clean = k.replace("module.", "").replace("resnet.", "")
-            clean_state_dict[k_clean] = v
-
+        # 1. Try direct load
         try:
-            model.load_state_dict(clean_state_dict, strict=True)
+            model.load_state_dict(state_dict, strict=True)
+            model.eval()
+            return model
         except Exception:
-            model.load_state_dict(state_dict, strict=False)
+            pass
 
+        # 2. Try prefix adaptation (handling module. and resnet. prefixes)
+        model_keys = set(model.state_dict().keys())
+        adapted_state = {}
+        for k, v in state_dict.items():
+            k_clean = k.replace("module.", "")
+            if f"resnet.{k_clean}" in model_keys:
+                adapted_state[f"resnet.{k_clean}"] = v
+            elif k_clean.replace("resnet.", "") in model_keys:
+                adapted_state[k_clean.replace("resnet.", "")] = v
+            elif k_clean in model_keys:
+                adapted_state[k_clean] = v
+            else:
+                adapted_state[k] = v
+
+        model.load_state_dict(adapted_state, strict=True)
         model.eval()
         return model
     except Exception as e:
