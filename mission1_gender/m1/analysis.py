@@ -31,14 +31,13 @@ def parse_args(argv=None):
     p.add_argument("--val-cache", type=Path, default=Path("cache/val"))
     p.add_argument("--out", type=Path, default=Path("mission1_gender/reports/analysis.json"))
     p.add_argument("--batch-size", type=int, default=256)
-    p.add_argument("--use-ckpt-threshold", action="store_true",
-                   help="(연구용) 체크포인트 저장 임계값 사용. 기본은 규정대로 0.5 고정")
     p.add_argument("--num-workers", type=int, default=None,
-                   help="기본값은 갈래에 맞춰 자동 (resnet 0 / 16k 업샘플 갈래 4)")
+                   help="기본값은 갈래에 맞춰 자동 (resnet 0 / w2v2 4)")
     return p.parse_args(argv)
 
 
 def bucket_label(lo: float, hi: float) -> str:
+    """길이 구간의 표시 이름 (예: '1-2s', '5s+')."""
     return f"{lo:.0f}s+" if hi == float("inf") else f"{lo:.0f}-{hi:.0f}s"
 
 
@@ -65,6 +64,7 @@ def length_analysis(samples, probs) -> list[dict]:
 
 
 def call_predictions(samples, probs, threshold: float = 0.5) -> dict[str, str]:
+    """조각 확률에서 통화별 예측 라벨을 만든다."""
     return {cid: call_label(p, threshold) for cid, p in call_probabilities(samples, probs).items()}
 
 
@@ -116,7 +116,7 @@ def main(argv=None) -> int:
 
     for path in args.ckpt:
         model, branch, cfg, payload = load_checkpoint(path, device=device)
-        thresholds[path.stem] = decision_threshold(payload, use_checkpoint=args.use_ckpt_threshold)
+        thresholds[path.stem] = decision_threshold(payload)
         print(f"=== {path.stem} ({branch}) t={thresholds[path.stem]:.3f} ===", flush=True)
 
         probs = predict_segment_probs(

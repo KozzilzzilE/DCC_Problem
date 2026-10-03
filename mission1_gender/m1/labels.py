@@ -30,6 +30,7 @@ class Utterance:
 
     @property
     def duration_ms(self) -> int:
+        """조각 길이 (ms)."""
         return self.end_ms - self.start_ms
 
 
@@ -43,12 +44,14 @@ class CallRecord:
 
 
 def _parse_gender(raw: object) -> str | None:
+    """'M'/'F' 만 대문자로 받아들이고, 그 외 값이나 누락은 None."""
     if isinstance(raw, str) and raw.upper() in _VALID_GENDERS:
         return raw.upper()
     return None
 
 
 def _parse_utterances(raw: object) -> tuple[Utterance, ...]:
+    """utterances 목록에서 startAt/endAt/speaker 만 꺼낸다. 깨진 항목은 건너뛴다."""
     if not isinstance(raw, list):
         return ()
 

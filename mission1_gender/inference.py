@@ -10,7 +10,7 @@
     (HF_HUB_OFFLINE=1 로 검증)
   - 피처 설정은 체크포인트에서 자동 복원되고, 결정 임계값은 대회 규정대로 0.5 고정이다
 
-출력 CSV: [audio file name], [gender]  (gender 는 '남' / '여')
+출력 CSV: [audio file name], [gender]  (gender 는 라벨 원값 'M' / 'F')
 """
 from __future__ import annotations
 
@@ -27,10 +27,11 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-DEFAULT_CKPT = HERE / "ckpt" / "w2v2_full.pt"   # 제출 1안. 폴백: ckpt/resnet_aug_m80.pt
+DEFAULT_CKPT = HERE / "ckpt" / "w2v2_full.pt"   # 제출 모델 (Wav2Vec2-base)
 
 
 def parse_args(argv=None):
+    """주최 측 명령 형식(--audio_dir/--label_dir/--ckpt_path/--output)의 인자를 읽는다."""
     p = argparse.ArgumentParser(description="Mission 1 신고자 성별 분류 추론")
     p.add_argument("--audio_dir", required=True, help="wav 폴더")
     p.add_argument("--label_dir", required=True, help="json 라벨 폴더 (startAt/endAt/speaker 만 사용)")
@@ -43,6 +44,7 @@ def parse_args(argv=None):
 
 
 def main(argv=None) -> int:
+    """폴더 전체를 추론해 통화당 한 행의 CSV 를 쓰고 소요 시간을 출력한다."""
     args = parse_args(argv)
 
     from m1.infer import predict_directory  # 폴더 안의 m1 패키지

@@ -43,7 +43,7 @@ def spec_augment(feat: torch.Tensor, freq_mask: int, time_mask: int, n_masks: in
 
 
 class ResNetGender(nn.Module):
-    """(B, samples) -> (B,) logit. 양수면 '여'(class 1)."""
+    """(B, samples) -> (B,) logit. 양수면 'F'(class 1)."""
 
     def __init__(
         self,
@@ -88,4 +88,5 @@ class ResNetGender(nn.Module):
 
     @property
     def input_sample_rate(self) -> int:
+        """모델이 기대하는 입력 샘플레이트 (FeatureConfig 의 8 kHz)."""
         return self.cfg.sample_rate

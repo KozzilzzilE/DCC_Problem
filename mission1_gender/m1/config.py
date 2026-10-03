@@ -45,17 +45,21 @@ class FeatureConfig:
         return self.n_mfcc if self.kind == "mfcc" else self.n_mels
 
     def to_dict(self) -> dict:
+        """체크포인트 저장용 dict."""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, payload: dict) -> "FeatureConfig":
+        """체크포인트의 dict 에서 복원한다. 모르는 키는 무시한다."""
         known = {f.name for f in fields(cls)}
         return cls(**{k: v for k, v in payload.items() if k in known})
 
 
 @dataclass(frozen=True)
 class TrainConfig:
-    branch: str = "resnet"  # "resnet" | "w2v2" | "audeering"
+    """학습 설정. 체크포인트와 학습 로그(*.history.json)에 함께 기록된다."""
+
+    branch: str = "resnet"  # "resnet" | "w2v2"
     epochs: int = 8
     batch_size: int = 64
     lr: float = 1e-4
@@ -66,10 +70,11 @@ class TrainConfig:
     amp: bool = True
 
     def __post_init__(self) -> None:
-        if self.branch not in ("resnet", "w2v2", "audeering"):
-            raise ValueError(f"branch must be resnet/w2v2/audeering, got {self.branch!r}")
+        if self.branch not in ("resnet", "w2v2"):
+            raise ValueError(f"branch must be resnet/w2v2, got {self.branch!r}")
         if not 0.0 < self.dev_fraction < 1.0:
             raise ValueError(f"dev_fraction must be in (0, 1), got {self.dev_fraction}")
 
     def to_dict(self) -> dict:
+        """JSON 직렬화용 dict."""
         return asdict(self)

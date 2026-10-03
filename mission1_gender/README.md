@@ -13,7 +13,7 @@
 
 1. **조각 단위 학습** — `speaker == 1`(신고자) 발화 구간만 잘라, 각 조각에 그 통화의
    성별을 라벨로 붙여 이진 분류기를 학습
-2. **통화 단위 집계** — 한 통화의 조각별 확률을 평균(soft voting)해 남/여 결정
+2. **통화 단위 집계** — 한 통화의 조각별 확률을 평균(soft voting)해 라벨 원값 `M`/`F` 결정
 
 통화당 신고자 조각이 평균 15.8개라 집계 효과가 크다. 실측으로 조각 정확도 0.877~0.897 →
 통화 정확도 0.9791~0.9835 (Validation 3,640통화, 결정 임계값 0.5 고정, 갈래별 표 참고).
@@ -32,11 +32,11 @@
 
 ## 제출 모델 선정 — dev 기준, 결정 임계값 0.5 고정
 
-**결정 임계값은 대회 규정으로 0.5 고정이다.** 조각 확률의 통화 평균이 0.5 이상이면 여, 아니면 남.
+**결정 임계값은 대회 규정으로 0.5 고정이다.** 조각 확률의 통화 평균이 0.5 이상이면 `F`, 아니면 `M`.
 `m1.models.decision_threshold` 가 항상 0.5 를 돌려주고 제출 경로(`m1.infer`)와 비교표
 (`benchmark`/`analysis`/`overlap`)가 이 값을 쓴다. 한때 dev 에서 보정한 임계값(0.515 등)을
-체크포인트에 저장해 썼으나 규정에 맞춰 폐기했고, 제출 체크포인트 두 개에서는 저장값 자체를
-제거했다 (아래 5절은 연구 기록).
+체크포인트에 저장해 썼으나 규정에 맞춰 폐기했고, 제출 체크포인트에서는 저장값 자체를
+제거했으며 보정 코드(`m1.calibrate`)도 지웠다 (아래 5절은 연구 기록).
 
 **모델·설정은 Training 내부 dev(2,920통화)로 고르고, Validation 은 보고만 한다.** 규정상
 Validation 으로 모델을 골라도 되지만, 그렇게 하면 보고 수치가 낙관적으로 치우치므로 dev 로
@@ -61,14 +61,14 @@ dev 는 학습 중 매 epoch 찍는 `center`(조각당 창 1개) 값이고, 제�
 앞선다. 제출 경로와 같은 sliding dev 에서도 w2v2 0.9897 vs ResNet 0.9863 다.
 체크포인트에 HF config 를 동봉해 오프라인 환경에서도 로딩된다 (`HF_HUB_OFFLINE=1` 실증).
 
-**폴백: `resnet_aug_m80.pt`** — dev 기준 ResNet 최고. 94 MB, 추론 8배 빠름. 채점 머신에 GPU 가
-없거나 시간 제한이 있으면 이쪽. `--ckpt_path` 만 바꾸면 된다. `resnet_kd.pt` 는 Validation 만
+**비교 실험: `resnet_aug_m80.pt`** — dev 기준 ResNet 최고. 94 MB, 추론 8배 빠름. 한때 폴백 후보로
+뒀으나 예선 제출에서는 뺐다 (코드는 비교 실험 기록으로 남김). `resnet_kd.pt` 는 Validation 만
 보면 ResNet 최고(0.9824)지만 dev 가 가장 낮아(0.9856) Validation 으로 고른 셈이 되므로 쓰지 않는다.
 
 **단일 시드의 한계.** 모든 갈래를 시드 하나로만 학습했고 반복 실험이 없다. Validation 오답
 겹침으로 McNemar 정확검정을 하면 w2v2 는 기준 ResNet 보다 유의하게 낫지만(한쪽만 오답 22 vs 6,
-p=0.004), 폴백 `resnet_aug_m80` 과는 분리되지 않는다(17 vs 12, p=0.46). ResNet 변형끼리는 전부
-노이즈 범위다. "w2v2 가 폴백보다 낫다" 는 두 집합에서 일관된 방향이라는 근거이지 통계적
+p=0.004), `resnet_aug_m80` 과는 분리되지 않는다(17 vs 12, p=0.46). ResNet 변형끼리는 전부
+노이즈 범위다. "w2v2 가 `resnet_aug_m80` 보다 낫다" 는 두 집합에서 일관된 방향이라는 근거이지 통계적
 확정이 아니다.
 
 ### ResNet 끌어올리기 실험에서 배운 것
@@ -162,36 +162,30 @@ python -c "import sys;sys.path.insert(0,'mission1_gender');from m1.cache import 
 ### 3. 학습
 
 ```bash
-PYTHONPATH=mission1_gender python -m m1.train --branch resnet --cache cache/train --out mission1_gender/ckpt/resnet_full.pt --epochs 6
+PYTHONPATH=mission1_gender python -m m1.train --branch resnet --cache cache/train --out mission1_gender/ckpt/resnet_full.pt --epochs 6 --num-workers 6
 ```
 
 ```bash
-PYTHONPATH=mission1_gender python -m m1.train --branch w2v2 --cache cache/train --out mission1_gender/ckpt/w2v2_full.pt --epochs 3 --lr 3e-5 --batch-size 32
+PYTHONPATH=mission1_gender python -m m1.train --branch w2v2 --cache cache/train --out mission1_gender/ckpt/w2v2_full.pt --epochs 3 --lr 3e-5 --batch-size 32 --num-workers 6
 ```
 
-폴백 ResNet (`resnet_aug_m80.pt`):
+비교 실험 ResNet (`resnet_aug_m80.pt`):
 
 ```bash
-PYTHONPATH=mission1_gender python -m m1.train --branch resnet --cache cache/train --out mission1_gender/ckpt/resnet_aug_m80.pt --epochs 6 --spec-augment --n-mels 80
+PYTHONPATH=mission1_gender python -m m1.train --branch resnet --cache cache/train --out mission1_gender/ckpt/resnet_aug_m80.pt --epochs 6 --spec-augment --n-mels 80 --num-workers 6
 ```
 
 위 명령이 이 저장소의 체크포인트를 만든 설정 그대로다 (`ckpt/*.history.json` 의 `train_config`).
 lr·weight decay·배치는 탐색하지 않고 고정했다 (ResNet lr 1e-4·배치 64, 16 kHz 갈래 lr 3e-5·배치 32,
 AdamW wd 1e-4, cosine, AMP). dev 로 고른 것은 epoch 수(w2v2 3 vs 8)와 갈래별 변형뿐이다.
 
-```bash
-PYTHONPATH=mission1_gender python -m m1.train --branch audeering --cache cache/train --out mission1_gender/ckpt/audeering_full.pt --epochs 3 --batch-size 32
-```
-
-세 번째 갈래 `audeering` 은 `audeering/wav2vec2-large-robust-6-ft-age-gender` 를 백본으로
-쓴다. Fisher/Switchboard **전화 음성**으로 사전학습된 유일한 후보라, 16 kHz 고음질로만
+(실험 기록) 세 번째 갈래 `audeering` 은 `audeering/wav2vec2-large-robust-6-ft-age-gender` 를
+백본으로 썼다. Fisher/Switchboard **전화 음성**으로 사전학습된 유일한 후보라, 16 kHz 고음질로만
 사전학습된 앞의 두 갈래와 오류 프로파일이 다른지 보려고 넣었다 (zero-shot 진단에서
 우리 오답 70 통화 중 30 을 맞혔다 — `reports/audeering_diag.json`). 층별 학습 가중치와
-latent 시간 마스킹이 들어 있다.
-
-- **라이선스 CC-BY-NC-SA-4.0** (비상업). 이 갈래를 제출하면 문서에 명시해야 한다.
-- feature encoder 가 layer-norm 이라 **평가 배치 256 에서 OOM** 난다. `calibrate` /
-  `benchmark` / `analysis` 에 `--batch-size 64` 를 줄 것 (학습은 32 로 정상).
+latent 시간 마스킹이 들어 있었다. 백본 라이선스는 CC-BY-NC-SA-4.0(비상업)이다. 결과는
+`reports/` 의 audeering 파일과 앞의 표에 남기고, 갈래 코드는 제출 정리 때 뺐다 (저장소 이력에 있다).
+같은 정리에서 지식 증류(`--kd-probs`) 학습 옵션도 뺐다 (`resnet_kd.pt` 는 그 기록이다).
 
 ### 4. 비교표
 
@@ -199,20 +193,17 @@ latent 시간 마스킹이 들어 있다.
 PYTHONPATH=mission1_gender python -m m1.benchmark --ckpt mission1_gender/ckpt/resnet_full.pt --ckpt mission1_gender/ckpt/w2v2_full.pt
 ```
 
-규정대로 0.5 로 채점한다. 체크포인트에 남아 있는 보정값으로 채점하려면(연구용)
-`--use-ckpt-threshold` (`analysis`/`overlap` 도 같은 플래그).
+규정대로 0.5 로 채점한다 (`analysis`/`overlap` 도 같다).
 
 ### 5. (연구 기록) 결정 임계값 보정 — 제출에는 쓰지 않는다
 
-```bash
-PYTHONPATH=mission1_gender python -m m1.calibrate --ckpt mission1_gender/ckpt/resnet_full.pt --dry-run
-```
+규정 확인 전에 dev 에서 임계값을 골라 체크포인트에 기록해 본 기록이다. 그 보정 코드(`m1.calibrate`)는
+지웠다.
 
 조각 확률을 통화 단위로 평균하면 0.5 가 최적 경계가 아니다. dev 에서 고른 0.515 를 쓰면
 ResNet 기준 Validation 0.9791 -> 0.9808, w2v2 는 0.9835 -> 0.9843 이 된다 (계산 비용 0).
-**그러나 대회 규정이 임계값 0.5 고정이라 제출에는 쓰지 않는다.** 제출 경로와 비교표 기본값은
-저장값을 무시하고, 제출 체크포인트에서는 값을 제거했다. `--dry-run` 없이 실행하면 체크포인트에
-값이 다시 기록되지만 판정에는 여전히 쓰이지 않는다.
+**그러나 대회 규정이 임계값 0.5 고정이라 제출에는 쓰지 않는다.** 제출 경로와 비교표는
+체크포인트 저장값을 읽지 않고, 제출 체크포인트에서는 값을 제거했다.
 
 같은 이유로 Validation 에서 임계값을 고르는 것도 하지 않았다. Validation 최적값(0.540)은
 +0.28%p 로 보이지만 평가 데이터에 맞춘 값이고, dev 에서 고른 값의 실제 이득은 +0.16%p 였다.
@@ -229,7 +220,7 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 
 체크포인트에 `FeatureConfig`·갈래·HF config 가 함께 저장되므로 `--ckpt_path` 만 바꾸면
 전처리가 자동으로 복원되고, **인터넷 접속 없이** 로딩된다 (`HF_HUB_OFFLINE=1` 로 실증).
-결정 임계값은 체크포인트와 무관하게 0.5 다. 폴백은 `ckpt/resnet_aug_m80.pt`.
+결정 임계값은 체크포인트와 무관하게 0.5 다.
 
 리포지터리 루트의 `inference.py` 는 세 미션 공용 진입점이며 같은 함수를 호출한다.
 
@@ -244,8 +235,8 @@ python inference.py --audio_dir <wav 폴더> --label_dir <json 폴더> --ckpt_pa
 ```
 
 - 첫 줄 `[Mission 1] branch=... threshold=0.500 (규정 고정) ...` — **0.500 이 아니면 옛 코드**다.
-  `ckpt 저장값 ... 은 무시` 가 덧붙으면 보정값이 남은 체크포인트이니 제출본에서는 제거할 것
-- 종료 코드 0, `outputs/mission1.csv` 행 수 = 입력 통화 수, 값은 `남`/`여` 만
+  `ckpt 저장값 ... 은 쓰지 않음` 이 덧붙으면 보정값이 남은 체크포인트이니 제출본에서는 제거할 것
+- 종료 코드 0, `outputs/mission1.csv` 행 수 = 입력 통화 수, 값은 `M`/`F` 만
 - w2v2 갈래면 `HF_HUB_OFFLINE=1` 을 붙여 한 번 더 실행해 허브 없이 로딩되는지 확인
 
 ### 테스트
@@ -259,7 +250,7 @@ python -m pytest -q
 
 ## 계산 효율성 (채점 안내 2-8 항목)
 
-| 항목 | 제출 1안 `w2v2_full.pt` | 폴백 `resnet_aug_m80.pt` |
+| 항목 | 제출 `w2v2_full.pt` | 비교 실험 `resnet_aug_m80.pt` |
 |---|---|---|
 | Validation 통화 Acc (임계값 0.5) | **0.9835** | 0.9821 |
 | Total 파라미터 | 94.4M | 23.5M |
@@ -276,8 +267,7 @@ python -m pytest -q
 시간(모델 로딩·wav 디코딩·리샘플·추론·CSV 저장 포함)이다. Validation 3,640 통화, 2026-09-19 실측.
 
 GPU 가 없는 환경에서는 CPU 로 동작한다(참고: Ryzen 5 9600 에서 w2v2 통화당 약 1.5~2초, Validation
-전체 약 1.5시간 추정 / 폴백 ResNet 은 통화당 약 0.16초, 10분 이내 추정. 12통화 표본 측정).
-시간 제약이 있으면 `--ckpt_path ckpt/resnet_aug_m80.pt` 로 폴백 모델을 쓸 수 있다.
+전체 약 1.5시간 추정 / ResNet 은 통화당 약 0.16초, 10분 이내 추정. 12통화 표본 측정).
 
 **w2v2 는 배치 크기를 128 로 올리면 8 GB GPU 에서 10배 느려진다 (통화당 616 ms, 31 분).**
 16 kHz 창(48,896 샘플) 128 개를 한 번에 넣으면 예약 GPU 메모리가 9.2 GB 로 VRAM 8 GB 를
@@ -293,16 +283,16 @@ GPU 가 없는 환경에서는 CPU 로 동작한다(참고: Ryzen 5 9600 에서 
 | 16 | 59 ms | 1.98 GB |
 
 VRAM 이 8 GB 보다 작은 채점 머신이면 `--batch_size 16` 으로 내린다 (속도 손해 없음).
-ResNet 은 8 kHz 멜 입력이라 128 도 안전하다. 시간 제한이 매우 빡빡하면 폴백
-`resnet_aug_m80.pt` (정확도 0.9821, 27.2초)를 쓴다.
+ResNet 은 8 kHz 멜 입력이라 128 도 안전하다.
 
 ## 제출 패키징 주의
 
-- `ckpt/*.pt` 는 `.gitignore` 라 **리포지터리에 없다.** 제출 폴더에는 `ckpt/w2v2_full.pt`
-  (와 폴백 `ckpt/resnet_aug_m80.pt`)를 직접 넣을 것
+- `ckpt/*.pt` 는 `.gitignore` 라 **리포지터리에 없다.** 제출 폴더에는 `ckpt/w2v2_full.pt` 를
+  직접 넣을 것
 - 폴더 구성: `inference.py`, `m1/`, `ckpt/`, `requirements.txt`, `model_train.ipynb`, `README.md`
+  (제출 `README.md` 는 `SUBMISSION_README.md` 다)
 - 넣은 그 `.pt` 로 위 체크리스트를 한 번 실행해 첫 줄이 `threshold=0.500 (규정 고정)` 이고
-  `저장값 ... 무시` 문구가 없는지 확인 (제출 체크포인트 두 개는 보정값을 제거해 둔 상태)
+  `저장값 ... 쓰지 않음` 문구가 없는지 확인 (제출 체크포인트는 보정값을 제거해 둔 상태)
 
 ## 환경 주의사항
 

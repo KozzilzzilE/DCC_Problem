@@ -2,7 +2,6 @@
 import json
 
 import numpy as np
-import pytest
 import soundfile as sf
 
 from m1.cache import CacheIndex, build_cache
@@ -140,8 +139,8 @@ def test_gender_absent_is_written_as_empty(tmp_path):
     assert index.rows[0].gender is None
 
 
-def test_dataset_soft_targets_replace_hard_labels(tmp_path):
-    """지식 증류: soft_targets 를 주면 그 값이 타깃으로 나온다."""
+def test_dataset_returns_call_label_as_target(tmp_path):
+    """조각 타깃은 통화의 gender 다 (M -> 0, F -> 1)."""
     from m1.config import FeatureConfig
     from m1.datasets import SegmentWindowDataset, samples_from_rows
 
@@ -150,11 +149,8 @@ def test_dataset_soft_targets_replace_hard_labels(tmp_path):
     samples = samples_from_rows(index.rows)
     cfg = FeatureConfig()
 
-    hard = SegmentWindowDataset(index, samples, cfg, train=False)
-    soft = SegmentWindowDataset(index, samples, cfg, train=False, soft_targets=[0.2, 0.9])
-    assert float(hard[0][1]) == 0.0
-    assert float(soft[0][1]) == pytest.approx(0.2)   # float32 텐서
-    assert float(soft[1][1]) == pytest.approx(0.9)
-
-    with pytest.raises(ValueError):
-        SegmentWindowDataset(index, samples, cfg, soft_targets=[0.5])
+    dataset = SegmentWindowDataset(index, samples, cfg, train=False)
+    assert len(dataset) == 2
+    wave, target = dataset[0]
+    assert wave.shape == (cfg.window_samples,)
+    assert float(target) == 0.0

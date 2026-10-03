@@ -21,12 +21,14 @@ from .config import FeatureConfig
 INT16_SCALE = 32768.0
 W2V2_SAMPLE_RATE = 16000
 # raw waveform 을 16 kHz 로 받는 갈래. 캐시(8 kHz)에서 꺼낼 때 업샘플한다.
-RESAMPLE_BRANCHES = frozenset({"w2v2", "audeering"})
+RESAMPLE_BRANCHES = frozenset({"w2v2"})
 _MEMMAP_CACHE_SIZE = 256
 
 
 @dataclass(frozen=True, slots=True)
 class Sample:
+    """학습·평가 샘플 하나. target 은 0(M)/1(F), 라벨이 없으면 -1."""
+
     row: CacheRow
     target: int
 
@@ -67,6 +69,7 @@ class _SegmentReader:
         self._open: OrderedDict[str, np.ndarray] = OrderedDict()
 
     def read(self, row: CacheRow) -> np.ndarray:
+        """조각 하나를 int16 배열로 읽는다. 최근에 연 통화 파일은 다시 열지 않는다."""
         data = self._open.get(row.call_id)
         if data is None:
             data = np.load(self.index.call_path(row.call_id), mmap_mode="r")
@@ -110,14 +113,9 @@ class SegmentWindowDataset(Dataset):
         branch: str = "resnet",
         train: bool = True,
         seed: int = 0,
-        soft_targets: "list[float] | None" = None,
     ):
         self.index = index
         self.samples = samples
-        # 지식 증류용. samples 와 같은 길이의 [0,1] 타깃. None 이면 hard 라벨.
-        self.soft_targets = soft_targets
-        if soft_targets is not None and len(soft_targets) != len(samples):
-            raise ValueError("soft_targets 길이가 samples 와 다릅니다")
         self.cfg = cfg
         self.branch = branch
         self.train = train
@@ -128,7 +126,7 @@ class SegmentWindowDataset(Dataset):
         return len(self.samples)
 
     def _read(self, row: CacheRow) -> np.ndarray:
-        # DataLoader 워커마다 독립된 memmap 을 갖도록 지연 생성한다.
+        """조각 하나를 읽는다. DataLoader 워커마다 독립된 memmap 을 갖도록 리더를 지연 생성한다."""
         if self._reader is None:
             self._reader = _SegmentReader(self.index)
         return self._reader.read(row)
@@ -145,11 +143,7 @@ class SegmentWindowDataset(Dataset):
             start = None
 
         wave = to_waveform(crop_or_pad(segment, target_len, start), self.branch)
-        # getattr: Windows spawn 워커는 디스크의 최신 코드를 다시 import 하므로, 실행 중
-        # 수정된 클래스와 옛 객체가 만나도 죽지 않게 한다.
-        soft = getattr(self, "soft_targets", None)
-        target = soft[idx] if soft is not None else float(sample.target)
-        return torch.from_numpy(wave), torch.tensor(float(target))
+        return torch.from_numpy(wave), torch.tensor(float(sample.target))
 
 
 class SlidingWindowDataset(Dataset):
