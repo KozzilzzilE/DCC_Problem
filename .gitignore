@@ -17,6 +17,9 @@ outputs/**
 !outputs/**/.gitkeep
 .codex_kf_cache/
 *.pt
+!mission2_speaker/checkpoints/best_redimnet.pt
+!mission2_speaker/checkpoints/best_ecapa_tdnn.pt
+!mission2_speaker/checkpoints/best_resnet50.pt
 *.pth
 *.h5
 *.weights
