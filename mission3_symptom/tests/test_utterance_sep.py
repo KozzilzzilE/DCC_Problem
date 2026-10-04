@@ -71,15 +71,12 @@ class UtteranceSeparatorTest(unittest.TestCase):
         text = _parse_dialogue_text(utterances, resolve_utterance_sep("sep"))
         self.assertEqual(text, "첫 발화 [SEP] 둘째 발화")
 
-    def test_turn_mode_uses_dedicated_marker(self) -> None:
-        text = _parse_dialogue_text(SAMPLE_UTTERANCES, resolve_utterance_sep("turn"))
-        self.assertEqual(text.count("[TURN]"), len(SAMPLE_UTTERANCES) - 1)
-        self.assertNotIn("[SEP]", text)
-
     def test_unknown_mode_is_rejected(self) -> None:
-        with self.assertRaises(ValueError):
-            resolve_utterance_sep("newline")
-        self.assertEqual(set(UTTERANCE_SEP_MODES), {"space", "sep", "turn"})
+        # turn([TURN] 전용 토큰)은 tokenizer 에 등록한 적이 없어 지원 모드에서 뺐다.
+        for mode in ("newline", "turn"):
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                resolve_utterance_sep(mode)
+        self.assertEqual(set(UTTERANCE_SEP_MODES), {"space", "sep"})
 
     def test_metadata_never_leaks_in_any_mode(self) -> None:
         """대회 규정 회귀 방지: 구분자를 넣어도 speaker/시간/인적사항은 절대 포함되지 않는다."""
@@ -129,7 +126,6 @@ class SepModeVerificationTest(unittest.TestCase):
         from m3.labels import verify_utterance_sep_mode
         verify_utterance_sep_mode(['앞 [SEP] 뒤', '다른 본문'], 'sep')
         verify_utterance_sep_mode(['경계 없는 본문'], 'space')
-        verify_utterance_sep_mode(['앞 [TURN] 뒤'], 'turn')
 
     def test_empty_sample_is_rejected(self) -> None:
         from m3.labels import verify_utterance_sep_mode

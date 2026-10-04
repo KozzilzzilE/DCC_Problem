@@ -196,8 +196,9 @@ def mission3_inference(audio_dir, label_dir, ckpt_path):
     결정 임계값은 대회 규정대로 0.5 고정이다. 학습 중 탐색한 class-wise threshold 는
     제출 경로에서 사용하지 않는다.
 
-    `ckpt_path` 는 run 디렉터리(`best_model` 포함)나 `best_model` 디렉터리를 받는다.
-    발화 경계 표현과 인코딩 설정은 그 안의 run_config 에서 복원한다.
+    `ckpt_path` 는 제출 번들 `.pt` 파일(`mission3_symptom/ckpt/mission3.pt`, 앙상블 4개 균등 평균)을 받는다.
+    단일 모델 확인용으로 run 디렉터리(`best_model` 포함)나 `best_model` 디렉터리도 받는다.
+    발화 경계 표현과 인코딩 설정은 번들·폴더 안의 inference_config 에서 복원한다.
     """
     print("Mission 3 추론 시작...")
 

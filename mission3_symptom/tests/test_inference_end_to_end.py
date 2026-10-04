@@ -37,7 +37,7 @@ SAMPLE_TEXTS = [
 def build_offline_bundle(model_dir: Path) -> None:
     """인터넷 없이 로드 가능한 최소 번들을 만든다."""
     specials = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"]
-    corpus = SANITY_TEXT + "".join("".join(t) for t in SAMPLE_TEXTS) + "[SEP][TURN]"
+    corpus = SANITY_TEXT + "".join("".join(t) for t in SAMPLE_TEXTS) + "[SEP]"
     chars = sorted({c for c in corpus if not c.isspace()})
     # 한글은 BERT 의 CJK 문자 분리 대상이 아니라 wordpiece 가 "##" 접두 조각을 찾는다.
     vocab = specials + [c for c in chars if c not in specials] + [f"##{c}" for c in chars]
@@ -206,10 +206,14 @@ class StandaloneEntryPointTest(unittest.TestCase):
     """mission3_symptom/ 만 제출해도 동작해야 한다 (mission1 과 같은 구조)."""
 
     def test_writes_submission_csv(self) -> None:
-        import importlib
+        import importlib.util
 
-        entry = importlib.import_module("inference") if str(MISSION3_DIR) in sys.path else None
-        self.assertIsNotNone(entry, "mission3_symptom 이 sys.path 에 있어야 한다")
+        spec = importlib.util.spec_from_file_location(
+            "m3_standalone_inference", MISSION3_DIR / "inference.py"
+        )
+        self.assertIsNotNone(spec and spec.loader, "mission3_symptom/inference.py 가 존재해야 한다")
+        entry = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(entry)
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

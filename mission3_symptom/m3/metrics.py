@@ -3,12 +3,25 @@
 규정 준수 Macro F1-score 및 클래스별 F1 계산을 담당
 대회 공식 산식:
     Macro F1 = (1 / 9) * sum(F1_c for c in 9 classes)
+결정 임계값은 대회 규정대로 모든 클래스 0.5 고정이다 (클래스별 임계값은 쓰지 않는다).
 """
 
 from typing import Dict, List, Tuple, Union
 import numpy as np
 
 from .config import NUM_CLASSES, TARGET_SYMPTOMS
+
+
+def apply_thresholds(
+    y_probs: Union[np.ndarray, List],
+    threshold: float = 0.5,
+) -> np.ndarray:
+    """확률 행렬 (N, 9) 에 9개 클래스 공통 임계값 하나를 적용해 0/1 예측 행렬을 반환.
+
+    학습 중 Validation(또는 dev) 평가는 대회 규정값 0.5 로만 부른다.
+    """
+    y_probs = np.asarray(y_probs, dtype=float)
+    return (y_probs >= threshold).astype(int)
 
 
 def calculate_binary_f1(y_true: np.ndarray, y_pred: np.ndarray) -> float:

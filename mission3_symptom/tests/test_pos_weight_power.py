@@ -84,8 +84,8 @@ class PosWeightPowerTest(unittest.TestCase):
 
 
 class RunTrainingWiringTest(unittest.TestCase):
-    def test_run_training_feeds_power_into_loss(self) -> None:
-        """run_training 이 설정의 power 로 계산한 pos_weight 를 손실에 넘기는지 고정한다."""
+    def _captured_pos_weight(self, **overrides):
+        """run_training 을 손실 생성 직전까지 돌려 BCEWithLogitsLoss 에 넘긴 pos_weight 를 잡는다."""
         import tempfile
         from unittest.mock import MagicMock
 
@@ -97,7 +97,7 @@ class RunTrainingWiringTest(unittest.TestCase):
         frame = pd.DataFrame({"text": ["a"] * 5, **{s: [1, 0, 0, 0, 0] for s in TARGET_SYMPTOMS}})
         captured = {}
 
-        def fake_build_loss(loss_type, pos_weight=None, **kwargs):
+        def fake_bce(pos_weight=None):
             captured["pos_weight"] = pos_weight
             raise _Stop
 
@@ -106,16 +106,24 @@ class RunTrainingWiringTest(unittest.TestCase):
                 patch.object(training, "verify_utterance_sep_mode"), \
                 patch.object(training, "build_tokenizer_and_model", return_value=(MagicMock(), MagicMock())), \
                 patch.object(training, "calculate_token_length_stats", return_value={}), \
-                patch.object(training, "_create_train_val_loaders", return_value=(None, None, None)), \
-                patch.object(training, "build_loss", side_effect=fake_build_loss):
+                patch.object(training, "_create_train_val_loaders", return_value=(None, None)), \
+                patch.object(training, "BCEWithLogitsLoss", side_effect=fake_bce):
             config = TrainingConfig(
                 train_csv="train.csv", val_csv="val.csv", output_dir=str(Path(tmp) / "out"),
-                use_pos_weight=True, pos_weight_power=0.5, device="cpu",
+                device="cpu", **overrides,
             )
             with self.assertRaises(_Stop):
                 training.run_training(config)
+        return captured["pos_weight"]
 
-        self.assertTrue(torch.allclose(captured["pos_weight"].cpu(), torch.full((NUM_CLASSES,), 2.0)))
+    def test_run_training_feeds_power_into_loss(self) -> None:
+        """run_training 이 설정의 power 로 계산한 pos_weight 를 손실에 넘기는지 고정한다."""
+        pos_weight = self._captured_pos_weight(use_pos_weight=True, pos_weight_power=0.5)
+
+        self.assertTrue(torch.allclose(pos_weight.cpu(), torch.full((NUM_CLASSES,), 2.0)))
+
+    def test_plain_bce_without_pos_weight(self) -> None:
+        self.assertIsNone(self._captured_pos_weight())
 
 
 if __name__ == "__main__":

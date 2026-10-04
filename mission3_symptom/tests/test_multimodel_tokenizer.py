@@ -1,11 +1,11 @@
-"""다중 백본 모델 및 토크나이저 호환성 단위 테스트."""
+"""모델·토크나이저 로드와 호환성 검사 단위 테스트."""
 
 from __future__ import annotations
 
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 MISSION3_DIR = Path(__file__).resolve().parents[1]
 if str(MISSION3_DIR) not in sys.path:
@@ -17,17 +17,9 @@ if "transformers" not in sys.modules:
         import transformers  # noqa: F401
     except ImportError:
         sys.modules["transformers"] = MagicMock()
-if "sentencepiece" not in sys.modules:
-    try:
-        import sentencepiece  # noqa: F401
-    except ImportError:
-        sys.modules["sentencepiece"] = MagicMock()
 
-from m3.model import (
-    is_kobert_model,
-    validate_generic_tokenizer_model_compatibility,
-    validate_tokenizer_model_compatibility,
-)
+from m3.config import NUM_CLASSES, TARGET_SYMPTOMS
+from m3.model import build_tokenizer_and_model, validate_tokenizer_model_compatibility
 
 
 class DummyEmbedding:
@@ -71,36 +63,55 @@ class DummyBrokenJamoTokenizer(DummyGenericTokenizer):
         return ["ㅎ", "ㅏ", "ㄴ", "ㄱ", "ㅜ", "ㄱ"]
 
 
-class MultiModelTokenizerTest(unittest.TestCase):
-    def test_is_kobert_model_detection(self) -> None:
-        self.assertTrue(is_kobert_model("skt/kobert-base-v1"))
-        self.assertTrue(is_kobert_model("my-kobert-finetuned"))
-        self.assertFalse(is_kobert_model("monologg/koelectra-base-v3-discriminator"))
-        self.assertFalse(is_kobert_model("klue/roberta-base"))
-        self.assertFalse(is_kobert_model("klue/bert-base"))
-
-    def test_generic_tokenizer_sanity_pass(self) -> None:
+class TokenizerSanityTest(unittest.TestCase):
+    def test_tokenizer_sanity_pass(self) -> None:
         tokenizer = DummyGenericTokenizer()
         model = DummyModel(1000)
-        result = validate_generic_tokenizer_model_compatibility(tokenizer, model)
+        result = validate_tokenizer_model_compatibility(tokenizer, model)
         self.assertEqual(result["tokenizer_class"], "DummyGenericTokenizer")
         self.assertEqual(result["first_token_id"], 2)
         self.assertEqual(result["last_token_id"], 3)
         self.assertEqual(result["unk_ratio"], 0.0)
 
-    def test_generic_tokenizer_jamo_rejection(self) -> None:
+    def test_tokenizer_jamo_rejection(self) -> None:
         tokenizer = DummyBrokenJamoTokenizer()
         model = DummyModel(1000)
         with self.assertRaises(ValueError) as ctx:
-            validate_generic_tokenizer_model_compatibility(tokenizer, model)
+            validate_tokenizer_model_compatibility(tokenizer, model)
         self.assertIn("한국어가 자모 단위로 분해되었습니다", str(ctx.exception))
 
-    def test_generic_tokenizer_resizes_embedding_if_needed(self) -> None:
+    def test_tokenizer_larger_than_embedding_is_rejected(self) -> None:
+        """임베딩을 조용히 늘리지 않고 멈춘다 (늘린 행은 무작위라 저장한 모델과 달라진다)."""
         tokenizer = DummyGenericTokenizer(vocab_size=1500)
         model = DummyModel(1000)
-        result = validate_generic_tokenizer_model_compatibility(tokenizer, model)
-        self.assertEqual(model.get_input_embeddings().num_embeddings, 1500)
-        self.assertEqual(result["embedding_size"], 1500)
+        with self.assertRaises(ValueError) as ctx:
+            validate_tokenizer_model_compatibility(tokenizer, model)
+        self.assertIn("토크나이저 크기(1500)", str(ctx.exception))
+        self.assertEqual(model.get_input_embeddings().num_embeddings, 1000)
+
+
+class BuildModelTest(unittest.TestCase):
+    def test_builds_nine_label_multilabel_head_with_load_options(self) -> None:
+        """분류 헤드 설정(9개 라벨·순서·multi-label)과 로드 옵션이 표준 로더에 그대로 넘어가는지 고정한다."""
+        tokenizer, model = MagicMock(), MagicMock()
+        with patch("m3.model.AutoTokenizer.from_pretrained", return_value=tokenizer) as tokenizer_loader, \
+                patch("m3.model.AutoModelForSequenceClassification.from_pretrained",
+                      return_value=model) as model_loader, \
+                patch("m3.model.validate_tokenizer_model_compatibility") as validate:
+            built = build_tokenizer_and_model("runs/devsel/tapt", local_files_only=True, revision="abc")
+
+        self.assertEqual(built, (tokenizer, model))
+        tokenizer_loader.assert_called_once_with("runs/devsel/tapt", local_files_only=True, revision="abc")
+        model_loader.assert_called_once_with(
+            "runs/devsel/tapt",
+            num_labels=NUM_CLASSES,
+            label2id={symptom: index for index, symptom in enumerate(TARGET_SYMPTOMS)},
+            id2label={index: symptom for index, symptom in enumerate(TARGET_SYMPTOMS)},
+            problem_type="multi_label_classification",
+            local_files_only=True,
+            revision="abc",
+        )
+        validate.assert_called_once_with(tokenizer, model)
 
 
 if __name__ == "__main__":
