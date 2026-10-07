@@ -1,343 +1,199 @@
-# [ ] 119            
-
-- ****: DCC Problem Mission 2 -    (  vs )  
-- ** **: 2026 9
-- ** **: Local Workstation (NVIDIA GeForce RTX 3060 6GB GDDR6, 32GB RAM)  Google Colab (Tesla T4 15GB)
-- ** **: AI-Hub 119     (    111,947, 15.6GB)
-
----
+# 119 긴급 통화 음성 기반 화자 분류 실험 보고서
 
-## 1.    
+Mission 2는 발화 구간의 음성만으로 상황실 접수요원 0과 신고자 1을 분류하는 과제다. 본 보고서는 전처리 비교, 세 모델 학습, 밴드패스 실험과 앙상블 평가를 정리한다. 최종 결과는 보존된 실행 기록 기준 정확도 92.48%, Macro F1 0.9244이며, 세 모델의 균등 평균과 고정 결정 임계값 0.50을 사용했다.
 
-### 1.1  
-119          ,  ,    .  (Dispatcher)          , (Caller)    ,   ,          .                      .
+## 1 프로젝트 목표와 최종 결과
 
-### 1.2     
-1. ** **:    (11.2 )   F1-Score   92%  .
-2. ** **:       RTF(Real-Time Factor) 0.01    20ms  .
-3. **  **:   GPU(VRAM 6GB )   (OOM)          .
+### 과제와 평가 범위
 
----
+전체 프로젝트는 신고자 성별 분류 Mission 1, 발화자 분류 Mission 2, 대화 텍스트 기반 9개 증상 인식 Mission 3으로 구성된다. 이 문서의 실험과 성적은 Mission 2에 한정한다. 입력은 JSON의 startAt과 endAt으로 자른 단일 발화 음성이고, 텍스트와 대화 순서는 모델 입력으로 사용하지 않는다. 학습 정답은 speaker 값이다.
 
-## 2.      
+### 진행 내용
 
-### 2.1   
-     8kHz  (Mono)     (   16kHz  )  /  (JSON) .
--  (Train Set):  873,137  
--  (Validation Set):  111,947   ( 0(): 53,845 /  1(): 58,102)
+초기 ResNet 전처리 비교 후, ReDimNet 계열 로컬 구현과 ECAPA-TDNN, AudioResNet-50을 각각 10에폭 학습했다. 200~4,000Hz 밴드패스 필터를 추가한 미세 조정에서는 관측된 정확도가 하락하여, 기본 전처리 모델 세 개를 앙상블에 사용했다.
 
-### 2.2 5     
-      355       (DSP)  ,    .
-
-|   |  (Class 0) |  (Class 1) |      |
-| :--- | :---: | :---: | :--- |
-| **  ** | 2.11 | 2.38 |   .      12.8%   . |
-| **   (RMS Std)** | 0.0376 | 0.0488 | **   29.8% .**        . |
-| ** ** | 1,070.9 Hz | 891.8 Hz |      ,       . |
-| ** (ZCR)** | 0.1048 | 0.0900 |         /  . |
-| **  ** | 300 ~ 3,400 Hz | 300 ~ 3,400 Hz |  (PSTN/VoLTE)      200~4,000Hz  . |
-
-### 2.3      
-1. ** 1 ( )**:   (200~4,000Hz)       .
-2. ** 2 (  )**:  0dB     30%     RMS  .
-3. ** 3 (   )**:     Delta  Delta-Delta   3  .
-
----
-
-## 3.        (Ablation Study)
-
-### 3.1      
-- ** (Window) **:         `[Batch, Channel, Mels, Time_Steps]`           .
-- ** **:  1.5              .  5.0     1~2    0(Zero-Padding)   VRAM ,  GPU       .       .
-
-### 3.2     
- (Train 30,313 / Val 9,138)  4    .
-- Pre-1: 1.5  + Zero  (n_fft 2048, n_mels 128)
-- Pre-2: 3.0  + Repeat  (n_fft 2048, n_mels 128)
-- Pre-3: 3.0  + Zero  (n_fft 2048, n_mels 128) - 
-- Pre-4: 3.0  + Zero  (n_fft 1024, n_mels 128)
-
-### 3.3    
-
-#### [  : model_train.ipynb Cell 12]
-```text
-[TRAIN]    : 30313  !
-[VAL]    : 9138  !
-
-=================== [ : Pre-1] ===================
-: Window=1.5s, Padding=zero, n_fft=2048, n_mels=128
-  [Epoch 1/3] Train Loss: 0.4456 | Val Acc: 83.79% | Macro F1: 0.8367
-  [Epoch 2/3] Train Loss: 0.3250 | Val Acc: 84.92% | Macro F1: 0.8480
-  [Epoch 3/3] Train Loss: 0.2784 | Val Acc: 84.17% | Macro F1: 0.8416
-
-=================== [ : Pre-2] ===================
-: Window=3.0s, Padding=repeat, n_fft=2048, n_mels=128
-  [Epoch 1/3] Train Loss: 0.4026 | Val Acc: 84.33% | Macro F1: 0.8429
-  [Epoch 2/3] Train Loss: 0.2844 | Val Acc: 83.97% | Macro F1: 0.8397
-  [Epoch 3/3] Train Loss: 0.2289 | Val Acc: 85.14% | Macro F1: 0.8503
-
-=================== [ : Pre-3] ===================
-: Window=3.0s, Padding=zero, n_fft=2048, n_mels=128
-  [Epoch 1/3] Train Loss: 0.4145 | Val Acc: 83.73% | Macro F1: 0.8372
-  [Epoch 2/3] Train Loss: 0.2925 | Val Acc: 85.93% | Macro F1: 0.8584
-  [Epoch 3/3] Train Loss: 0.2282 | Val Acc: 83.63% | Macro F1: 0.8363
-
-=================== [ : Pre-4] ===================
-: Window=3.0s, Padding=zero, n_fft=1024, n_mels=128
-  [Epoch 1/3] Train Loss: 0.4107 | Val Acc: 84.14% | Macro F1: 0.8410
-  [Epoch 2/3] Train Loss: 0.2876 | Val Acc: 85.48% | Macro F1: 0.8545
-  [Epoch 3/3] Train Loss: 0.2263 | Val Acc: 85.19% | Macro F1: 0.8513
-
-[Ablation Study     ]
-    ID        n_fft  n_mels Val Accuracy (%) Macro F1                     
-0  Pre-1   1.5    zero   2048     128           84.92%   0.8480          1.5s    
-1  Pre-2   3.0  repeat   2048     128           85.14%   0.8503        3.0s     
-2  Pre-3   3.0    zero   2048     128           85.93%   0.8584        3.0s  +   ()
-3  Pre-4   3.0    zero   1024     128           85.48%   0.8545  3.0s  +  FFT
-```
-![ 1:        ](figures/fig1_ablation_window.png)
-*< 1>           Macro F1-Score  (Ablation Study)*
-
-![ 1:        ](figures/fig1_ablation_window.png)
-*< 1>           Macro F1-Score  (Ablation Study)*
-
-
-** **: Pre-3(3.0  + Zero )    85.93%, Macro F1 0.8584    . Pre-1(1.5)  1.01%p  , 6GB VRAM    32       .
-
----
-
-## 4.         
-
-### 4.1 3대 패러다임 비교 실험 및 백본 아키텍처 선정 (1. CNN vs 2. 비전 TR vs 3. 음성 TR)
-
-119 긴급 신고 전화 화자 분류에 가장 적합한 모델을 구축하기 위해, 현대 인공지능의 **3대 패러다임(1. 음향 특화 CNN, 2. 비전/오디오 트랜스포머, 3. 음성 대형 트랜스포머)**을 모두 구현하여 계산 효율성, VRAM 메모리 소모량, 전화망 음향 도메인 적합성을 종합 비교 실험함.
-
-#### (1) 3대 패러다임 후보 모델군 및 실험 결과 비교표
-
-| 패러다임 분류 | 대표 모델명 | 파라미터 수 | 입력 형태 | VRAM 점유 (Batch 32) | 실측 정확도 | 한계 및 평가 결과 |
-| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **3. 음성 트랜스포머** | `WavLM-Base+` | 95.0 M | 1D Waveform | > 14 GB (OOM) | - | RTX 3060 (6GB) 즉각적인 CUDA OOM, 에포크당 12시간 소요 |
-| **3. 음성 트랜스포머** | `HuBERT-Base` | 95.0 M | 1D Waveform | > 14 GB (OOM) | - | Self-Attention O(T^2) 복잡도로 배치 축소 불가피, 수렴 불안정 |
-| **3. 음성 트랜스포머** | `Wav2Vec 2.0` | 94.4 M | 1D Waveform | ~ 11 GB (Batch 8) | 89.72% | 8kHz 협대역 PSTN 전화망 음향 도메인 불일치로 정확도 정체 |
-| **2. 비전 트랜스포머** | `SSAST` | 87.0 M | 2D Patch Mel | > 12 GB (OOM) | - | 2D 패치 Self-Attention 메모리 폭증, 실시간 서빙 부적합 |
-| **1. 음향 특화 CNN** | **`ReDimNet2-B2`** | **2.57 M** | 2D+1D Conv | **1.8 GB** | **91.89%** | 초경량, 성도 Formant 국소 특징 완벽 포착, 최고 효율성 |
-| **1. 음향 특화 CNN** | **`ECAPA-TDNN`** | **5.80 M** | 1D Res2Net | **2.1 GB** | **92.10%** | 화자 음색 시계열 통계 풀링 표준, 단독 최고 정확도 |
-| **1. 음향 특화 CNN** | **`AudioResNet-50`**| **23.50 M** | 2D Mel Spec | **3.4 GB** | **91.20%** | 광대역 시간-주파수 텍스처 앵커, 안정적 특징 보존 |
-
-#### (2) 패러다임별 비교 분석: 왜 1번(음향 특화 CNN)이 가장 우수한가?
-1. **2번 및 3번 트랜스포머의 치명적 한계**:
-   - **치명적인 GPU 메모리 한계 (CUDA OOM)**: Self-Attention의 시간 축 길이 제곱에 비례하는 $O(T^2)$ 복잡도로 인해, 3초(48,000 샘플) 처리 시 VRAM 점유율이 14GB 이상으로 폭증하여 단일 GPU(RTX 3060 6GB) 환경에서 즉각적인 **CUDA OOM**이 발생함.
-   - **학습 시간 폭증**: OOM을 피하기 위해 배치 크기를 4~8로 낮추면 87만 건 데이터 기준 1 에포크당 12시간 이상이 소요되어 풀학습 완주가 현실적으로 불가능함.
-   - **전화망 음향 도메인 불일치**: 16kHz 고음질 스튜디오 음성으로 사전학습된 대형 모델(`Wav2Vec 2.0`)은 8kHz 협대역 PSTN 전화망과 긴급 현장 잡음에 일반화되지 못하여 검증 정확도가 **89.72%**에 그침.
-2. **1번 음향 특화 CNN 계열 선정의 당위성**:
-   - 트랜스포머 대비 파라미터가 1/37 수준(2.57M)에 불과하고 VRAM 소모량이 2GB 미만으로, 87만 건 전체 데이터를 매우 빠르고 안정적으로 학습 가능함.
-   - 8kHz 전화망 환경의 Formant/Pitch 음향 구조를 직접 학습하여 92% 이상의 높은 정확도를 달성함.
-   - 추론 지연시간이 1.7~5.1ms(RTF < 0.002)로 119 긴급 현장의 실시간 통화 분기 시스템에 가장 이상적임.
-
-#### (3) 최종 확정된 1번 계열 3대 이종(Heterogeneous) 챔피언 아키텍처
-트랜스포머를 배제하고, 모델 간 오분류 상관관계를 분산시키기 위해 메커니즘이 다른 3대 음향 특화 아키텍처를 최종 확정함:
-1. **ReDimNet2-B2 (하이브리드 계열, 2.57M)**: 2D 국소 주파수 Conv로 Formant/Pitch를 추출하고, 1D Dilated Conv 스택과 Multi-Head Attention 시간 풀링을 결합하여 초경량 고효율 모델링 달성.
-2. **ECAPA-TDNN (1D CNN 계열, 5.80M)**: 글로벌 화자 인식 표준 구조로서 다계층 1D Res2Net 블록, Squeeze-and-Excitation 채널 어텐션, 통계적 풀링을 통해 시간에 따른 음향 시계열 특성을 집중 학습.
-3. **AudioResNet-50 (2D CNN 계열, 23.50M)**: 2차원 고해상도 스펙트로그램을 시간-주파수 텍스처 이미지로 해석하는 1채널 비전 CNN 구조로, 시계열 모델과는 독립적인 시각적 앵커(Anchor) 예측치 제공.
-
-### 4.2  10 Epoch   
-  (Train 873,137 / Val 111,947,   32, AMP )  10 Epoch  .
-
-#### [ReDimNet2-B2  : Local_Light_Train.ipynb Cell 5]
-```text
-Epoch 01  | Train Acc: 87.83% | Val Loss: 0.2123 | Val Acc: 90.01%
-Epoch 02  | Train Acc: 89.95% | Val Loss: 0.2025 | Val Acc: 90.59%
-Epoch 03  | Train Acc: 90.72% | Val Loss: 0.1908 | Val Acc: 90.99%
-Epoch 04  | Train Acc: 91.23% | Val Loss: 0.1900 | Val Acc: 90.79%
-Epoch 05  | Train Acc: 91.64% | Val Loss: 0.1827 | Val Acc: 91.31%
-Epoch 06  | Train Acc: 92.04% | Val Loss: 0.1765 | Val Acc: 91.63%
-Epoch 07  | Train Acc: 92.40% | Val Loss: 0.1737 | Val Acc: 91.74%
-Epoch 08  | Train Acc: 92.73% | Val Loss: 0.1755 | Val Acc: 91.75%
-Epoch 09  | Train Acc: 93.07% | Val Loss: 0.1737 | Val Acc: 91.89% ( )
-Epoch 10  | Train Acc: 93.26% | Val Loss: 0.1783 | Val Acc: 91.80%
-```
-
-#### [ECAPA-TDNN  : Local_Light_Train.ipynb Cell 7]
-```text
-[ECAPA-TDNN] Epoch 01 | Train Acc: 87.97% | Val Loss: 0.2160 | Val Acc: 90.01%
-[ECAPA-TDNN] Epoch 02 | Train Acc: 90.12% | Val Loss: 0.2192 | Val Acc: 89.59%
-[ECAPA-TDNN] Epoch 03 | Train Acc: 90.95% | Val Loss: 0.1886 | Val Acc: 90.99%
-[ECAPA-TDNN] Epoch 04 | Train Acc: 91.46% | Val Loss: 0.1859 | Val Acc: 91.17%
-[ECAPA-TDNN] Epoch 05 | Train Acc: 91.90% | Val Loss: 0.1767 | Val Acc: 91.68%
-[ECAPA-TDNN] Epoch 06 | Train Acc: 92.30% | Val Loss: 0.1765 | Val Acc: 91.65%
-[ECAPA-TDNN] Epoch 07 | Train Acc: 92.71% | Val Loss: 0.1699 | Val Acc: 92.00%
-[ECAPA-TDNN] Epoch 08 | Train Acc: 93.07% | Val Loss: 0.1706 | Val Acc: 92.10% ( )
-[ECAPA-TDNN] Epoch 09 | Train Acc: 93.40% | Val Loss: 0.1724 | Val Acc: 92.09%
-[ECAPA-TDNN] Epoch 10 | Train Acc: 93.69% | Val Loss: 0.1764 | Val Acc: 92.08%
-```
-
-#### [AudioResNet-50  : Local_Light_Train.ipynb Cell 9]
-```text
-[ResNet-50] Epoch 01 | Train Acc: 88.56% | Val Loss: 0.2159 | Val Acc: 89.90%
-[ResNet-50] Epoch 02 | Train Acc: 90.75% | Val Loss: 0.2004 | Val Acc: 90.61%
-[ResNet-50] Epoch 03 | Train Acc: 91.56% | Val Loss: 0.2082 | Val Acc: 90.32%
-[ResNet-50] Epoch 04 | Train Acc: 92.23% | Val Loss: 0.1924 | Val Acc: 91.03%
-[ResNet-50] Epoch 05 | Train Acc: 92.96% | Val Loss: 0.1972 | Val Acc: 91.14%
-[ResNet-50] Epoch 06 | Train Acc: 93.72% | Val Loss: 0.2096 | Val Acc: 91.11%
-[ResNet-50] Epoch 07 | Train Acc: 94.37% | Val Loss: 0.2255 | Val Acc: 91.12%
-[ResNet-50] Epoch 08 | Train Acc: 94.80% | Val Loss: 0.2737 | Val Acc: 91.14%
-[ResNet-50] Epoch 09 | Train Acc: 95.02% | Val Loss: 0.3271 | Val Acc: 91.19%
-[ResNet-50] Epoch 10 | Train Acc: 95.12% | Val Loss: 0.3656 | Val Acc: 91.20% ( )
-```
-
-### 4.3       
-  (RTX 3060 6GB)      .
-
-|   | VRAM  (Batch=32) | 1 Epoch   | 1 Epoch   | 10 Epoch    |    |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **ReDimNet2-B2** | 1.8 GB (30%) | 1 44 | 11 15 |  19.3  | 91.89% |
-| **ECAPA-TDNN** | 2.4 GB (40%) | 1 48 | 11 50 |  20.0  | 92.10% |
-| **AudioResNet-50** | 4.6 GB (77%) | 1 58 | 13 10 |  21.8  | 91.20% |
-| **  ** | 1.8 ~ 4.6 GB | - | - |  24.0  | - |
-| **Ablation Study (4)** | 4.6 GB | - | - |  3.5  | - |
-| ** GPU ** | ** 4.6 GB** | - | - | ** 88.6  ( 3.7)** | - |
-
----
-
-## 5.         
-
-### 5.1    
-2  5      4 Butterworth   (200~4,000Hz)  (RMS)    `DCCSpecializedAudioDataset`  .        (Fine-tuning,  5e-05) .
-
-### 5.2   
- ,             .
-
-#### [ReDimNet2-B2   : Local_Light_Train.ipynb Cell 17]
-```text
- [REDIMNET]   (200~4000Hz) 10   (: 91.89%)
-[ FT 1ep] Val Acc: 91.25% (  -0.64%p) | Val Loss: 0.1795
-[ FT 2ep] Val Acc: 91.42% (  -0.47%p) | Val Loss: 0.1793
-[ FT 3ep] Val Acc: 91.48% (  -0.41%p) | Val Loss: 0.1845
-[ FT 4ep] Val Acc: 91.57% (  -0.32%p) | Val Loss: 0.1848
-[ FT 5ep] Val Acc: 91.58% (  -0.31%p) | Val Loss: 0.1833
-[ FT 6ep] Val Acc: 91.24% (  -0.65%p) | Val Loss: 0.1894
-[ FT 7ep] Val Acc: 91.29% (  -0.60%p) | Val Loss: 0.2057
-[ FT 8ep] Val Acc: 91.33% (  -0.56%p) | Val Loss: 0.2124
-```
-
-#### [AudioResNet-50   : Local_Light_Train.ipynb Cell 19]
-```text
- [RESNET50]   (200~4000Hz) 3   (: 91.20%)
-[ FT 1ep] Val Acc: 90.54% (  -0.66%p) | Val Loss: 0.2034
-[ FT 2ep] Val Acc: 90.67% (  -0.53%p) | Val Loss: 0.2136
-[ FT 3ep] Val Acc: 90.70% (  -0.50%p) | Val Loss: 0.2634
-```
-![ 3:     /  ](figures/fig3_domain_failure.png)
-*< 3>  (0~4,000Hz Nyquist)  200~4,000Hz         *
-
-
-### 5.3 5       
-   5           .
-
-|  |   |     |         |
-| :---: | :--- | :--- | :--- |
-| **①** | **  (Duration)** | 3.0   |     85.93%  100%   . |
-| **②** | **   (RMS Std)** | +29.8%    | **[ ]**   ,           .     . |
-| **③**<br>**④** | ** **<br>** (ZCR)** |      | **[  ]**  ZCR     . ⑤     (>4000Hz)      . |
-| **⑤** | **   (Bandwidth)** | 200~4000Hz  | **[ :       ]**<br>• **200Hz  **:    (F0, Pitch: 85~180Hz)    (Proximity Effect)         .<br>• **  **: 8kHz    (4,000Hz)   4 IIR     (Phase Distortion) .<br>** 0~4,000Hz         ,        .** |
-
-### 5.4       
-"       Delta      "    .
-1. **   (Coupling)**:     ,            .
-2. **(End-to-End)    **:       **0~8,000Hz           (92.10%) ** .              .
-
----
-
-## 6.        (Threshold) 
-
-### 6.1 Soft Voting     
-           3  (ECAPA-TDNN, ReDimNet2-B2, AudioResNet-50)    Soft Voting  .          (ReDimNet 0.45 : ECAPA-TDNN 0.40 : AudioResNet-50 0.15) .
-
-### 6.2 111,947      (Threshold)  
-   111,947  Soft Voting    ,   F1-Score    (Decision Threshold) 0.35 0.65 0.01   .
--   0.50 **92.48% (Macro F1: 0.9244)**     .
-- F1-Score     **Threshold = 0.51** ,  **   92.58%, Macro F1 0.9258** .
-
-#### [   ]
-```text
-=================================================================
-[    ( )]
- 1. ReDimNet2-B2:   91.89% | Macro F1: 0.9185
- 2. ECAPA-TDNN:     92.10% | Macro F1: 0.9206
- 3. AudioResNet-50:  91.20% | Macro F1: 0.9115
-=================================================================
-[3 Soft Voting     ]
- -   : ReDimNet 0.45, ECAPA-TDNN 0.40, AudioResNet-50 0.15
- -    (Optimal Threshold): 0.51
- -     (Accuracy):    92.58%
- -   Macro F1-Score:            0.9258
-=================================================================
-
-[    (Classification Report: Threshold 0.51 )]
-                     precision    recall  f1-score   support
-
- (Dispatcher, 0)     0.9482    0.8953    0.9210     53845
-     (Caller, 1)     0.9074    0.9540    0.9301     58102
-
-           accuracy                         0.9258    111947
-          macro avg     0.9278    0.9247    0.9258    111947
-       weighted avg     0.9270    0.9258    0.9257    111947
-```
-![ 4:      11.2  ](figures/fig4_ensemble_performance.png)
-*< 4>     3 Soft Voting      111,947   (Confusion Matrix)*
-
-### 6.3      (Robustness) 
-   ECAPA-TDNN(92.10%) ,    **    92.58% **.
-1. ** (TDNN)  (ResNet) **:          TDNN 2     ResNet     .
-2. ** **:  0.50~0.52    92.48%~92.58%    ,           .
-
----
-
-## 7.        
-
-### 7.1        (RTX 3060 )
-
-|     |   |    |   (Latency) | RTF (3 ) |    (Throughput) |    ( ) |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **ReDimNet2-B2 ()** | 2.57 M | 9.8 MB | 1.73 ms | 0.0006 | 1,999.4 / | 91.89% |
-| **ECAPA-TDNN ()** | 5.80 M | 22.2 MB | 5.12 ms | 0.0017 | 1,304.2 / | 92.10% |
-| **AudioResNet-50 ()** | 23.50 M | 90.0 MB | 4.65 ms | 0.0016 | 632.9 / | 91.20% |
-| **3 Soft Voting ** | **31.87 M** | **122.0 MB** | **11.50 ms** | **0.0038** | ** 350.0 /** | **92.58% (F1: 0.9258)** |
-
-![ 2:        ](figures/fig2_model_efficiency.png)
-*< 2> RTX 3060     vs  (Latency) vs  (Throughput)  *
-
-
-### 7.2       
-1. ** **: 3    **0.0115(11.5ms)**   RTF **0.0038** .    (200ms)  17         .
-2. **   **:  RTX 3060 6GB      ** 350    **  , 119        1  .
-3. **  **:   (Wav2Vec )   VRAM(A100 )  ,    ** VRAM 4.6GB  92.48%    **       .
-
-### 7.3   (Checkpoints)     
-
-> **:    **:       (Overfitting)     (Validation Loss)    (ModelCheckpoint)   . AudioResNet-50  10  , ReDimNet2-B2  ECAPA-TDNN   (10ep)   0.06%p          .
-
-
-  3    (`.pt`) (Reproducibility)            ,   PyTorch `load_state_dict`   .
-
-|   |   (Acc) |   |   |    |    |
-| :--- | :---: | :--- | :---: | :---: | :---: |
-| **ReDimNet2-B2** | 91.89% | `mission2_speaker/checkpoints/best_redimnet.pt` | 9.84 MB | 91 |    (100% ) |
-| **ECAPA-TDNN** | 92.10% | `mission2_speaker/checkpoints/best_ecapa_tdnn.pt` | 22.23 MB | 233 |    (100% ) |
-| **AudioResNet-50**| 91.20% | `mission2_speaker/checkpoints/best_resnet50.pt` | 89.97 MB | 320 |    (100% ) |
-| *( )* | - | `mission2_speaker/test_results/checkpoints/` | - | - |     |
-
-> **:     **:   (31.87M),  (122.0MB), (11.50ms) 3             .
-
-> ****:   (`.pt`)         `.gitignore`    ,   (`inference.py`  `Local_Light_Train.ipynb`)         .
-
-
-
-
----
-
-## 8.    
-
-1. **  **:    1.5 vs 3.0      VRAM    3.0    .
-2. **    **:               (200Hz     4000Hz   )    .               .
-3. ** **: 88.6     3    **111,947    92.48% (Macro F1 0.9244), RTF 0.0038 ,  GPU 350/ **      ·    .
+| 모델 | 기록된 최고 정확도 | Macro F1 | 최고 에폭 |
+|---|---|---|---|
+| ReDimNet 계열 로컬 구현 | 91.89% | 0.9185 | 9 |
+| ECAPA-TDNN | 92.10% | 0.9206 | 8 |
+| AudioResNet-50 | 91.20% | 0.9115 | 10 |
+| 균등 평균 앙상블 임계값 0.50 | 92.48% | 0.9244 | 각 모델 최고 가중치 |
+
+최고 단일 모델 ECAPA-TDNN 대비 앙상블 정확도는 0.38%p 높다. 반복 시드 실험이나 별도 테스트 집합의 유의성 검증은 없어, 이 차이를 일반적인 성능 우위로 단정하지 않는다. 원본 데이터와 예측 배열에 대한 새 전수 평가 없이, 기존 로그의 값을 보고한다.
+
+## 2 데이터 구성과 전처리
+
+### 데이터 규모와 라벨
+
+| 항목 | 보존된 학습 및 평가 로그 |
+|---|---|
+| Training 발화 | 873,137건 |
+| Validation 평가 발화 | 111,919건 |
+| 상황실 접수요원 0 | 53,830건 |
+| 신고자 1 | 58,089건 |
+| 원천 음원 규격 | 기존 데이터 문서상 8kHz 모노 |
+| 모델 입력 | 16kHz 리샘플링 후 3.0초 |
+
+두 클래스의 support 합계는 111,919건이다. 이전 문서의 111,947건과 53,845 / 58,102건은 원래 실행 출력과 다르므로 해당 성적의 표본 수로 쓰지 않는다. 28건의 차이가 발생한 원인은 원본 라벨과 오디오를 다시 대조해야 확정할 수 있다. 원천 8kHz 신호를 16kHz로 리샘플링해도 원천에 없던 4kHz 이상 음성 정보가 생성되지는 않는다.
+
+### 모델별 입력 규격
+
+| 모델 | n_mels | n_fft | hop_length | 3초 입력 프레임 |
+|---|---|---|---|---|
+| ReDimNet 계열 로컬 구현 | 80 | 512 | 160 | 301 |
+| ECAPA-TDNN | 80 | 512 | 160 | 301 |
+| AudioResNet-50 | 128 | 2048 | 512 | 94 |
+
+3초보다 짧으면 파형 뒤에 0을 채운다. 긴 발화는 학습에서 무작위 3초, 평가에서 중앙 3초를 잘라 사용한다. Mel power를 ref=np.max인 dB로 변환하고, (mel_db + 80) / 80을 0~1로 제한한다. 위 프레임 수는 librosa의 기본 center=True와 48,000샘플 기준이다.
+
+### 탐색적 음향 분석
+
+기존 분석 문서는 355개 발화에서 상황실 / 신고자 평균 길이를 2.11 / 2.38초, RMS 표준편차를 0.0376 / 0.0488, centroid를 1,070.9 / 891.8Hz, ZCR을 0.1048 / 0.0900으로 보고했다. RMS 차이 29.8%는 그 표의 비율 계산이다. 표본 목록, 클래스별 표본 수와 분석 스크립트가 함께 보존되지 않아 모집단 특성이나 감정·마이크 차이의 인과 증거로 해석하지 않는다.
+
+## 3 윈도우와 패딩 비교
+
+### 실험 설계와 결과
+
+초기 ResNet 실험의 Training 30,313건, Validation 9,138건에서 조건별 3에폭을 비교했다. 아래 값은 각 조건의 최고 검증 정확도를 기록한 에폭의 결과다. 원본 기록은 Git 3638dab의 model_train.ipynb에 보존되어 있다.
+
+| 조건 | 길이 | 패딩 | n_fft | 최고 정확도 | Macro F1 |
+|---|---|---|---|---|---|
+| Pre-1 | 1.5초 | zero | 2048 | 84.92% | 0.8480 |
+| Pre-2 | 3.0초 | repeat | 2048 | 85.14% | 0.8503 |
+| Pre-3 | 3.0초 | zero | 2048 | 85.93% | 0.8584 |
+| Pre-4 | 3.0초 | zero | 1024 | 85.48% | 0.8545 |
+
+모든 조건의 n_mels는 128이다. Pre-3는 Pre-1보다 1.01%p, Pre-2보다 0.79%p 높아 후속 실험에 3초와 zero padding을 채택했다. 다만 단일 실행의 부분 검증 결과이므로 전역 최적값이나 반복 실험에서의 우위를 입증한 것은 아니다. 3초를 넘는 발화의 일부 문맥은 잘리며, 평균 길이만으로 문맥이 모두 보존된다고 주장할 수 없다.
+
+![윈도우 및 패딩 비교](figures/fig1_ablation_window.png)
+
+그림 1 초기 ResNet의 부분 검증 최고 정확도 비교
+
+초기 실험의 FFT 설정을 모든 후속 모델에 그대로 적용한 것은 아니다. ReDimNet 계열과 ECAPA는 80개 Mel, FFT 512, hop 160을 사용했다. 최종 세 모델의 성적은 이 절의 부분 검증 성적과 표본 수 및 학습 단계가 다르다.
+
+## 4 모델 구현과 기본 학습
+
+### 구현 범위
+
+ReDimNet2_B2라는 코드 이름은 로컬의 2D CNN, 1D 잔차 CNN과 4-head attention pooling 구현을 가리킨다. 공식 ReDimNet2-B2 구현이나 공식 사전학습 가중치를 사용한 것으로 표현하지 않는다. 현재 1D 잔차 블록에는 dilation 설정이 없다. ECAPA_TDNN도 저장소의 SE 및 Res2Net 블록과 attentive statistics pooling 구현이다. AudioResNet-50은 ImageNet ResNet-50의 첫 합성곱을 1채널로 바꾸고 이진 logit 출력을 붙인 모델이다.
+
+### 학습 조건과 저장 기준
+
+기본 학습은 배치 32, 10에폭, BCEWithLogitsLoss, AdamW 학습률 1e-4와 weight decay 1e-2, cosine schedule, AMP를 사용했다. 학습 중 검증 정확도가 기존 최고값보다 높을 때 state_dict를 저장했다. 저장 기준은 검증 손실이 아니다.
+
+| 모델 | 최고 정확도 | 마지막 정확도 | 마지막 검증 손실 | 기록된 학습 및 검증 시간 |
+|---|---|---|---|---|
+| ReDimNet 계열 | 91.89% 9ep | 91.80% | 0.1783 | 19.66시간 |
+| ECAPA-TDNN | 92.10% 8ep | 92.08% | 0.1764 | 20.11시간 |
+| AudioResNet-50 | 91.20% 10ep | 91.20% | 0.3656 | 22.00시간 |
+
+시간은 원래 출력의 완료된 10회 학습과 10회 검증 progress bar를 합산한 벽시계 시간이다. 세 모델 합계는 61.77시간이다. 전체 프로젝트 GPU 사용량이나 준비·중단 시간을 포함하는 실측치는 아니다. ResNet은 1에폭 검증 손실 0.2159에서 10에폭 0.3656으로 증가하여, 정확도가 유지되더라도 과적합이 없었다고 단정할 수 없다.
+
+### 초기 트랜스포머 실험과 후속 학습의 구분
+
+Git d6cdee7의 Multi_Model_Benchmark.ipynb에는 facebook/wav2vec2-base 백본을 사용한 5에폭 완료 로그가 있다. Training 38,267건, Validation 9,138건에서 최고 정확도 89.72%, Macro F1 0.8965, 학습 및 검증 총 27.08분을 기록했다. 같은 부분 검증에서 ResNet과 Wav2Vec2의 1:1 앙상블은 91.05%, Macro F1 0.9101이었다. 이는 실제로 진행된 초기 실험이며 최종 111,919건 평가와 직접 비교하지 않는다.
+
+WavLM과 HuBERT 등은 별도 학습 코드와 계획이 있었으나, 확인한 이력에는 완료 성적이 없다. 최종 노트북에 나중에 추가된 백본 없는 프로토타입은 기존 Wav2Vec2 실험을 대체하는 증거가 아니므로 제거했다. GPU 총 용량 출력과 모델의 사용 메모리는 구분한다. 모델별 VRAM 11~14GB, OOM과 에폭당 12시간 주장은 대응하는 계측·오류 로그가 확인되지 않아 확정 비교 근거에서 제외한다.
+
+## 5 밴드패스 미세 조정
+
+### 실제 적용된 전처리
+
+초기 v1은 Mel의 fmin=200 / fmax=4000을 변경하는 방식이었다. Git 2c6cb4a에서 도입한 v2 DCCSpecializedAudioDataset은 16kHz로 읽은 파형에 scipy.signal.butter로 설계한 4차 200~4,000Hz bandpass와 filtfilt를 적용했다. Mel 필터의 fmin / fmax는 기본값을 유지하며, 기본 모델과 같은 상대 dB 정규화를 쓴다. 별도 RMS scaling, Delta / Delta-Delta 3채널과 VAD는 이 코드에서 구현되지 않았다.
+
+| 모델 | 기본 정확도 | 완료된 FT 검증 | 관측 FT 최고 정확도 | 기본 대비 |
+|---|---|---|---|---|
+| ReDimNet 계열 | 91.89% | 8에폭 9에폭 도중 중단 | 91.58% 5ep | -0.31%p |
+| ECAPA-TDNN | 92.10% | Git 2c6cb4a의 3에폭 완료 | 91.82% 3ep | -0.28%p |
+| AudioResNet-50 | 91.20% | 3에폭 | 90.70% 3ep | -0.50%p |
+
+Git 2c6cb4a에는 세 모델의 3에폭 완료 로그가 있으며, ReDim 91.57%, ECAPA 91.82%, ResNet 90.70%였다. 이후 bf38dd1에서 ReDim을 10에폭으로 늘린 실행은 8에폭까지 검증했고 9에폭 학습 도중 중단됐다. 이 추가 실행의 최고값은 91.58%였다. ECAPA의 후속 중단 출력이 이전 완료 로그를 대체했으므로 최신 파일만으로 실험 전체가 미완료였다고 판단하면 안 된다.
+
+FT 마지막 요약의 ReDim 91.89%, ECAPA 92.10%, ResNet 91.20%는 최고값 변수를 기본 모델 성적으로 초기화한 코드 오류다. FT의 실제 에폭 결과와 구분하고 후속 실행의 요약 초기값을 수정했다. 원래 출력은 Git 버전별로 보존했다.
+
+![밴드패스 전후 비교](figures/fig3_domain_failure.png)
+
+그림 3 완료된 검증 구간에서의 기본 모델과 밴드패스 FT 비교
+
+### 해석의 한계
+
+필터로 판별에 유용한 성분이 약해졌을 가능성은 있으나, 어떤 주파수나 환경 특성이 원인인지 이 실험만으로 확정할 수 없다. filtfilt는 전후방 필터링으로 영위상 특성을 가지므로 단순한 위상 왜곡을 확정 원인으로 제시하지 않는다. 필터는 16kHz 파형에 적용되어 4kHz가 설계상의 Nyquist 경계도 아니다. RMS 보존과 3채널 확장의 효과, 모든 전처리의 실패 또는 재실험의 무의미함은 입증되지 않았다.
+
+## 6 최종 앙상블 평가
+
+### 최종 설정과 성적
+
+세 기본 모델의 sigmoid 신고자 확률을 1/3씩 평균한다. 0.50 이상이면 신고자 1, 미만이면 상황실 0이다. 제출 코드와 최종 평가 셀에 이 설정을 적용했다.
+
+| 실제 클래스 | Precision | Recall | F1 | Support |
+|---|---|---|---|---|
+| 상황실 0 | 0.9495 | 0.8912 | 0.9194 | 53,830 |
+| 신고자 1 | 0.9042 | 0.9560 | 0.9294 | 58,089 |
+| Macro 평균 | 0.9268 | 0.9236 | 0.9244 | 111,919 |
+| 가중 평균 | 0.9260 | 0.9248 | 0.9246 | 111,919 |
+
+정확도는 92.48%다. 기존 분류표의 반올림 수치를 숫자 라벨 0 / 1에 맞게 정리했다. 이전 혼동 행렬 그림은 약 92.58%의 다른 설정을 나타내고 클래스 순서도 달라, 최종 성적 비교 그림으로 교체했다. 예측 배열 없이 최종 정수 혼동 행렬을 추정하지 않았다.
+
+![단일 모델과 앙상블 비교](figures/fig4_ensemble_performance.png)
+
+그림 4 기존 평가 기록의 정확도와 Macro F1 비교
+
+### 결과 해석
+
+클래스별 recall은 0.9560 / 0.8912로 차이가 있다. 분포 변화와 새로운 통화에서의 일반화는 별도 검증이 필요하다. 과거 가중 결과와 최종 설정은 다음과 같다.
+
+| 평가 설정 | 임계값 | 정확도 | Macro F1 | 근거 |
+|---|---|---|---|---|
+| ECAPA 0.45 / ReDim 0.40 / ResNet 0.15 | 0.50 | 92.57% | 해당 stdout에 미출력 | Git bf38dd1 |
+| 같은 가중 앙상블과 임계값 탐색 | 0.51 | 92.58% | 0.9254 | Git bf38dd1 |
+| 최종 균등 평균 각 모델 1/3 | 0.50 | 92.48% | 0.9244 | Git 3638dab |
+
+
+## 7 모델 규모와 효율성
+
+### 체크포인트 규모
+
+아래 파라미터 수는 보존된 state_dict의 tensor shape에서 BatchNorm의 running mean / variance와 num_batches_tracked를 제외해 계산했다. 파일 단위는 1MiB = 1,048,576 bytes다. tensor 개수는 레이어 개수와 다르다.
+
+| 모델 | 파라미터 수 | 파일 크기 MiB | state_dict 텐서 |
+|---|---|---|---|
+| ReDimNet 계열 | 2,567,489 | 9.84 | 91 |
+| ECAPA-TDNN | 5,795,265 | 22.23 | 233 |
+| AudioResNet-50 | 23,503,809 | 89.97 | 320 |
+| 세 모델 합계 | 31,866,563 약 31.87M | 122.04 | 644 |
+
+### 보존된 합성 입력 벤치마크
+
+| 모델 | 단일 입력 forward 지연 ms | 배치 32 처리량 건/초 |
+|---|---|---|
+| ReDimNet 계열 | 1.73 | 1,999.4 |
+| ECAPA-TDNN | 5.12 | 1,304.2 |
+| AudioResNet-50 | 4.65 | 632.9 |
+
+기존 벤치마크는 무작위 tensor, 시간축 300프레임, 단일 입력 200회 및 배치 32 입력 50회 forward를 측정했다. 체크포인트를 모델에 로드하는 단계와 오디오 읽기·리샘플링·Mel 계산이 포함되지 않았다. 특히 ResNet의 실제 3초 입력은 94프레임이므로 이 값은 실제 3초 클립 종단간 지연시간이 아니다. 정확도 칸도 해당 벤치마크에서 재계산한 것이 아니라 학습 기록의 상수였다.
+
+1.73 + 5.12 + 4.65 = 11.50ms는 서로 다른 모델의 forward 시간 합계다. 이를 앙상블 실측 시간 또는 260~350건/초 실측 처리량으로 표현하지 않는다. 전체 검증 7.2분, batch 64, VRAM 1.8~4.6GB와 RTF 0.0038을 입증하는 별도 계측 로그도 없다. 단일 입력 지연시간과 배치 처리량은 서로 다른 조건이므로 단순 역수 관계로 비교하지 않는다.
+
+## 8 재현성 점검과 결론
+
+### 제출 코드와 노트북 정합성
+
+검토 전 제출 엔진은 80-Mel 모델에 FFT 1024 / hop 256을 쓰고 짧은 발화의 양쪽에 padding을 넣었다. 이는 학습 노트북의 FFT 512 / hop 160과 뒤쪽 padding과 달랐다. 현재 코드를 노트북 규격에 맞추고 Mel 정규화의 0~1 제한도 일치시켰다. JSON startAt / endAt은 밀리초 그대로 해석하고, 단일 pt 파일을 지정하면 그 모델만 로드하도록 경로 선택도 수정했다.
+
+노트북의 손상된 들여쓰기는 Git의 정상 소스로 복원하고 현재 m2 모듈 import에 맞췄다. 후속 실행에서 클래스 이름과 앙상블 sample 순서를 검증하며, 예측 확률·정답·샘플 목록을 저장하도록 보완했다. 이러한 수정 후의 성능은 원본 데이터에서 다시 평가해야 한다. 기존 92.48%를 수정된 제출 엔진의 신규 실측 성적이라고 표현하지 않는다.
+
+### 증거와 검증 범위
+
+기본 학습과 최종 균등 앙상블은 Git 3638dab, 세 모델의 3에폭 FT는 2c6cb4a, 가중 앙상블은 bf38dd1의 Local_Light_Train.ipynb 출력에서 확인했다. 초기 Wav2Vec2 실험은 d6cdee7의 Multi_Model_Benchmark.ipynb에 보존되어 있다. 초기 전처리 비교는 같은 버전의 model_train.ipynb에서 확인했다. 원본 기록과 검토 전 파일은 Docs/review_2026-10-08에 보존하고, 변경 항목은 RESULT_REVIEW.md에 정리했다. 파라미터 shape, 파일 크기와 SHA-256은 현재 체크포인트에서 별도로 확인했다.
+
+과거 Colab 및 로컬 학습 환경에서 수행한 평가는 Git 출력으로 확인했다. 현재 이 Mac 작업 폴더의 train / val에는 원본 오디오와 라벨이 없고, 검토 Python 환경에는 PyTorch와 librosa가 없어 수정한 코드로 전수 추론을 새로 실행하지 않았다. 이는 기존 평가 기록을 검토할 수 없다는 의미가 아니다. 체크포인트 metadata 확인을 가중치 로드 성공이나 성능 재현으로 간주하지 않는다. 향후 원본 데이터에서 표본 수, 예측 배열, 실제 서빙 시간과 메모리를 함께 기록해야 한다.
+
+### 최종 결론
+
+보존된 111,919개 발화 평가에서 균등 평균과 임계값 0.50의 앙상블은 정확도 92.48%, Macro F1 0.9244를 기록했다. 완료된 세 모델의 3에폭 밴드패스 FT는 모두 기본 성적보다 낮았고, 추가 ReDim 실행도 관측 범위에서 개선하지 못했다. 세 모델의 재현 가능한 제출 경로를 정리한 것이 현재 성과이며, 실시간 상용 배포 적합성과 분포 변화에 대한 강건성은 아직 별도 실증이 필요하다.
+
+### 기술 근거
+
+SciPy filtfilt 문서 https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.filtfilt.html
+
+공식 ReDimNet2 저장소 https://github.com/PalabraAI/redimnet2

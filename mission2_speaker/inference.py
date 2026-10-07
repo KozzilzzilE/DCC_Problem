@@ -5,11 +5,11 @@ Execution Example:
     python inference.py --audio_dir <wav_dir> --label_dir <json_dir> \
                         --ckpt_path checkpoints/ --output ./outputs/mission2.csv
 
-Computational Efficiency Metrics:
-- Total Parameters: 31.88 M (Active: 31.88 M)
-  * ReDimNet2-B2: 2.57 M, ECAPA-TDNN: 5.80 M, AudioResNet-50: 23.50 M
-- Benchmark Environment: NVIDIA GeForce RTX 3060 (6GB VRAM), Intel Core i7-12700H
-- Average Inference Latency: ~11.50 ms / sample (RTF: 0.0038, 260+ utts/sec)
+Final setting: equal mean of three model probabilities, threshold 0.50.
+Historical validation: accuracy 92.48%, Macro F1 0.9244 (111,919 utterances).
+These are stored training-notebook results, not a new measurement of this CLI.
+The CLI prints elapsed prediction time for the current invocation; that timer
+excludes CSV writing and does not measure GPU memory.
 """
 
 from __future__ import annotations

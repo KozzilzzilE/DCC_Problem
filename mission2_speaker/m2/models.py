@@ -4,7 +4,7 @@ Mission 2: Speaker Classification Architecture Definitions.
 - ECAPA_TDNN: Multi-scale 1D Res2Net with Attentive Statistics Pooling (~5.80M params)
 - AudioResNet: 1-Channel Modified ResNet-50 (~23.50M params)
 
-Total Parameters: 31.88M (All Active)
+Total learnable parameters for three num_classes=1 models: 31,866,563 (~31.87M)
 """
 
 import math

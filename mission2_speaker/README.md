@@ -1,119 +1,45 @@
-# Mission 2: 119 긴급 신고 전화 화자 분류 (Speaker Classification)
+# Mission 2 119 긴급 통화 화자 분류
 
-본 문서는 **2026 데이터+AI 혁신 챌린지 Mission 2 (상황실 접수요원 0 vs 신고자 1 이진 분류)** 제출용 단독 실행 가이드 및 모델 명세서입니다.
+음성 발화 구간으로 상황실 접수요원 0과 신고자 1을 분류한다. 최종 설정은 세 모델 확률의 균등 평균과 고정 임계값 0.50이다.
 
----
+보존된 학습 노트북 로그는 Validation **111,919건에서 정확도 92.48%, Macro F1 0.9244**를 보고한다. 2026년 10월 8일에 학습 및 제출 전처리 차이를 수정했으며, 이 수치는 수정된 추론 엔진을 새로 실행한 결과가 아니다. 원본 데이터에서 성능과 표본 수를 다시 확인해야 한다.
 
-## 1. 빠른 실행 방법 (Quick Start)
+## 실행
 
-추론은 `mission2_speaker` 폴더 안에서 `inference.py` 실행 **단 한 번**으로 완료됩니다.
+미션 폴더에서 다음 명령을 실행한다.
 
-### Step 1. 필수 라이브러리 설치
 ```bash
 pip install -r requirements.txt
+python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label --ckpt_path checkpoints/ --output ../outputs/mission2.csv
 ```
 
-### Step 2. 추론 실행 (단일 명령어)
-```bash
-python inference.py --audio_dir <wav_폴더경로> \
-                    --label_dir <json_라벨폴더경로> \
-                    --ckpt_path checkpoints/ \
-                    --output ./outputs/mission2.csv
-```
+`--ckpt_path`에 세 가중치가 있는 폴더를 주면 앙상블을, 특정 `.pt` 파일을 주면 그 모델 하나를 사용한다. 세 checkpoint 파일은 `best_redimnet.pt`, `best_ecapa_tdnn.pt`, `best_resnet50.pt`이다. 출력 CSV의 열은 `audio file name`, `startAt`, `endAt`, `speaker`다. `startAt`과 `endAt`은 밀리초이며 화자 판정에 텍스트나 발화 순서를 사용하지 않는다.
 
-* **실제 데이터 실행 예시**:
-  ```bash
-  python inference.py --audio_dir ../data/val/audio \
-                      --label_dir ../data/val/label \
-                      --ckpt_path checkpoints/ \
-                      --output ../outputs/mission2.csv
-  ```
+## 전처리
 
-### Step 3. 결과 CSV 파일 확인
-명령어 실행이 끝나면 `--output`으로 지정한 위치에 아래 규격의 CSV 파일이 자동 생성됩니다.
+입력은 16kHz 모노 3초로 맞춘다. 짧으면 뒤쪽 zero padding, 길면 중앙 crop을 사용한다. ReDimNet 계열 로컬 구현과 ECAPA는 Mel 80 / FFT 512 / hop 160, ResNet은 Mel 128 / FFT 2048 / hop 512다. 상대 dB를 `(mel_db + 80) / 80`으로 변환하고 0~1로 제한한다.
 
-| audio file name | startAt | endAt | speaker |
-| :--- | :---: | :---: | :---: |
-| 651e464d69a4f266f0626837_20220101.wav | 299 | 949 | 0 |
-| 651e464d69a4f266f0626837_20220101.wav | 2256 | 3074 | 1 |
-| 651e464d69a4f266f0626837_20220101.wav | 3760 | 4577 | 0 |
+## 과거 실험과 최종 설정의 차이
 
-* `speaker` 판정 기준: **0 = 상황실 접수요원**, **1 = 신고자**
+Git bf38dd1의 가중 앙상블은 ECAPA 0.45 / ReDim 0.40 / ResNet 0.15로, 임계값 0.50에서 92.57%, 0.51에서 92.58% 및 Macro F1 0.9254였다. 그 실행의 임계값 0.50 Macro F1은 stdout에 출력되지 않았다. 최종 선택은 이후 Git 3638dab의 균등 평균과 임계값 0.50이다.
 
----
+Git 2c6cb4a의 3에폭 FT는 ReDim 91.57%, ECAPA 91.82%, ResNet 90.70%로 완료됐다. 이후 ReDim 추가 실행은 8에폭 완료 후 9에폭 학습 중단, 최고 91.58%였다. 초기 Wav2Vec2는 Git d6cdee7의 부분 검증 9,138건에서 89.72% / Macro F1 0.8965를 기록했다.
 
-## 2. CLI 실행 인자 (Arguments) 설명
+## 기존 평가와 체크포인트
 
-| 인자명 | 필수 여부 | 기본값 | 설명 |
-| :--- | :---: | :---: | :--- |
-| `--audio_dir` | **필수** | - | 평가용 음성 파일(`.wav`)들이 위치한 디렉토리 경로 |
-| `--label_dir` | **필수** | - | 전사 텍스트 및 발화 구간(`startAt`, `endAt`)이 적힌 `.json` 파일 디렉토리 경로 |
-| `--ckpt_path` | 선택 | `checkpoints/` | 모델 가중치 경로.<br>• 폴더 지정 시: **3대 모델 앙상블(최고 성능 92.48%) 자동 가동**<br>• 단일 `.pt` 파일 지정 시: 해당 모델 단독 고속 추론 모드 |
-| `--output` | **필수** | - | 추론 결과가 저장될 CSV 파일 전체 경로 (예: `outputs/mission2.csv`) |
+| 모델 | 기록 정확도 | Macro F1 | 파라미터 | 파일 크기 MiB |
+|---|---|---|---|---|
+| ReDimNet 계열 로컬 구현 | 91.89% | 0.9185 | 2,567,489 | 9.84 |
+| ECAPA-TDNN 로컬 구현 | 92.10% | 0.9206 | 5,795,265 | 22.23 |
+| AudioResNet-50 | 91.20% | 0.9115 | 23,503,809 | 89.97 |
+| 균등 평균 앙상블 임계값 0.50 | 92.48% | 0.9244 | 31,866,563 | 122.04 |
 
----
+`ReDimNet2_B2`는 로컬 클래스 이름이며 공식 ReDimNet2-B2의 구조·사전학습 가중치를 재현했다는 의미가 아니다. 파일 크기는 1MiB = 1,048,576 bytes다. 파라미터 수는 체크포인트 shape에서 BatchNorm running 통계와 counter를 제외한 계산이다.
 
-## 3. 제출물 폴더 구성
+## 효율성과 재현성
 
-```text
-mission2_speaker/
-├── checkpoints/                          # 사전학습 가중치 파일 (오프라인 로컬 로드)
-│   ├── best_redimnet.pt                  # ReDimNet2-B2 가중치 (9.8 MB)
-│   ├── best_ecapa_tdnn.pt                # ECAPA-TDNN 가중치 (22.2 MB)
-│   └── best_resnet50.pt                  # AudioResNet-50 가중치 (89.9 MB)
-├── m2/                                   # Mission 2 전용 자립형 핵심 엔진
-│   ├── __init__.py
-│   ├── models.py                         # 3대 모델 순수 PyTorch 신경망 아키텍처
-│   └── infer.py                          # 3초 정규화 전처리, 앙상블, CSV 생성 로직
-├── Mission2_Speaker_Classification.ipynb # [학습/실험] 전체 실험 흐름 및 검증 단일 노트북
-├── inference.py                          # [채점용] 심사위원 단독 실행 CLI 스크립트
-├── requirements.txt                      # 실행 환경 재현용 패키지 목록
-└── README.md                             # 본 실행 가이드 및 모델 명세서
-```
+기존 합성 입력 벤치마크의 forward 지연시간은 1.73 / 5.12 / 4.65ms다. 시간축 300프레임의 무작위 tensor를 썼으며 오디오 읽기, 리샘플링과 Mel 계산이 제외되었다. 실제 ResNet 3초 입력은 94프레임이다. 앙상블 11.50ms, 260~350건/초, Validation 7.2분을 종단간 실측치로 주장하지 않는다. 제출 엔진은 발화별로 실행하며 batch 64 추론을 구현하지 않는다.
 
----
+노트북에는 Git 3638dab의 기존 실행 출력을 복원했다. 최초 분류표의 클래스 이름이 반대로 기재되어 있었으므로 첫 행은 상황실 0, 둘째 행은 신고자 1로 읽는다. 수정된 코드는 다음 실행에서 이름을 올바르게 출력하고 확률 배열과 발화 목록을 `reports/`에 저장한다. 저장된 과거 출력은 수정된 코드의 신규 실행 결과가 아니다.
 
-## 4. 모델 명세 및 계산 효율성 (주최 측 권장 명시 사항)
-
-### (1) 모델 파라미터 수 (Total & Active)
-* **총 파라미터 수**: **31.88 M**
-* **Active 파라미터 수**: **31.88 M (100% 추론 활성화)**
-
-| 모델명 | 주요 특징 | Total 파라미터 | Active 파라미터 | 모델 파일 크기 | 단독 검증 정확도 |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **ReDimNet2-B2** | 2D Local Conv + 1D Dilated Conv + MHA Pooling | 2.57 M | 2.57 M | 9.8 MB | 91.89% |
-| **ECAPA-TDNN** | 1D Multi-Scale Res2Net + Attentive 통계적 풀링 | 5.80 M | 5.80 M | 22.2 MB | 92.10% |
-| **AudioResNet-50** | 1채널 2D 광대역 스펙트로그램 텍스처 앵커 | 23.50 M | 23.50 M | 89.9 MB | 91.20% |
-| **3대 챔피언 앙상블** | **Soft Voting (사전 1/3 균등 가중치)** | **31.88 M** | **31.88 M** | **121.9 MB** | **92.48%** |
-
-### (2) 컴퓨팅 환경
-* **GPU**: NVIDIA GeForce RTX 3060 Laptop GPU (6GB VRAM, CUDA 11.8)
-* **CPU**: 12th Gen Intel Core i7-12700H (14 Cores, 20 Threads, 2.30 GHz)
-* **RAM**: 32 GB DDR5
-* **OS**: Windows 11 Home 64-bit
-* **소프트웨어**: Python 3.11, PyTorch 2.7.1+cu118
-
-### (3) Validation 추론 시 Batch Size
-* **Batch Size**: 64 (발화 세그먼트 단위 추론)
-* 오디오 규격: 16,000 Hz 모노, 3.0초 고정 윈도우 (48,000 샘플, Zero-padding / Center-crop)
-
-### (4) 실측 추론 시간 및 처리량 (RTX 3060 기준)
-* **샘플당 평균 추론 지연시간 (Latency)**:
-  * ReDimNet2-B2: 1.73 ms / sample (RTF: 0.0006, 초당 1,999.4건 처리)
-  * ECAPA-TDNN: 5.12 ms / sample (RTF: 0.0017, 초당 1,304.2건 처리)
-  * AudioResNet-50: 4.65 ms / sample (RTF: 0.0016, 초당 632.9건 처리)
-  * **3대 앙상블 합산 지연시간: ~11.50 ms / sample (RTF: 0.0038, 초당 260건 이상 처리)**
-* **전체 검증셋 (111,947개 발화) 총 추론 소요 시간**:
-  * 단일 모델 (ReDimNet2-B2): 약 1.8분
-  * 3대 앙상블 전체: **약 7.2분 (432초)**
-
----
-
-## 5. 대회 공식 규정 준수 확인
-
-1. **결정 임계값 0.50 고정 (9/25 공통 FAQ)**:
-   * 검증셋에 맞춘 사후 임계값(0.51 등) 튜닝을 배제하고, 모든 클래스에 대해 0.50 고정 임계값을 적용했습니다.
-2. **사전 1/3 균등 가중치 적용 (9/30 Q&A)**:
-   * 검증셋에 대한 하이퍼파라미터 그리드 서치(0.45 / 0.40 / 0.15)를 배제하고, 사전 정의된 1/3 균등 가중치로 결합하여 과적합(Data Leakage)을 차단했습니다.
-3. **오프라인 환경 보장**:
-   * 실행 시 외부 다운로드 없이 `checkpoints/` 내의 로컬 가중치 파일로만 로드 및 추론을 수행합니다.
+자세한 근거와 제한은 [최종 보고서](../docs/FINAL_EXPERIMENT_REPORT.md)에 정리되어 있다. 이번 검토 환경에는 PyTorch/librosa와 원본 데이터가 없어 학습·전수 추론 및 실제 가중치 로딩을 새로 검증하지 않았다.

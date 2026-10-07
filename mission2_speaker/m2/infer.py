@@ -3,19 +3,12 @@ Mission 2: Speaker Classification Inference Engine.
 - Task: 119 Emergency Call Speaker Classification (Dispatcher: 0 vs Caller: 1)
 - Model Architecture: 3-Model Ensemble (ReDimNet2-B2 + ECAPA-TDNN + AudioResNet-50)
 - Equal Ensemble Weights: 1/3 for each model
-- Fixed Decision Threshold: 0.50 (Competition Rule Compliant)
+- Fixed Decision Threshold: 0.50 (final selected setting)
 
-Computational Efficiency Metrics:
-- Total Parameters: 31.88 M (Active Parameters: 31.88 M)
-  * ReDimNet2-B2: 2.57 M
-  * ECAPA-TDNN: 5.80 M
-  * AudioResNet-50: 23.50 M
-- Benchmark Environment: NVIDIA GeForce RTX 3060 Laptop GPU (6GB VRAM), Intel Core i7-12700H
-- Average Inference Latency: ~11.50 ms per clip (RTF: 0.0038)
-  * ReDimNet2-B2: 1.73 ms
-  * ECAPA-TDNN: 5.12 ms
-  * AudioResNet-50: 4.65 ms
-- Throughput: ~260+ utterances/sec
+Recorded architecture benchmarks (not an end-to-end serving measurement):
+- Parameters from checkpoint metadata: 31,866,563 total (~31.87 M)
+- Historical single-model synthetic-input latency: 1.73 / 5.12 / 4.65 ms
+- The corrected submission frontend requires validation on the original data.
 """
 
 import json
@@ -47,17 +40,15 @@ def pad_or_truncate_audio(audio: np.ndarray, target_length: int = TARGET_LENGTH)
         return audio[start:start + target_length]
     else:
         pad_width = target_length - len(audio)
-        pad_left = pad_width // 2
-        pad_right = pad_width - pad_left
-        return np.pad(audio, (pad_left, pad_right), mode="constant", constant_values=0.0)
+        return np.pad(audio, (0, pad_width), mode="constant", constant_values=0.0)
 
 
 def extract_normalized_mel(
     audio: np.ndarray,
     sr: int = SAMPLE_RATE,
     n_mels: int = 80,
-    n_fft: int = 1024,
-    hop_length: int = 256
+    n_fft: int = 512,
+    hop_length: int = 160
 ) -> torch.Tensor:
     """
     Extract Mel-Spectrogram with training-identical normalization:
@@ -73,7 +64,7 @@ def extract_normalized_mel(
         hop_length=hop_length
     )
     mel_db = librosa.power_to_db(mel, ref=np.max)
-    mel_norm = (mel_db + 80.0) / 80.0
+    mel_norm = np.clip((mel_db + 80.0) / 80.0, 0.0, 1.0)
     return torch.tensor(mel_norm, dtype=torch.float32)
 
 
@@ -149,7 +140,7 @@ class Mission2InferenceEngine:
         p_resnet = ckpt_dir / "best_resnet50.pt"
 
         # Check if all 3 ensemble checkpoints exist
-        if p_redim.exists() and p_ecapa.exists() and p_resnet.exists():
+        if ckpt_path.is_dir() and p_redim.exists() and p_ecapa.exists() and p_resnet.exists():
             print(f"[Mission 2] Initializing 3-Model Ensemble (Checkpoint directory: {ckpt_dir})")
             m_r = ReDimNet2_B2(num_classes=1).to(self.device)
             m_e = ECAPA_TDNN(in_channels=80, channels=512, num_classes=1).to(self.device)
@@ -192,7 +183,7 @@ class Mission2InferenceEngine:
 
         # Preprocess for ReDimNet & ECAPA (80-mel)
         mel_80 = extract_normalized_mel(
-            padded_audio, sr=SAMPLE_RATE, n_mels=80, n_fft=1024, hop_length=256
+            padded_audio, sr=SAMPLE_RATE, n_mels=80, n_fft=512, hop_length=160
         ).unsqueeze(0).to(self.device)
 
         # Preprocess for ResNet-50 (128-mel)
@@ -288,12 +279,8 @@ def predict_directory(
             start_ms = utt.get("startAt") if "startAt" in utt else utt.get("start_time", 0)
             end_ms = utt.get("endAt") if "endAt" in utt else utt.get("end_time", 0)
 
-            if start_ms < 100 and end_ms < 100 and (end_ms - start_ms) > 0.05:
-                start_ms = int(start_ms * 1000)
-                end_ms = int(end_ms * 1000)
-            else:
-                start_ms = int(start_ms)
-                end_ms = int(end_ms)
+            start_ms = int(start_ms)
+            end_ms = int(end_ms)
 
             start_sample = int((start_ms / 1000.0) * sr)
             end_sample = int((end_ms / 1000.0) * sr)
