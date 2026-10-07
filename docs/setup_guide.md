@@ -1,4 +1,4 @@
-🛠️ VS Code 로컬 개발 환경 세팅 가이드 (데이터+AI 혁신 챌린지)
+️ VS Code 로컬 개발 환경 세팅 가이드 (데이터+AI 혁신 챌린지)
 1. 필수 VS Code 확장 프로그램 (Extensions) 설치
 좌측 확장 프로그램 탭(Ctrl+Shift+X)에서 다음 항목들을 검색하여 설치합니다.
 
@@ -53,17 +53,17 @@ pip freeze > requirements.txt
 Plaintext
 data_ai_challenge/
 │
-├── venv/                   # 가상환경 (Git 업로드 제외)
-├── data/                   # 데이터셋 폴더 (Git 업로드 제외)
-│   ├── train/              # 서울 지역 데이터 (학습용)
-│   └── val/                # Validation 데이터 (학습 사용 금지)
+├── venv/          # 가상환경 (Git 업로드 제외)
+├── data/          # 데이터셋 폴더 (Git 업로드 제외)
+│  ├── train/       # 서울 지역 데이터 (학습용)
+│  └── val/        # Validation 데이터 (학습 사용 금지)
 │
-├── mission1_gender/        # 팀원 A, B 작업 디렉토리
-├── mission2_speaker/       # 팀원 C 작업 디렉토리
-├── mission3_symptom/       # 팀원 D, E 작업 디렉토리
+├── mission1_gender/    # 팀원 A, B 작업 디렉토리
+├── mission2_speaker/    # 팀원 C 작업 디렉토리
+├── mission3_symptom/    # 팀원 D, E 작업 디렉토리
 │
-├── requirements.txt        # 패키지 의존성 파일
-└── inference.py            # 최종 추론 스크립트 (제출용)
+├── requirements.txt    # 패키지 의존성 파일
+└── inference.py      # 최종 추론 스크립트 (제출용)
 6. VS Code에서 Jupyter Notebook 커널 연결
 탐색기에서 새 파일 test.ipynb를 생성하고 엽니다.
 
