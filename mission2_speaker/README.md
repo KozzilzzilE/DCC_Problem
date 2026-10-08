@@ -7,7 +7,7 @@
 ```bash
 pip install -r requirements.txt
 
-# 기본 3모델 앙상블 실행
+# 기본 3모델 균등 앙상블 실행 (권장 최고 성능 모드)
 python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label --ckpt_path checkpoints/ --output ../outputs/mission2.csv
 
 # 초경량 2모델 (ReDimNet + ECAPA) 앙상블 실행 (선택 옵션)
@@ -18,6 +18,7 @@ python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label 
 ```
 
 - `--ckpt_path` 인자에 세 가중치가 있는 폴더를 전달하면 앙상블 모드가 활성화되며, 개별 `.pt` 파일을 전달하면 단일 모델 모드로 동작한다.
+- `--ensemble_mode {auto, 3model, 2model}` 플래그로 앙상블 구성을 명시적으로 제어할 수 있다.
 - 출력 CSV 열 규격: `audio file name`, `startAt`, `endAt`, `speaker` (UTF-8 BOM, 시간은 정수 밀리초).
 - 음원 파일 누락이나 로딩 실패 시에도 JSON에 정의된 모든 발화 행을 무음 처리 기반으로 보존하는 fail-safe 방어 로직이 적용되어 있다.
 
@@ -27,13 +28,13 @@ python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label 
 - 길이 정규화: 3초 미만 발화는 뒤쪽 zero padding, 3초 초과 발화는 중앙 3초 crop.
 - ReDimNet2-B2 및 ECAPA-TDNN: Mel 80 / FFT 512 / hop 160 (301 프레임).
 - AudioResNet-50: Mel 128 / FFT 2048 / hop 512 (94 프레임).
-- Mel 정규화: 상대 dB를 `(mel_db + 80) / 80`으로 선형 변환 후 `[0.0, 1.0]` 범위로 clip.
+- Mel 정규화: 상대 dB를 `(mel_db + 80) / 80`으로 선형 변환 후 `[0.0, 1.0]` 범위로 clip (`ref_val` 하한 1e-10 클램프 적용).
 
 ## 3. 평가 데이터 모집단
 
 - 검증 라벨 JSON: 3,640개 파일 (총 111,947개 발화).
 - 음원 누락 파일: 1개 (`651e5494386c2a48273e4ed2_20220305.json`, 28개 발화).
-- 실제 평가 가능 모집단: **111,919개 발화** (상황실 53,830건 / 신고자 58,089건).
+- 실제 음향 평가 모집단 (분모): **111,919개 발화** (상황실 53,830건 / 신고자 58,089건).
 - 학습 통화 29,142건과 검증 통화 3,640건 간의 통화 세션 ID 중복률은 0.0%로 분리 독립성이 검증되었다.
 
 ## 4. 후보 모델별 실측 성능 비교 (111,919건 전수, 임계값 0.50)
@@ -41,7 +42,7 @@ python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label 
 | 후보 ID | 모델 구성 | 검증 정확도 (Accuracy) | Macro F1 | 정답수 / 전체 | 파라미터 수 | 체크포인트 크기 |
 |---|---|---|---|---|---|---|
 | **E-REN** | **3모델 균등 앙상블 (1/3)** | **92.46%** | **0.9242** | **103,484 / 111,919** | 31.87M | 122.04 MiB |
-| **E-RE** | **ReDimNet + ECAPA (2모델)** | **92.42%** | **0.9238** | **103,435 / 111,919** | **8.37M** | **32.07 MiB** |
+| **E-RE** | **ReDimNet + ECAPA (2모델)** | **92.42%** | **0.9238** | **103,435 / 111,919** | **8.36M** | **32.08 MiB** |
 | S-E | ECAPA-TDNN 단독 | 92.05% | 0.9201 | 103,018 / 111,919 | 5.80M | 22.23 MiB |
 | E-EN | ECAPA + ResNet (2모델) | 91.78% | 0.9173 | 102,719 / 111,919 | 29.30M | 112.20 MiB |
 | S-R | ReDimNet2-B2 단독 | 91.75% | 0.9171 | 102,685 / 111,919 | 2.57M | 9.84 MiB |
@@ -49,7 +50,8 @@ python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label 
 | S-N | AudioResNet-50 단독 | 91.17% | 0.9112 | 102,032 / 111,919 | 23.50M | 89.97 MiB |
 | *W-EER* | *(과거 참고) 가중 앙상블 .45/.40/.15* | 92.54% | 0.9250 | 103,565 / 111,919 | 31.87M | 122.04 MiB |
 
-- 과거 Git 3638dab의 보존 기록(92.48%)은 이번 실측 3모델 앙상블(92.46%)과 0.02%p(17건) 차이로 정합성이 입증되었다.
+- 사전 정의된 7대 단일/균등 앙상블 비교군 중 **3모델 균등 앙상블(E-REN, 92.46%)**이 최고 정확도를 달성했다.
+- 과거 Git 3638dab 보존 기록(92.48%, 약 103,501건 정답)과 순 정답수 17건(0.02%p) 오차 내에서 높은 수준의 정합성을 나타낸다.
 - 2모델 앙상블(ReDim + ECAPA)은 92.42%로 3모델 대비 0.04%p(49건) 차이에 불과하면서, 파라미터와 용량을 74% 절감하고 전처리를 80-Mel로 단일화할 수 있는 경량 최적화 대안이다.
 
 ## 5. 실측 추론 효율성 및 자원 계측 (NVIDIA RTX 3060 Laptop GPU)
