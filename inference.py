@@ -130,7 +130,7 @@ def main():
         df = mission1_inference(args.audio_dir, args.label_dir, args.ckpt_path)
         
     df.to_csv(args.output, index=False, encoding='utf-8-sig')
-    print(f"\n✅ 추론 완료! 결과가 {args.output}에 성공적으로 저장되었습니다.")
+    print(f"\n[확인] 추론 완료! 결과가 {args.output}에 성공적으로 저장되었습니다.")
 
 if __name__ == "__main__":
     main()
