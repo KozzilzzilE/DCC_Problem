@@ -7,7 +7,7 @@ Execution Example:
 
 Evaluated settings (Threshold 0.50 fixed on 111,919 validation utterances):
 - 3-Model Equal Ensemble (1/3 each): Accuracy 92.46%, Macro F1 0.9242 (31.87M params)
-- 2-Model Lightweight Ensemble (ReDim + ECAPA): Accuracy 92.42%, Macro F1 0.9238 (8.37M params)
+- 2-Model Lightweight Ensemble (ReDim + ECAPA): Accuracy 92.42%, Macro F1 0.9238 (8.36M params)
 - Single-Model (ECAPA-TDNN): Accuracy 92.05%, Macro F1 0.9201 (5.80M params)
 
 The CLI prints elapsed prediction time for the current invocation.

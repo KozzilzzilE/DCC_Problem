@@ -203,10 +203,14 @@ class Mission2InferenceEngine:
 
             if "redimnet" in self.models:
                 p_r = torch.sigmoid(self.models["redimnet"](t_80)).squeeze().item()
+                if not np.isfinite(p_r):
+                    raise RuntimeError(f"[Critical Error] ReDimNet2-B2 produced non-finite probability: {p_r}")
                 probs.append(p_r)
 
             if "ecapa_tdnn" in self.models:
                 p_e = torch.sigmoid(self.models["ecapa_tdnn"](t_80)).squeeze().item()
+                if not np.isfinite(p_e):
+                    raise RuntimeError(f"[Critical Error] ECAPA-TDNN produced non-finite probability: {p_e}")
                 probs.append(p_e)
 
         # 2. Models using 128-Mel (AudioResNet-50)
@@ -216,9 +220,18 @@ class Mission2InferenceEngine:
             )
             t_128 = torch.from_numpy(mel_128).unsqueeze(0).unsqueeze(0).to(self.device)
             p_res = torch.sigmoid(self.models["resnet50"](t_128)).squeeze().item()
+            if not np.isfinite(p_res):
+                raise RuntimeError(f"[Critical Error] AudioResNet-50 produced non-finite probability: {p_res}")
             probs.append(p_res)
 
-        return float(np.mean(probs))
+        if not probs:
+            raise RuntimeError("[Error] No active models in inference engine to compute probability.")
+
+        mean_p = float(np.mean(probs))
+        if not np.isfinite(mean_p):
+            raise RuntimeError(f"[Critical Error] Final ensemble probability is non-finite: {mean_p}")
+
+        return mean_p
 
     @staticmethod
     def _extract_normalized_mel(
@@ -344,6 +357,10 @@ def predict_directory(
                 clip = full_audio[max(0, start_idx) : min(audio_len, end_idx)]
 
             prob_1 = engine.predict_clip(clip, sr=sr)
+            if not np.isfinite(prob_1):
+                raise RuntimeError(
+                    f"[Critical Error] Non-finite probability ({prob_1}) for utterance: {wav_name} ({start_ms}-{end_ms} ms)"
+                )
             final_pred = 1 if prob_1 >= DECISION_THRESHOLD else 0
 
             if "speaker" in utt:
