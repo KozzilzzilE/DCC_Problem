@@ -41,3 +41,9 @@ mission3_symptom/runs/**
 # Archives
 *.zip
 *.tar.gz
+
+# Mission 2 Path B Local Runs and Exports
+mission2_speaker/experiments/runs/
+mission2_speaker/checkpoints_path_b/
+1008/
+reports/
