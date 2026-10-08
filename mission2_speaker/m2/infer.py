@@ -356,10 +356,16 @@ def predict_directory(
             else:
                 clip = full_audio[max(0, start_idx) : min(audio_len, end_idx)]
 
-            prob_1 = engine.predict_clip(clip, sr=sr)
+            try:
+                prob_1 = engine.predict_clip(clip, sr=sr)
+            except Exception as e:
+                raise RuntimeError(
+                    f"[Critical Error in {wav_name} ({start_ms}-{end_ms} ms)]: {e}"
+                ) from e
+
             if not np.isfinite(prob_1):
                 raise RuntimeError(
-                    f"[Critical Error] Non-finite probability ({prob_1}) for utterance: {wav_name} ({start_ms}-{end_ms} ms)"
+                    f"[Critical Error in {wav_name} ({start_ms}-{end_ms} ms)]: Non-finite probability ({prob_1})"
                 )
             final_pred = 1 if prob_1 >= DECISION_THRESHOLD else 0
 
