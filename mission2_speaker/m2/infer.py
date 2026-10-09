@@ -237,18 +237,8 @@ class Mission2InferenceEngine:
     def _extract_normalized_mel(
         audio: np.ndarray, sr: int, n_mels: int, n_fft: int, hop_length: int
     ) -> np.ndarray:
-        import librosa
-
-        mel = librosa.feature.melspectrogram(
-            y=audio, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels, power=2.0
-        )
-        ref_val = float(np.max(mel))
-        ref_val = max(1e-10, ref_val)
-
-        mel_db = librosa.power_to_db(mel, ref=ref_val, top_db=80.0)
-        mel_norm = (mel_db + 80.0) / 80.0
-        mel_norm = np.clip(mel_norm, 0.0, 1.0).astype(np.float32)
-        return mel_norm
+        from m2.audio_features import extract_normalized_mel
+        return extract_normalized_mel(audio, sr=sr, n_mels=n_mels, n_fft=n_fft, hop_length=hop_length)
 
 
 def predict_directory(

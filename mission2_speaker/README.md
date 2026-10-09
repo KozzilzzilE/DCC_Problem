@@ -4,6 +4,8 @@
 
 ## 1. 실행 방법
 
+### 1.1 추론 CLI (`inference.py`)
+
 ```bash
 pip install -r requirements.txt
 
@@ -25,14 +27,36 @@ python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label 
 - 출력 CSV 파일 규격: `audio file name`, `startAt`, `endAt`, `speaker` (UTF-8 BOM, 시간 오름차순 정렬).
 - 음원 누락이나 로드 실패 시에도 JSON에 정의된 모든 발화 행을 누락 없이 처리하는 fail-safe 로직이 내장되어 있습니다.
 
+### 1.2 경로 B 파이프라인 러너 (`experiments/run_path_b_fixed_continue.py`)
+
+```bash
+# 기본 설정 확인 (데이터 학습/평가 없이 빠른 정의 확인)
+python experiments/run_path_b_fixed_continue.py --stage define_only
+
+# 학습 데이터 표본 기반 스모크 검증 (공식 Validation 접근 완전 차단)
+python experiments/run_path_b_fixed_continue.py --stage smoke
+
+# 본 추가 학습 실행 (공식 Validation 평가 및 best 선택 0회)
+python experiments/run_path_b_fixed_continue.py --stage full_train
+
+# 완료 체크포인트 동결 설정 생성
+python experiments/run_path_b_fixed_continue.py --stage freeze_config
+
+# 동결 설정을 이용한 공식 Validation 전수 1회성 최종 평가
+python experiments/run_path_b_fixed_continue.py --stage eval_official
+
+# 해시 검증 및 제출용 패키지 export
+python experiments/run_path_b_fixed_continue.py --stage export
+```
+
 ## 2. 입력 및 전처리 규격 (비트 레벨 표준화)
 
+- 공통 전처리 모듈: `m2/audio_features.py`에서 추출 함수를 단일 관리하여 Dataset, Notebook, CLI의 비트 레벨 오차 0.0을 보장합니다.
 - 샘플링 레이트: 16kHz 모노, 목표 길이 3.0초 (48,000 샘플).
 - 시간 정규화: 3초 미만 발화는 우측 zero padding, 3초 초과 발화는 중앙 3초 crop.
 - ReDimNet2-B2 및 ECAPA-TDNN: Mel 80 / FFT 512 / hop 160 (301 프레임).
 - AudioResNet-50: Mel 128 / FFT 2048 / hop 512 (94 프레임).
 - Mel 정규화: Librosa Slaney-scale Mel 스펙트로그램 생성 후 `librosa.power_to_db(mel, ref=max(1e-10, max(mel)), top_db=80.0)` 변환 및 `(mel_db + 80) / 80`을 거쳐 `[0.0, 1.0]` 범위로 클립.
-- 학습(`m2.path_b.DCCAudioDatasetUnified`), 노트북, 추론 엔진(`m2.infer.Mission2InferenceEngine`)이 동일한 전처리 헬퍼를 공유하여 입력 불일치를 원천 차단했습니다.
 
 ## 3. 평가 데이터 규격
 
@@ -44,7 +68,7 @@ python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label 
 ## 4. 모델 성능 및 검증 상태
 
 ### 4.1 기존 보존 가중치 전수 실측치 (111,919건 전수, 임계값 0.50 고정)
-*과거 공식 Validation 기반 최고 에폭 선택으로 보존된 가중치의 전수 실측 기록입니다.*
+*과거 공식 Validation 기반 최고 에폭 선택(`official_validation_best`)으로 보존된 가중치의 전수 실측 기록입니다.*
 
 | 후보 ID | 모델 구성 | 검증 정확도 (Accuracy) | Macro F1 | 정답수 / 전체 | 파라미터 수 | 체크포인트 크기 |
 |---|---|---|---|---|---|---|
@@ -63,9 +87,10 @@ python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label 
   - ECAPA-TDNN: 부모 에폭 8 가중치에서 2 에폭 고정 추가 학습 -> 최종 10 에폭 가중치
   - AudioResNet-50: 기존 10 에폭 완료 가중치를 Hash 등록 재사용 (추가 학습 0 에폭)
   - 학습 중 공식 Validation 사용 및 점수 기반 선택 완전 배제
+  - 에폭별 원자적 체크포인트 저장 및 전체 RNG 복원 기반 중단 후 재개(Resume) 지원
 - **성적 구분**:
-  - 90발화 실측 결과(95.56%)는 격리 환경에서 수행한 CLI smoke 성적입니다.
-  - 경로 B 새 가중치의 공식 전수 성적(111,919건)은 동결 설정(`final_model_config.json`)을 통해 1회성으로 평가됩니다.
+  - 90발화 실측 결과(95.56%)는 Windows 작업자가 학습 데이터 표본에서 수행한 격리 CLI smoke 성적입니다.
+  - 경로 B 새 가중치의 공식 전수 성적(111,919건)은 동결 설정(`final_model_config.json`)을 통해 1회성으로 평가 대기 중입니다.
 
 ## 5. 실측 추론 효율성 및 자원 소모 (NVIDIA RTX 3060 Laptop GPU)
 

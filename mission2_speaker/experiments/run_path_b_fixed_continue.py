@@ -7,10 +7,11 @@ Selection Rule: fixed_additional_last
 - ECAPA-TDNN: Parent Epoch 8 -> +2 epochs fixed training -> Epoch 10
 - AudioResNet-50: Parent Epoch 10 -> 0 additional epochs (register with hash)
 - Official Validation: ZERO evaluation during training, ZERO score-based best selection
-- Preprocessing: Exact Librosa Slaney-scale Mel (top_db=80, (dB+80)/80, [0,1] clip)
+- Smoke Isolation: Smoke strictly evaluates on training samples (evaluate_smoke_unified), never touching official validation data
+- Preprocessing: Exact Librosa Slaney-scale Mel via m2.audio_features
 - Decision Threshold: 0.50 fixed
 - Ensemble: 3 models equal weighting (1/3 each)
-- Output Isolation: smoke/ vs path_b_fixed_continue/ are strictly separated
+- Output Isolation: runs/smoke/ vs runs/path_b_fixed_continue/ are strictly separated
 """
 
 from __future__ import annotations
@@ -43,82 +44,54 @@ from m2.path_b import (
     build_model,
     compute_sha256,
     evaluate_official_final_unified,
-    extract_normalized_mel,
+    evaluate_smoke_unified,
+    export_submission_package,
     freeze_model_config,
     load_model_weights_adapted,
     train_path_b_model,
 )
 
 
-def export_submission_package(
-    frozen_config_path: Path,
-    export_dir: Path,
-) -> None:
-    """
-    Exports the 3 selected checkpoints to export_dir with standard filenames
-    (best_redimnet.pt, best_ecapa_tdnn.pt, best_resnet50.pt) for inference CLI compatibility.
-    Strictly verifies that no smoke checkpoint is exported.
-    """
-    with open(frozen_config_path, "r", encoding="utf-8") as f:
-        cfg = json.load(f)
-
-    export_dir.mkdir(parents=True, exist_ok=True)
-    mapping = {
-        "redimnet": "best_redimnet.pt",
-        "ecapa_tdnn": "best_ecapa_tdnn.pt",
-        "resnet50": "best_resnet50.pt",
-    }
-
-    export_meta = {
-        "description": "DCC Mission 2 Submission Checkpoints (Path B fixed_additional_last)",
-        "selection_rule": "fixed_additional_last",
-        "note": "Standard filenames best_*.pt retained for inference CLI compatibility. Parent history: official_validation_best.",
-        "exported_timestamp": datetime.now().isoformat(),
-        "files": {},
-    }
-
-    for m_name, target_filename in mapping.items():
-        src_path = Path(cfg["models"][m_name]["checkpoint_path"])
-        if not src_path.exists():
-            raise FileNotFoundError(f"Missing checkpoint file: {src_path}")
-
-        ckpt_data = torch.load(src_path, map_location="cpu", weights_only=False)
-        if ckpt_data.get("is_smoke", False):
-            raise ValueError(f"Cannot export smoke checkpoint for submission: {src_path}")
-
-        dst_path = export_dir / target_filename
-        import shutil
-        shutil.copy2(src_path, dst_path)
-        sha = compute_sha256(dst_path)
-
-        export_meta["files"][target_filename] = {
-            "model_name": m_name,
-            "source_path": str(src_path),
-            "sha256": sha,
-            "completed_epoch": cfg["models"][m_name]["completed_epoch"],
-            "parent_saved_epoch": cfg["models"][m_name]["parent_saved_epoch"],
-            "additional_epochs": cfg["models"][m_name]["additional_epochs"],
-        }
-        print(f"Exported {src_path.name} -> {dst_path} (SHA-256: {sha})")
-
-    with open(export_dir / "selection_metadata.json", "w", encoding="utf-8") as f:
-        json.dump(export_meta, f, indent=2, ensure_ascii=False)
-    print(f"[Export Complete] Submission files successfully exported to {export_dir}")
-
-
 def main():
     parser = argparse.ArgumentParser(description="DCC Mission 2 Path B Fixed Continue Runner")
-    parser.add_argument("--stage", default="define_only",
-                        choices=["define_only", "smoke", "full_train", "freeze_config", "eval_official", "export"],
-                        help="Execution stage (default: define_only)")
-    parser.add_argument("--data_dir", default=str(BASE_DIR.parent / "data" / "train"), help="Training data root")
-    parser.add_argument("--val_dir", default=str(BASE_DIR.parent / "data" / "val"), help="Validation data root")
-    parser.add_argument("--output_root", default=str(BASE_DIR / "experiments" / "runs" / "path_b_fixed_continue"), help="Output run directory for full training")
-    parser.add_argument("--smoke_output_root", default=str(BASE_DIR / "experiments" / "runs" / "smoke"), help="Output run directory for smoke testing")
-    parser.add_argument("--export_dir", default=str(BASE_DIR / "checkpoints_path_b"), help="Submission export directory")
-    parser.add_argument("--smoke_max_files", type=int, default=10, help="Max files for smoke run")
-    parser.add_argument("--smoke_max_samples", type=int, default=200, help="Max samples for smoke run")
-    parser.add_argument("--allow_smoke_freeze", action="store_true", help="Allow freezing config from smoke output (testing only)")
+    parser.add_argument(
+        "--stage",
+        default="define_only",
+        choices=["define_only", "smoke", "full_train", "freeze_config", "eval_official", "export"],
+        help="Execution stage (default: define_only)",
+    )
+    parser.add_argument(
+        "--data_dir", default=str(BASE_DIR.parent / "data" / "train"), help="Training data root"
+    )
+    parser.add_argument(
+        "--val_dir", default=str(BASE_DIR.parent / "data" / "val"), help="Validation data root (only for eval_official)"
+    )
+    parser.add_argument(
+        "--output_root",
+        default=str(BASE_DIR / "experiments" / "runs" / "path_b_fixed_continue"),
+        help="Output run directory for full training",
+    )
+    parser.add_argument(
+        "--smoke_output_root",
+        default=str(BASE_DIR / "experiments" / "runs" / "smoke"),
+        help="Output run directory for smoke testing",
+    )
+    parser.add_argument(
+        "--export_dir",
+        default=str(BASE_DIR / "checkpoints_path_b"),
+        help="Submission export directory",
+    )
+    parser.add_argument(
+        "--smoke_max_files", type=int, default=10, help="Max files for smoke run"
+    )
+    parser.add_argument(
+        "--smoke_max_samples", type=int, default=200, help="Max samples for smoke run"
+    )
+    parser.add_argument(
+        "--allow_smoke_freeze",
+        action="store_true",
+        help="Allow freezing config from smoke output (testing only)",
+    )
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -140,11 +113,11 @@ def main():
         print(f" - Full Run Output Directory: {full_output_dir}")
         print(f" - Smoke Output Directory: {smoke_output_dir}")
         print(f" - Selection Rule: fixed_additional_last")
-        print(" - Parent Checkpoints & Planned Additional Epochs:")
+        print(" - Parent Checkpoints and Planned Additional Epochs:")
         for m, (p, ep, add_ep) in parent_ckpts.items():
             print(f"   * {m:10s}: Parent Ep {ep:2d} (+{add_ep} ep -> Ep {ep+add_ep:2d}) | Path: {p} (Exists: {p.exists()})")
         print(" [Notice] Default stage 'define_only' prevents automatic long training on Run All.")
-        print(" To execute smoke test: python run_path_b_fixed_continue.py --stage smoke")
+        print(" To execute smoke test (training samples only): python run_path_b_fixed_continue.py --stage smoke")
         print(" To execute full training: python run_path_b_fixed_continue.py --stage full_train")
         print(" To execute official final eval: python run_path_b_fixed_continue.py --stage eval_official")
         print("=" * 70)
@@ -154,6 +127,7 @@ def main():
         print("=" * 70)
         print(f" [Running Smoke Test] Max Files: {args.smoke_max_files}, Max Samples: {args.smoke_max_samples}")
         print(f" - Smoke Target Directory: {smoke_output_dir} (Separated from full run)")
+        print(" - Validation Isolation: Official validation data is NEVER touched or evaluated.")
         print("=" * 70)
         smoke_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -192,16 +166,16 @@ def main():
             smoke_output_dir, last_redim, last_ecapa, last_res, allow_smoke=True
         )
 
-        print("Running smoke validation evaluation (5 files)...")
-        eval_metrics = evaluate_official_final_unified(
+        print("Running smoke verification on training samples (never touching official val)...")
+        eval_metrics = evaluate_smoke_unified(
             frozen_config_path=frozen_cfg,
-            val_data_root=Path(args.val_dir),
+            train_data_root=Path(args.data_dir),
             device=device,
             batch_size=16,
-            max_files=5,
+            max_files=min(5, args.smoke_max_files),
             output_dir=smoke_output_dir / "eval_smoke",
         )
-        print("Smoke test completed successfully!")
+        print("Smoke verification completed successfully!")
 
     elif args.stage == "full_train":
         print("=" * 70)
@@ -259,10 +233,10 @@ def main():
     elif args.stage == "eval_official":
         frozen_cfg = full_output_dir / "final_model_config.json"
         if not frozen_cfg.exists():
-            if args.allow_smoke_freeze and (smoke_output_dir / "final_model_config.json").exists():
-                frozen_cfg = smoke_output_dir / "final_model_config.json"
-            else:
-                raise FileNotFoundError(f"Cannot run official evaluation without frozen config: {frozen_cfg}")
+            raise FileNotFoundError(
+                f"Cannot run official evaluation without production frozen config: {frozen_cfg}. "
+                "Smoke configurations are strictly prohibited for official evaluation."
+            )
 
         eval_metrics = evaluate_official_final_unified(
             frozen_config_path=frozen_cfg,
@@ -274,6 +248,8 @@ def main():
 
     elif args.stage == "export":
         frozen_cfg = full_output_dir / "final_model_config.json"
+        if not frozen_cfg.exists():
+            raise FileNotFoundError(f"Missing production frozen config for export: {frozen_cfg}")
         export_submission_package(frozen_cfg, Path(args.export_dir))
 
 
