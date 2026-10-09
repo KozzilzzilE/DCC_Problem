@@ -33,7 +33,7 @@ python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label 
 # 기본 설정 확인 (데이터 학습/평가 없이 빠른 정의 확인)
 python experiments/run_path_b_fixed_continue.py --stage define_only
 
-# 학습 데이터 표본 기반 스모크 검증 (공식 Validation 접근 완전 차단)
+# Training 표본 스모크 (실제 Training 경로를 지정; 공식 Validation은 평가하지 않음)
 python experiments/run_path_b_fixed_continue.py --stage smoke
 
 # 본 추가 학습 실행 (공식 Validation 평가 및 best 선택 0회)
@@ -49,11 +49,19 @@ python experiments/run_path_b_fixed_continue.py --stage eval_official
 python experiments/run_path_b_fixed_continue.py --stage export
 ```
 
+실제 데이터가 다른 위치에 있으면 `--data_dir`에 Training 루트, `--val_dir`에 공식 Validation 루트를 지정한다. 같은 경로나 서로 포함하는 경로는 거부한다. 알려진 Validation 폴더명과 `VL_`/`VS_` 라벨 파일도 Training에서 거부한다. 폴더명이 정상이라는 사실만으로 내용의 출처가 증명되지는 않으므로, Windows 데이터 명세 및 기존 통화 단위 분리 감사 결과를 확인해야 한다.
+
+중단 후 같은 명령어를 다시 실행하면 마지막 **완료 에포크**에서 재개한다. 에포크 중간의 진행은 마지막 저장 경계부터 다시 실행한다. 부모 해시, 표본 매핑/음원 파일 크기·mtime, 학습 계획, 전처리, 배치 설정, 학습률, seed, 코드 및 실행 환경이 다르면 기존 파일을 덮어쓰지 않고 실패한다. 데이터 fingerprint는 음원 내용 SHA-256을 대체하지 않는다. 완료된 학습·ResNet 등록·같은 설정 동결·같은 export는 재실행 시 기존 파일을 재사용한다.
+
+이전 버전 파일에 필수 실행 계약/이력/스텝 수가 없으면 자동으로 완료 처리하거나 메타데이터를 만들어 넣지 않는다. 원래 `checkpoints/best_*.pt` 부모는 유지하고, 새 본 실행은 `--output_root experiments/runs/path_b_v2`처럼 새 폴더에서 시작한다. 이전 Windows 추가 학습의 사용 가능 여부는 실제 실행 근거를 따로 확인해야 한다. 다른 제출 가중치가 이미 export 폴더에 있으면 `--export_dir checkpoints_path_b_v2`처럼 새 폴더를 사용한다.
+
+코드 검증: `python -m unittest discover -s tests -v` (이 디렉터리에서 실행). 작은 합성 모델/음원에 대한 실행 검증이며 프로젝트 성능 측정이 아니다. 실제 GPU 중단·재개와 신규 전수 성적은 Windows에서 확인한다.
+
 ## 2. 입력 및 전처리 규격 (비트 레벨 표준화)
 
-- 공통 전처리 모듈: `m2/audio_features.py`에서 추출 함수를 단일 관리하여 Dataset, Notebook, CLI의 비트 레벨 오차 0.0을 보장합니다.
+- 공통 전처리 모듈: `m2/audio_features.py`에서 전체 통화 로딩·리샘플링, 발화 절단, 길이 정규화와 Mel 추출을 공유합니다. 같은 라이브러리 환경의 합성 8/16/44.1kHz WAV로 전체 입력을 대조하며 실제 신규 가중치의 CLI parity는 별도 확인합니다.
 - 샘플링 레이트: 16kHz 모노, 목표 길이 3.0초 (48,000 샘플).
-- 시간 정규화: 3초 미만 발화는 우측 zero padding, 3초 초과 발화는 중앙 3초 crop.
+- 시간 정규화: 3초 미만은 우측 zero padding, 3초 초과는 Training에서 random crop, 평가/CLI에서 center crop.
 - ReDimNet2-B2 및 ECAPA-TDNN: Mel 80 / FFT 512 / hop 160 (301 프레임).
 - AudioResNet-50: Mel 128 / FFT 2048 / hop 512 (94 프레임).
 - Mel 정규화: Librosa Slaney-scale Mel 스펙트로그램 생성 후 `librosa.power_to_db(mel, ref=max(1e-10, max(mel)), top_db=80.0)` 변환 및 `(mel_db + 80) / 80`을 거쳐 `[0.0, 1.0]` 범위로 클립.
@@ -89,10 +97,13 @@ python experiments/run_path_b_fixed_continue.py --stage export
   - 학습 중 공식 Validation 사용 및 점수 기반 선택 완전 배제
   - 에폭별 원자적 체크포인트 저장 및 전체 RNG 복원 기반 중단 후 재개(Resume) 지원
 - **성적 구분**:
-  - 90발화 실측 결과(95.56%)는 Windows 작업자가 학습 데이터 표본에서 수행한 격리 CLI smoke 성적입니다.
+  - 90발화 실측 결과(95.56%)는 앞서 전달된 Windows CLI smoke 기록입니다. 표본 출처/실행 코드/가중치 해시 연결은 해당 산출물에서 확인해야 하며 현재 코드의 신규 성적으로 자동 재지정하지 않습니다.
   - 경로 B 새 가중치의 공식 전수 성적(111,919건)은 동결 설정(`final_model_config.json`)을 통해 1회성으로 평가 대기 중입니다.
+  - 신규 실행에서 점수 기반 best 선택을 제거했으며, 부모의 과거 `official_validation_best` 이력은 보존합니다. 원래 optimizer 상태가 없는 부모에서 추가 학습한 결과를 원래 10에포크 학습 상태의 복원으로 표현하지 않습니다.
 
 ## 5. 실측 추론 효율성 및 자원 소모 (NVIDIA RTX 3060 Laptop GPU)
+
+아래는 기존 가중치/당시 계측 구현의 Windows 보고 기록입니다. 신규 경로 B 또는 현재 CLI의 종단간 벤치마크를 대체하지 않습니다. RTF의 분모는 3초 정규화 입력입니다.
 
 - 단일 발화 추론 시간 (Batch 1): 21.84 ms/sample (RTF: 0.00728, 실시간 대비 137배 빠름).
 - 배치 처리량: 657.0 샘플/초 (Batch 32), 719.6 샘플/초 (Batch 128).

@@ -179,18 +179,13 @@ class Mission2InferenceEngine:
     @torch.no_grad()
     def predict_clip(self, clip_audio: np.ndarray, sr: int = SAMPLE_RATE) -> float:
         import librosa
+        from m2.audio_features import normalize_clip
 
         if sr != SAMPLE_RATE:
             clip_audio = librosa.resample(clip_audio, orig_sr=sr, target_sr=SAMPLE_RATE)
             sr = SAMPLE_RATE
 
-        # Length normalization: 3.0s (48,000 samples)
-        if len(clip_audio) < TARGET_LENGTH:
-            pad_width = TARGET_LENGTH - len(clip_audio)
-            clip_audio = np.pad(clip_audio, (0, pad_width), mode="constant")
-        elif len(clip_audio) > TARGET_LENGTH:
-            start_idx = (len(clip_audio) - TARGET_LENGTH) // 2
-            clip_audio = clip_audio[start_idx : start_idx + TARGET_LENGTH]
+        clip_audio = normalize_clip(clip_audio, TARGET_LENGTH, "center")
 
         probs = []
 
@@ -249,6 +244,7 @@ def predict_directory(
     ensemble_mode: str = "auto",
 ) -> pd.DataFrame:
     import librosa
+    from m2.audio_features import load_and_resample_call, extract_utterance_clip
 
     audio_dir = Path(audio_dir).resolve()
     label_dir = Path(label_dir).resolve()
@@ -314,7 +310,7 @@ def predict_directory(
                 continue
 
         try:
-            full_audio, _ = librosa.load(str(wav_path), sr=sr)
+            full_audio = load_and_resample_call(str(wav_path), target_sr=sr)
         except Exception as e:
             print(f"[Warning] Failed to load audio ({wav_name}): {e}")
             missing_audio_files += 1
@@ -332,19 +328,12 @@ def predict_directory(
                 missing_audio_utts += 1
             continue
 
-        audio_len = len(full_audio)
-
         for utt in dialog_list:
-            start_ms = int(utt.get("startAt", utt.get("start_time", 0)))
-            end_ms = int(utt.get("endAt", utt.get("end_time", 0)))
+            start_value = utt.get("startAt", utt.get("start_time", 0))
+            end_value = utt.get("endAt", utt.get("end_time", 0))
+            start_ms, end_ms = int(start_value), int(end_value)
 
-            start_idx = int((start_ms / 1000.0) * sr)
-            end_idx = int((end_ms / 1000.0) * sr)
-
-            if end_idx <= start_idx or start_idx >= audio_len:
-                clip = np.zeros(TARGET_LENGTH, dtype=np.float32)
-            else:
-                clip = full_audio[max(0, start_idx) : min(audio_len, end_idx)]
+            clip = extract_utterance_clip(full_audio, float(start_value), float(end_value), crop_mode="center")
 
             try:
                 prob_1 = engine.predict_clip(clip, sr=sr)
@@ -386,6 +375,7 @@ def predict_directory(
         print("\n[Info] Ground truth labels not provided; evaluation skipped.")
 
     df_out = pd.DataFrame(results, columns=OUTPUT_COLUMNS)
+    df_out = df_out.sort_values(["audio file name", "startAt", "endAt"], kind="stable").reset_index(drop=True)
     if output_path is not None:
         df_out.to_csv(output_path, index=False, encoding="utf-8-sig")
         print(f"[Mission 2] Submission CSV saved successfully: {output_path} ({len(df_out):,} rows)")

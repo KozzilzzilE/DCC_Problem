@@ -49,6 +49,7 @@ from m2.path_b import (
     freeze_model_config,
     load_model_weights_adapted,
     train_path_b_model,
+    validate_training_root,
 )
 
 
@@ -97,6 +98,10 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     full_output_dir = Path(args.output_root)
     smoke_output_dir = Path(args.smoke_output_root)
+    if full_output_dir.resolve() == smoke_output_dir.resolve():
+        raise ValueError("Smoke and full-run directories must be different")
+    if args.stage in {"smoke", "full_train"}:
+        validate_training_root(args.data_dir, args.val_dir)
 
     parent_ckpts = {
         "redimnet": (BASE_DIR / "checkpoints" / "best_redimnet.pt", 9, 1),

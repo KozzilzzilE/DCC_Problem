@@ -2,7 +2,7 @@
 """
 DCC Mission 2: Unified Audio Preprocessing & Feature Extraction.
 
-Guarantees 100% bit-level parity across Training Dataset, Notebook, and Submission CLI.
+Shared preprocessing for Dataset, Notebook, and CLI in the same library environment.
 - Audio Sample Rate: 16,000 Hz
 - Target Duration: 3.0s (48,000 samples)
 - 80-Mel (ReDimNet, ECAPA-TDNN): n_mels=80, n_fft=512, hop_length=160
@@ -36,6 +36,8 @@ def extract_normalized_mel(
     Standard Librosa Slaney-scale Mel Spectrogram extraction.
     Output: (n_mels, time) float32 array in [0.0, 1.0].
     """
+    if audio.ndim != 1 or not np.all(np.isfinite(audio)):
+        raise ValueError("Mel input must be a finite mono waveform")
     mel = librosa.feature.melspectrogram(
         y=audio, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels, power=2.0
     )
@@ -48,13 +50,36 @@ def extract_normalized_mel(
 
 
 @lru_cache(maxsize=32)
+def _load_call_cached(wav_path_str: str, target_sr: int, file_size: int, mtime_ns: int) -> np.ndarray:
+    audio, _ = librosa.load(wav_path_str, sr=target_sr)
+    if not len(audio) or not np.all(np.isfinite(audio)):
+        raise ValueError(f"Empty or non-finite audio: {wav_path_str}")
+    return audio
+
+
 def load_and_resample_call(wav_path_str: str, target_sr: int = SAMPLE_RATE) -> np.ndarray:
     """
     Load call audio and resample to target_sr once.
     Cached across utterances belonging to the same call.
     """
-    audio, _ = librosa.load(wav_path_str, sr=target_sr)
-    return audio
+    path = Path(wav_path_str).resolve()
+    stat = path.stat()
+    return _load_call_cached(str(path), target_sr, stat.st_size, stat.st_mtime_ns)
+
+
+def normalize_clip(clip: np.ndarray, target_length: int = TARGET_LENGTH,
+                   crop_mode: str = "center") -> np.ndarray:
+    if crop_mode not in {"center", "random"}:
+        raise ValueError(f"Unsupported crop mode: {crop_mode}")
+    if clip.ndim != 1 or not np.all(np.isfinite(clip)):
+        raise ValueError("Clip must be a finite mono waveform")
+    if len(clip) < target_length:
+        return np.pad(clip, (0, target_length - len(clip)), mode="constant")
+    if len(clip) > target_length:
+        offset = (np.random.randint(0, len(clip) - target_length + 1)
+                  if crop_mode == "random" else (len(clip) - target_length) // 2)
+        return clip[offset:offset + target_length]
+    return clip
 
 
 def extract_utterance_clip(
@@ -79,17 +104,4 @@ def extract_utterance_clip(
         return np.zeros(target_length, dtype=np.float32)
 
     clip = full_audio[max(0, start_idx) : min(audio_len, end_idx)]
-    curr_len = len(clip)
-
-    if curr_len < target_length:
-        pad_width = target_length - curr_len
-        return np.pad(clip, (0, pad_width), mode="constant")
-    elif curr_len > target_length:
-        if crop_mode == "random":
-            max_offset = curr_len - target_length
-            offset = np.random.randint(0, max_offset + 1)
-            return clip[offset : offset + target_length]
-        else:
-            offset = (curr_len - target_length) // 2
-            return clip[offset : offset + target_length]
-    return clip
+    return normalize_clip(clip, target_length, crop_mode)
