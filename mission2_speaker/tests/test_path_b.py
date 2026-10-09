@@ -215,7 +215,7 @@ class PathBTests(unittest.TestCase):
         with self.assertRaises(ValueError): pb.DCCAudioDatasetUnified(self.root)
 
     def test_fresh_notebook_define_only_finishes_without_model_or_dataset_execution(self):
-        nb = json.loads((PKG/'Mission2_Speaker_Classification.ipynb').read_text())
+        nb = json.loads((PKG/'Mission2_Speaker_Classification.ipynb').read_text(encoding='utf-8'))
         namespace = {'__name__':'__main__'}
         with patch.object(pb,'build_model',side_effect=AssertionError('model execution')), \
              patch.object(pb,'DCCAudioDatasetUnified',side_effect=AssertionError('dataset execution')):

@@ -521,7 +521,7 @@ def train_path_b_model(
     criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = CosineAnnealingLR(optimizer, T_max=additional_epochs, eta_min=1e-6)
-    scaler = GradScaler(enabled=device.type == "cuda")
+    scaler = GradScaler(enabled=device.type == "cuda", init_scale=1024.0)
     history = []
     start_add_epoch = 1
     if existing:
