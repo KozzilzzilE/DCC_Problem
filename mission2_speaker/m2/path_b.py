@@ -553,8 +553,8 @@ def train_path_b_model(
             old_scale = scaler.get_scale()
             scaler.step(optimizer)
             scaler.update()
-            if scaler.get_scale() < old_scale:
-                raise RuntimeError("Non-finite gradients; current epoch was not marked complete")
+            if scaler.is_enabled() and scaler.get_scale() < 1e-4:
+                raise RuntimeError("Non-finite gradients caused GradScaler to collapse; training diverged")
             total_loss += loss.item() * len(targets)
             correct += ((torch.sigmoid(logits) >= .5).float() == targets).sum().item()
             total += len(targets)
