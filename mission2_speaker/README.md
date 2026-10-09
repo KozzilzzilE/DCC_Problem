@@ -88,17 +88,27 @@ python experiments/run_path_b_fixed_continue.py --stage export
 | E-RN | ReDim + ResNet (2모델) | 91.75% | 0.9171 | 102,686 / 111,919 | 26.07M | 99.81 MiB |
 | S-N | AudioResNet-50 단독 | 91.17% | 0.9112 | 102,032 / 111,919 | 23.50M | 89.97 MiB |
 
-### 4.2 경로 B (고정 추가 학습) 규격 및 성적 구분
+### 4.2 경로 B (고정 추가 학습) 규격 및 확정 성적
 - **배경**: 멘토 피드백에 따라 공식 Validation에 의한 점수 기반 best epoch 선택을 배제하고, 사전에 고정한 학습 횟수를 완료한 마지막 가중치(`fixed_additional_last`)를 선택하는 경로 B를 구현했습니다.
 - **실행 규격**:
-  - ReDimNet: 부모 에폭 9 가중치에서 1 에폭 고정 추가 학습 -> 최종 10 에폭 가중치
-  - ECAPA-TDNN: 부모 에폭 8 가중치에서 2 에폭 고정 추가 학습 -> 최종 10 에폭 가중치
-  - AudioResNet-50: 기존 10 에폭 완료 가중치를 Hash 등록 재사용 (추가 학습 0 에폭)
+  - ReDimNet: 부모 에폭 9 가중치에서 1 에폭 고정 추가 학습 -> 최종 10 에폭 가중치 (`last_redimnet.pt`)
+  - ECAPA-TDNN: 부모 에폭 8 가중치에서 2 에폭 고정 추가 학습 -> 최종 10 에폭 가중치 (`last_ecapa_tdnn.pt`)
+  - AudioResNet-50: 기존 10 에폭 완료 가중치를 Hash 등록 재사용 (추가 학습 0 에폭, `last_resnet50.pt`)
   - 학습 중 공식 Validation 사용 및 점수 기반 선택 완전 배제
   - 에폭별 원자적 체크포인트 저장 및 전체 RNG 복원 기반 중단 후 재개(Resume) 지원
-- **성적 구분**:
-  - 90발화 실측 결과(95.56%)는 앞서 전달된 Windows CLI smoke 기록입니다. 표본 출처/실행 코드/가중치 해시 연결은 해당 산출물에서 확인해야 하며 현재 코드의 신규 성적으로 자동 재지정하지 않습니다.
-  - 경로 B 새 가중치의 공식 전수 성적(111,919건)은 동결 설정(`final_model_config.json`)을 통해 1회성으로 평가 대기 중입니다.
+- **공식 전수 평가 실측 성적 (111,919건)**:
+  - 동결 설정(`final_model_config.json`)을 기반으로 독립 1회성 전수 평가 완료
+  - **정확도**: **92.4633%** (103,484 / 111,919건 정답)
+  - **Macro F1**: **0.9242**
+  - **클래스별 재현율**: 상황실(0) 88.32% (47,542 / 53,830), 신고자(1) 96.30% (55,942 / 58,089)
+  - **혼동 행렬**: TN=47,542, FP=6,288, FN=2,147, TP=55,942
+- **체크포인트 SHA-256 해시**:
+  - ReDimNet (`best_redimnet.pt` / `last_redimnet.pt`): `74c6960c4a5e50fa2f7b332a762cb2e4113614ef296d1687e2807a42fd1cb242`
+  - ECAPA-TDNN (`best_ecapa_tdnn.pt` / `last_ecapa_tdnn.pt`): `5701706f7053a461982e7046dfcd20a8d3a26e9a74d5a2f6debb71d9ea12ca41`
+  - AudioResNet-50 (`best_resnet50.pt` / `last_resnet50.pt`): `55c5b3fbe7588d3159ef85ca2b0d0af2d3a65105017779dcb453d1638fff45aa`
+- **CLI 정합성 및 제출 패키지**:
+  - 독립 CLI(`inference.py`)와 전수 검증 엔진 간 일치율: **99.9946%** (111,913 / 111,919건, 6건 미세 부동소수점 오차)
+  - 최종 제출 패키지: `submission_mission2.zip` (177,965,393 bytes / 169.72 MB, SHA-256: `402b684d9f4ce8c14509d414ad9ba8add0d87b70ad4a3f19f7f7717d7c94bdb4`)
   - 신규 실행에서 점수 기반 best 선택을 제거했으며, 부모의 과거 `official_validation_best` 이력은 보존합니다. 원래 optimizer 상태가 없는 부모에서 추가 학습한 결과를 원래 10에포크 학습 상태의 복원으로 표현하지 않습니다.
 
 ## 5. 실측 추론 효율성 및 자원 소모 (NVIDIA RTX 3060 Laptop GPU)
