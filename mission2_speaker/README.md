@@ -12,8 +12,8 @@ pip install -r requirements.txt
 # 1) 기존 베이스라인 3모델 균등 앙상블 추론 (과거 checkpoints/)
 python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label --ckpt_path checkpoints/ --output ../outputs/mission2.csv
 
-# 2) 경로 B (고정 추가 학습) 체크포인트 추론 (checkpoints_path_b/)
-python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label --ckpt_path checkpoints_path_b/ --output ../outputs/mission2.csv --ensemble_mode 3model
+# 2) 경로 B (고정 추가 학습) 최종 체크포인트 추론 (checkpoints_path_b_v2/)
+python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label --ckpt_path checkpoints_path_b_v2/ --output ../outputs/mission2.csv --ensemble_mode 3model
 
 # 3) 초경량 2모델 (ReDimNet + ECAPA) 앙상블 추론 (옵션)
 python inference.py --audio_dir ../data/val/audio --label_dir ../data/val/label --ckpt_path checkpoints/ --output ../outputs/mission2.csv --ensemble_mode 2model
@@ -106,9 +106,11 @@ python experiments/run_path_b_fixed_continue.py --stage export
   - ReDimNet (`best_redimnet.pt` / `last_redimnet.pt`): `74c6960c4a5e50fa2f7b332a762cb2e4113614ef296d1687e2807a42fd1cb242`
   - ECAPA-TDNN (`best_ecapa_tdnn.pt` / `last_ecapa_tdnn.pt`): `5701706f7053a461982e7046dfcd20a8d3a26e9a74d5a2f6debb71d9ea12ca41`
   - AudioResNet-50 (`best_resnet50.pt` / `last_resnet50.pt`): `55c5b3fbe7588d3159ef85ca2b0d0af2d3a65105017779dcb453d1638fff45aa`
-- **CLI 정합성 및 제출 패키지**:
+- **CLI 정합성 및 제출 CSV 성적**:
   - 독립 CLI(`inference.py`)와 전수 검증 엔진 간 일치율: **99.9946%** (111,913 / 111,919건, 6건 미세 부동소수점 오차)
-  - 최종 제출 패키지: `submission_mission2.zip` (177,965,393 bytes / 169.72 MB, SHA-256: `402b684d9f4ce8c14509d414ad9ba8add0d87b70ad4a3f19f7f7717d7c94bdb4`)
+  - 실제 제출 CSV(`mission2.csv`) 유효 111,919건 실측치: **정확도 92.4651% (103,486건 정답)**, **Macro F1 0.9242**, 상황실 Recall 88.32%, 신고자 Recall 96.30%
+  - 평가 대상: 라벨 JSON 3,640개, 유효 매핑 WAV 3,639개 (누락 1개 통화 28발화는 무음 fail-safe로 온전히 보존되어 총 111,947행 생성)
+  - 최종 제출 패키지: `submission_mission2.zip` (용량: 169.72 MiB / 177,965,393 bytes = 177.97 MB, SHA-256: `402b684d9f4ce8c14509d414ad9ba8add0d87b70ad4a3f19f7f7717d7c94bdb4`)
   - 신규 실행에서 점수 기반 best 선택을 제거했으며, 부모의 과거 `official_validation_best` 이력은 보존합니다. 원래 optimizer 상태가 없는 부모에서 추가 학습한 결과를 원래 10에포크 학습 상태의 복원으로 표현하지 않습니다.
 
 ## 5. 실측 추론 효율성 및 자원 소모 (NVIDIA RTX 3060 Laptop GPU)
