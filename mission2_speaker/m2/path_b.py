@@ -246,6 +246,8 @@ def _validate_checkpoint(data, model_name, allow_smoke=False, require_complete=T
         for h in history:
             if h.get("samples_seen", 0) <= 0 or h.get("optimizer_steps", 0) <= 0:
                 raise ValueError("Checkpoint lacks actual Training sample/step counts")
+            if "batches_processed" in h and h["batches_processed"] < h["optimizer_steps"]:
+                raise ValueError("Checkpoint history has invalid batches_processed count")
             expected = data["train_samples"]
             loader = contract["loader"]
             if loader["drop_last"]:
@@ -535,10 +537,27 @@ def train_path_b_model(
         start_add_epoch = existing["completed_epoch"] - parent_saved_epoch + 1
     else:
         load_model_weights_adapted(model, parent_ckpt_path, device)
+    actual_step_count = 0
+    def _step_hook(*args, **kwargs):
+        nonlocal actual_step_count
+        actual_step_count += 1
+
+    if hasattr(optimizer, "register_step_post_hook"):
+        optimizer.register_step_post_hook(_step_hook)
+    else:
+        orig_step = optimizer.step
+        def _step_wrapper(*args, **kwargs):
+            nonlocal actual_step_count
+            res = orig_step(*args, **kwargs)
+            actual_step_count += 1
+            return res
+        optimizer.step = _step_wrapper
+
     model.train()
     for ep in range(start_add_epoch, additional_epochs + 1):
         actual_epoch = parent_saved_epoch + ep
-        total_loss = correct = total = steps = 0
+        total_loss = correct = total = 0
+        epoch_batches = epoch_actual_steps = epoch_skipped_steps = 0
         pbar = tqdm(train_loader, desc=f"Epoch {actual_epoch}/{total_planned} [Train {model_name}]")
         for inputs, targets, sample_ids in pbar:
             inputs = inputs.to(device)
@@ -550,18 +569,26 @@ def train_path_b_model(
             if not torch.isfinite(logits).all() or not torch.isfinite(loss):
                 raise RuntimeError(f"Non-finite Training output/loss for {model_name}: {list(sample_ids)}")
             scaler.scale(loss).backward()
-            old_scale = scaler.get_scale()
+            old_steps = actual_step_count
             scaler.step(optimizer)
             scaler.update()
             if scaler.is_enabled() and scaler.get_scale() < 1e-4:
                 raise RuntimeError("Non-finite gradients caused GradScaler to collapse; training diverged")
+
+            epoch_batches += 1
+            if actual_step_count > old_steps:
+                epoch_actual_steps += 1
+            else:
+                epoch_skipped_steps += 1
+
             total_loss += loss.item() * len(targets)
             correct += ((torch.sigmoid(logits) >= .5).float() == targets).sum().item()
             total += len(targets)
-            steps += 1
             pbar.set_postfix(loss=f"{loss.item():.4f}")
-        if not total or not steps:
-            raise ValueError("Training epoch contains no samples or optimizer steps")
+        if not total or not epoch_batches:
+            raise ValueError("Training epoch contains no samples or batches")
+        if epoch_actual_steps <= 0:
+            raise RuntimeError(f"Training epoch completed 0 actual optimizer steps ({epoch_batches} batches processed, {epoch_skipped_steps} skipped due to non-finite gradients); checkpoint save aborted to preserve valid weights")
         expected_samples = len(train_loader.dataset)
         if train_loader.drop_last:
             expected_samples = (expected_samples // train_loader.batch_size) * train_loader.batch_size
@@ -572,7 +599,8 @@ def train_path_b_model(
         scheduler.step()
         history.append({"epoch": actual_epoch, "additional_epoch": ep,
                         "train_loss": total_loss / total, "train_acc": correct / total * 100,
-                        "samples_seen": total, "optimizer_steps": steps})
+                        "samples_seen": total, "batches_processed": epoch_batches,
+                        "optimizer_steps": epoch_actual_steps, "skipped_steps": epoch_skipped_steps})
         payload = {**base, "model_state_dict": model.state_dict(),
                    "optimizer_state_dict": optimizer.state_dict(),
                    "scheduler_state_dict": scheduler.state_dict(), "scaler_state_dict": scaler.state_dict(),

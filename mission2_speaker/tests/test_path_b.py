@@ -225,6 +225,37 @@ class PathBTests(unittest.TestCase):
         self.assertEqual(namespace['RUN_STAGE'],'define_only')
         self.assertEqual(namespace['FROZEN_CONFIG_PATH'],namespace['OUTPUT_ROOT']/'final_model_config.json')
 
+    def test_all_steps_skipped_aborts_checkpoint_save_and_preserves_existing(self):
+        target = self.root / 'all_skipped'
+        target.mkdir(parents=True, exist_ok=True)
+        with patch.object(torch.cuda.amp.GradScaler, 'step', lambda self, opt: None):
+            with self.assertRaisesRegex(RuntimeError, '0 actual optimizer steps'):
+                self.train(directory='all_skipped')
+        self.assertFalse((target / 'best_ecapa_tdnn.pt').exists())
+        self.assertFalse((target / 'last_ecapa_tdnn.pt').exists())
+
+    def test_partial_steps_skipped_records_accurate_batch_step_and_skip_counts(self):
+        target = self.root / 'partial_skipped'
+        target.mkdir(parents=True, exist_ok=True)
+        scaler_calls = 0
+        orig_scaler_step = torch.cuda.amp.GradScaler.step
+        def skipping_scaler_step(scaler_self, opt, *args, **kwargs):
+            nonlocal scaler_calls
+            scaler_calls += 1
+            if scaler_calls % 2 == 1:
+                return None
+            return orig_scaler_step(scaler_self, opt, *args, **kwargs)
+
+        with patch.object(torch.cuda.amp.GradScaler, 'step', skipping_scaler_step):
+            p = self.train(directory='partial_skipped')
+        data = torch.load(p, weights_only=False)
+        self.assertTrue(len(data['history']) > 0)
+        h = data['history'][-1]
+        self.assertEqual(h['batches_processed'], 2)
+        self.assertEqual(h['optimizer_steps'], 1)
+        self.assertEqual(h['skipped_steps'], 1)
+        self.assertEqual(h['batches_processed'], h['optimizer_steps'] + h['skipped_steps'])
+
     def test_smoke_runner_never_calls_official_evaluation(self):
         spec = importlib.util.spec_from_file_location('runner',PKG/'experiments/run_path_b_fixed_continue.py')
         runner = importlib.util.module_from_spec(spec)
