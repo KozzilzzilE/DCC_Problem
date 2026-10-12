@@ -74,7 +74,7 @@ def _parse_utterances(raw: object) -> tuple[Utterance, ...]:
 def read_call(json_path: str | Path) -> CallRecord:
     """라벨 JSON 하나를 읽어 허용된 필드만 담은 CallRecord 로 반환한다."""
     path = Path(json_path)
-    with path.open(encoding="utf-8") as f:
+    with path.open(encoding="utf-8-sig") as f:
         payload = json.load(f)
 
     return CallRecord(
