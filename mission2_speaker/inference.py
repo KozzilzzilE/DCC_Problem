@@ -6,7 +6,7 @@ Execution Example:
                         --ckpt_path checkpoints_final/ --output ./outputs/mission2.csv
 
 Final setting: 3 equal model weights, threshold 0.50.
-Validation: batch engine 92.4633%; CLI CSV 92.4651%; Macro F1 0.9242.
+Validation (111,947 utterances, FP32, batch 64): 103,511 correct = 92.46%; Macro F1 0.9242.
 Historical single/2-model comparisons used earlier checkpoints; see README.
 
 The CLI prints elapsed prediction time for the current invocation.
@@ -37,6 +37,8 @@ def parse_args(argv=None):
     p.add_argument("--output", required=True, help="Path for output submission CSV file")
     p.add_argument("--ensemble_mode", default="3model", choices=["auto", "3model", "2model"],
                    help="Default 3model requires all final checkpoints. Use auto explicitly for a single checkpoint or automatic selection.")
+    p.add_argument("--batch_size", type=int, default=64,
+                   help="Utterances per model forward pass within a call (default: 64)")
     return p.parse_args(argv)
 
 
@@ -57,7 +59,8 @@ def main(argv=None) -> int:
         args.audio_dir,
         args.label_dir,
         args.ckpt_path,
-        ensemble_mode=args.ensemble_mode
+        ensemble_mode=args.ensemble_mode,
+        batch_size=args.batch_size,
     )
     elapsed = time.perf_counter() - started
 
