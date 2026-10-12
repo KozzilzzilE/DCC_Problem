@@ -1,8 +1,7 @@
 # Mission 2 (음성 기반 화자 분류) 필수 패키지 목록
-# PyTorch & Torchvision & Torchaudio
+# PyTorch & Torchvision (torchaudio is not used)
 torch>=2.0.0
 torchvision>=0.15.0
-torchaudio>=2.0.0
 
 # 오디오 신호 처리 및 과학 계산
 librosa>=0.10.0

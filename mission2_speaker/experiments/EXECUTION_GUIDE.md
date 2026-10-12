@@ -25,9 +25,11 @@ python tools/show_recorded_results.py --format html --output recorded_results.ht
 ```text
 py -3.11 -m venv .venv
 .venv\Scripts\python -m pip install --upgrade pip
-.venv\Scripts\python -m pip install torch==2.7.1 torchvision==0.22.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu118
+.venv\Scripts\python -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu118
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
+
+Mission 2는 `torchaudio`를 사용하지 않으므로 설치하지 않습니다. 오디오 로딩·Mel 변환은 `soundfile`·`librosa`를 사용합니다.
 
 이후 `python`은 이 가상환경의 Python을 의미합니다. CPU 환경은 Torch index URL을 `https://download.pytorch.org/whl/cpu`로 바꿉니다. Mac은 일반 pip 설치를 사용하며, 현재 추론 코드는 CPU 또는 CUDA를 선택합니다.
 
