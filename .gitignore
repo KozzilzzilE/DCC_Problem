@@ -47,3 +47,10 @@ mission2_speaker/experiments/runs/
 mission2_speaker/checkpoints_path_b*/
 1008/
 reports/
+
+# Mission 2 aggregate results only; local weights and runs stay private.
+mission2_speaker/checkpoints_final/
+mission2_speaker/outputs/
+!mission2_speaker/results/ALL_HYPOTHESES_COMPARISON.csv
+!mission2_speaker/results/ZCR_PILOT_COMPARISON_ALL.csv
+!mission2_speaker/results/ZCR_PILOT_DIFFERENCES_ALL.csv

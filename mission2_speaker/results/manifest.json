@@ -1,0 +1,25 @@
+{
+ "schema_version": 1,
+ "files": [
+  {
+   "path": "ALL_HYPOTHESES_COMPARISON.csv",
+   "sha256": "4dc389fce4b87efda21433ec7a92e68dad34a4e0eabfd6a497f27458ed7b37bd"
+  },
+  {
+   "path": "CLI_FINAL_METRICS.json",
+   "sha256": "24f8882a39564f8eb5755465954fa3849978ff861578e68beec2416855f4a57b"
+  },
+  {
+   "path": "ZCR_PILOT_COMPARISON_ALL.csv",
+   "sha256": "23a952c9de323147e0d5c16e4aec4fe270c4e4ea7176a54dbaecdc337c4c6a4b"
+  },
+  {
+   "path": "ZCR_PILOT_DIFFERENCES_ALL.csv",
+   "sha256": "8d3aa27bf910d75ee02e6e97dd7e37db0d190a228d196446201253cd30412bf7"
+  },
+  {
+   "path": "recorded_summary.json",
+   "sha256": "a564ddbcb786f4cc429bf2ae39eab897f65c274431ee657988a5f7b53b22d9ff"
+  }
+ ]
+}

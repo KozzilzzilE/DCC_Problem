@@ -3,12 +3,11 @@ Mission 2 (Speaker Classification: Dispatcher vs Caller) Standalone CLI Script.
 
 Execution Example:
     python inference.py --audio_dir <wav_dir> --label_dir <json_dir> \
-                        --ckpt_path checkpoints/ --output ./outputs/mission2.csv
+                        --ckpt_path checkpoints_final/ --output ./outputs/mission2.csv
 
-Evaluated settings (Threshold 0.50 fixed on 111,919 validation utterances):
-- 3-Model Equal Ensemble (1/3 each): Accuracy 92.46%, Macro F1 0.9242 (31.87M params)
-- 2-Model Lightweight Ensemble (ReDim + ECAPA): Accuracy 92.42%, Macro F1 0.9238 (8.36M params)
-- Single-Model (ECAPA-TDNN): Accuracy 92.05%, Macro F1 0.9201 (5.80M params)
+Final setting: 3 equal model weights, threshold 0.50.
+Validation: batch engine 92.4633%; CLI CSV 92.4651%; Macro F1 0.9242.
+Historical single/2-model comparisons used earlier checkpoints; see README.
 
 The CLI prints elapsed prediction time for the current invocation.
 """
@@ -27,7 +26,7 @@ for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-DEFAULT_CKPT = HERE / "checkpoints"
+DEFAULT_CKPT = HERE / "checkpoints_final"
 
 
 def parse_args(argv=None):
@@ -36,13 +35,20 @@ def parse_args(argv=None):
     p.add_argument("--label_dir", required=True, help="Directory containing JSON label/transcript files")
     p.add_argument("--ckpt_path", default=str(DEFAULT_CKPT), help="Checkpoint file (.pt) or directory path")
     p.add_argument("--output", required=True, help="Path for output submission CSV file")
-    p.add_argument("--ensemble_mode", default="auto", choices=["auto", "3model", "2model"],
-                   help="Ensemble mode: auto (default), 3model (all 3 models), or 2model (ReDim+ECAPA)")
+    p.add_argument("--ensemble_mode", default="3model", choices=["auto", "3model", "2model"],
+                   help="Default 3model requires all final checkpoints. Use auto explicitly for a single checkpoint or automatic selection.")
     return p.parse_args(argv)
 
 
 def main(argv=None) -> int:
     args = parse_args(argv)
+
+    if not Path(args.ckpt_path).exists():
+        raise FileNotFoundError(
+            f"Final checkpoints are missing: {args.ckpt_path}. "
+            "Place the final checkpoint files in checkpoints_final, "
+            "or specify --ckpt_path explicitly."
+        )
 
     from m2.infer import predict_directory
 

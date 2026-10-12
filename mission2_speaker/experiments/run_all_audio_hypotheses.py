@@ -889,10 +889,10 @@ def self_test():
 
 def main():
     parser = argparse.ArgumentParser(description='DCC Mission 2 Remaining Audio Hypotheses Unified Runner')
-    parser.add_argument('--plan', type=Path, default=Path(r'C:\Users\user\Desktop\DCC_m2_remaining_hypotheses\20261010\experiment_plan.json'),
+    parser.add_argument('--plan', type=Path, default=None,
                         help='Path to experiment plan JSON')
-    parser.add_argument('--stage', choices=['all', 'verify', 'prepare', 'timing', 'compare', 'combine', 'confirm', 'report', 'self-test'],
-                        default='all', help='Stage to execute')
+    parser.add_argument('--stage', choices=['all', 'verify', 'prepare', 'timing', 'compare', 'combine', 'report', 'self-test'],
+                        default='verify', help='Stage to execute (default: verify; training is explicit)')
     parser.add_argument('--resume', action='store_true', help='Resume from existing completed runs')
     parser.add_argument('--smoke', action='store_true', help='Run smoke timing mode')
     args = parser.parse_args()
@@ -901,6 +901,8 @@ def main():
         self_test()
         return
         
+    if args.plan is None:
+        parser.error('--plan is required except for --stage self-test')
     with open(args.plan, 'r', encoding='utf-8') as f:
         plan = json.load(f)
         

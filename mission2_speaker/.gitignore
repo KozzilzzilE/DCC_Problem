@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+checkpoints/
+checkpoints_final/
+checkpoints_path_b*/
+experiments/runs/
+outputs/
+*.pt
+*.zip
+.DS_Store

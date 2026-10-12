@@ -1,0 +1,1102 @@
+{
+ "schema_version": 1,
+ "source_commit": "aac31fa29a37f28b64064043342fdc1bb0cdd811",
+ "scope": "Display of existing recorded aggregates; no training/inference rerun",
+ "models": [
+  {
+   "name": "ReDimNet2-B2",
+   "key": "redimnet",
+   "filename": "best_redimnet.pt",
+   "parameters": 2567489,
+   "sha256": "74c6960c4a5e50fa2f7b332a762cb2e4113614ef296d1687e2807a42fd1cb242",
+   "completed_epoch": 10,
+   "parent_selection": "official_validation_best"
+  },
+  {
+   "name": "ECAPA-TDNN",
+   "key": "ecapa_tdnn",
+   "filename": "best_ecapa_tdnn.pt",
+   "parameters": 5795265,
+   "sha256": "5701706f7053a461982e7046dfcd20a8d3a26e9a74d5a2f6debb71d9ea12ca41",
+   "completed_epoch": 10,
+   "parent_selection": "official_validation_best"
+  },
+  {
+   "name": "AudioResNet-50",
+   "key": "resnet50",
+   "filename": "best_resnet50.pt",
+   "parameters": 23503809,
+   "sha256": "55c5b3fbe7588d3159ef85ca2b0d0af2d3a65105017779dcb453d1638fff45aa",
+   "completed_epoch": 10,
+   "parent_selection": "official_validation_best"
+  }
+ ],
+ "provenance": [
+  {
+   "source": "Docs/DCC_Mission2_Review_Package/02_final_submission_metrics/CLI_FINAL_METRICS.json",
+   "sha256": "24f8882a39564f8eb5755465954fa3849978ff861578e68beec2416855f4a57b"
+  },
+  {
+   "source": "Docs/DCC_Mission2_Review_Package/03_hypothesis_evidence/500_calls_hypotheses/ALL_HYPOTHESES_COMPARISON.csv",
+   "sha256": "4dc389fce4b87efda21433ec7a92e68dad34a4e0eabfd6a497f27458ed7b37bd"
+  },
+  {
+   "source": "Docs/DCC_Mission2_Review_Package/03_hypothesis_evidence/1000_calls_zcr/ZCR_PILOT_COMPARISON_ALL.csv",
+   "sha256": "23a952c9de323147e0d5c16e4aec4fe270c4e4ea7176a54dbaecdc337c4c6a4b"
+  },
+  {
+   "source": "Docs/DCC_Mission2_Review_Package/03_hypothesis_evidence/1000_calls_zcr/ZCR_PILOT_DIFFERENCES_ALL.csv",
+   "sha256": "8d3aa27bf910d75ee02e6e97dd7e37db0d190a228d196446201253cd30412bf7"
+  },
+  {
+   "source": "Docs/DCC_Mission2_Review_Package/02_final_submission_metrics/final_model_config.json",
+   "sha256": "b290c3ba6c72bc666d594bab0d7faf69877fc256542828c0afd79adafe09da82"
+  },
+  {
+   "source": "Docs/review_windows_package_2026-10-11/audit_results.json",
+   "sha256": "4dd9f549b735f8a0bbd6eb7183d95dfde866f7173b50ee4ce1c2b51a4168c07e"
+  }
+ ],
+ "final": {
+  "threshold": 0.5,
+  "weights": {
+   "redimnet": 0.3333333333333333,
+   "ecapa_tdnn": 0.3333333333333333,
+   "resnet50": 0.3333333333333333
+  },
+  "batch": {
+   "n": 111919,
+   "correct": 103484,
+   "accuracy": 0.9246329935042308,
+   "macro_f1": 0.9242060351102217,
+   "confusion_matrix": [
+    [
+     47542,
+     6288
+    ],
+    [
+     2147,
+     55942
+    ]
+   ],
+   "batch_size": 32
+  },
+  "cli": {
+   "n": 111919,
+   "correct": 103486,
+   "accuracy": 0.9246508635709755,
+   "macro_f1": 0.9242242108038514,
+   "confusion_matrix": [
+    [
+     47544,
+     6286
+    ],
+    [
+     2147,
+     55942
+    ]
+   ],
+   "batch_size": 1
+  },
+  "csv_rows": 111947,
+  "fallback_rows": 28,
+  "identical_predictions": 111913,
+  "differing_predictions": 6,
+  "batch_confusion_matrix_source": "Windows report; supplied notebook Part 7, Path B"
+ },
+ "hypotheses": [
+  {
+   "id": "H1",
+   "condition": "short",
+   "change": "3초 → 1.5초 중앙 입력",
+   "reason": "두 seed 모두 정확도 하락",
+   "mean_delta_accuracy_pp": -1.210526315789473,
+   "scope": "500통화",
+   "decision": "미채택",
+   "seed_results": [
+    {
+     "context": "500_integrated/short/seed42",
+     "aligned": true,
+     "metrics": {
+      "n": 2850,
+      "correct_count": 2393,
+      "accuracy": 0.8396491228070175,
+      "macro_f1": 0.838798730291692,
+      "recall_0": 0.7949090909090909,
+      "recall_1": 0.8813559322033898,
+      "confusion_matrix": [
+       [
+        1093,
+        282
+       ],
+       [
+        175,
+        1300
+       ]
+      ]
+     },
+     "delta_accuracy_pp": -1.2280701754386003,
+     "delta_macro_f1": -0.012902068085019258,
+     "delta_recall_0_pp": -4.727272727272725,
+     "delta_recall_1_pp": 2.033898305084747,
+     "ci_95_pp": [
+      -2.2930787145935336,
+      -0.10574393723915551
+     ],
+     "ci_repetitions": 2000,
+     "bootstrap_seed": 42
+    },
+    {
+     "context": "500_integrated/short/seed43",
+     "aligned": true,
+     "metrics": {
+      "n": 2850,
+      "correct_count": 2386,
+      "accuracy": 0.8371929824561404,
+      "macro_f1": 0.8364193147918799,
+      "recall_0": 0.7963636363636364,
+      "recall_1": 0.8752542372881356,
+      "confusion_matrix": [
+       [
+        1095,
+        280
+       ],
+       [
+        184,
+        1291
+       ]
+      ]
+     },
+     "delta_accuracy_pp": -1.1929824561403457,
+     "delta_macro_f1": -0.012177397255003553,
+     "delta_recall_0_pp": -2.2545454545454535,
+     "delta_recall_1_pp": -0.20338983050848247,
+     "ci_95_pp": [
+      -2.46157466531405,
+      0.10310056414580247
+     ],
+     "ci_repetitions": 2000,
+     "bootstrap_seed": 43
+    }
+   ]
+  },
+  {
+   "id": "H2",
+   "condition": "rms",
+   "change": "RMS 평균·표준편차 추가",
+   "reason": "seed 42 상황실 Recall -1.0909%p",
+   "mean_delta_accuracy_pp": 0.9649122807017574,
+   "scope": "500통화",
+   "decision": "미채택",
+   "seed_results": [
+    {
+     "context": "500_integrated/rms/seed42",
+     "aligned": true,
+     "metrics": {
+      "n": 2850,
+      "correct_count": 2455,
+      "accuracy": 0.8614035087719298,
+      "macro_f1": 0.8609144447468655,
+      "recall_0": 0.8312727272727273,
+      "recall_1": 0.8894915254237288,
+      "confusion_matrix": [
+       [
+        1143,
+        232
+       ],
+       [
+        163,
+        1312
+       ]
+      ]
+     },
+     "delta_accuracy_pp": 0.9473684210526301,
+     "delta_macro_f1": 0.009213646370154205,
+     "delta_recall_0_pp": -1.0909090909090868,
+     "delta_recall_1_pp": 2.8474576271186436,
+     "ci_95_pp": [
+      -0.07253022595045522,
+      1.936638290829543
+     ],
+     "ci_repetitions": 2000,
+     "bootstrap_seed": 42
+    },
+    {
+     "context": "500_integrated/rms/seed43",
+     "aligned": true,
+     "metrics": {
+      "n": 2850,
+      "correct_count": 2448,
+      "accuracy": 0.8589473684210527,
+      "macro_f1": 0.8581773618538324,
+      "recall_0": 0.8138181818181818,
+      "recall_1": 0.9010169491525424,
+      "confusion_matrix": [
+       [
+        1119,
+        256
+       ],
+       [
+        146,
+        1329
+       ]
+      ]
+     },
+     "delta_accuracy_pp": 0.9824561403508847,
+     "delta_macro_f1": 0.009580649806948949,
+     "delta_recall_0_pp": -0.5090909090909146,
+     "delta_recall_1_pp": 2.3728813559321993,
+     "ci_95_pp": [
+      -0.03602157400571066,
+      2.0507349127169947
+     ],
+     "ci_repetitions": 2000,
+     "bootstrap_seed": 43
+    }
+   ]
+  },
+  {
+   "id": "H3",
+   "condition": "centroid",
+   "change": "Centroid 평균·표준편차 추가",
+   "reason": "개선 0 / 음수; 양쪽 CI에 0 포함",
+   "mean_delta_accuracy_pp": -0.4561403508771933,
+   "scope": "별도 500통화",
+   "decision": "미채택",
+   "seed_results": [
+    {
+     "context": "500_centroid/seed42",
+     "aligned": true,
+     "metrics": {
+      "n": 2850,
+      "correct_count": 2429,
+      "accuracy": 0.852280701754386,
+      "macro_f1": 0.8512867350643161,
+      "recall_0": 0.7985454545454546,
+      "recall_1": 0.9023728813559322,
+      "confusion_matrix": [
+       [
+        1098,
+        277
+       ],
+       [
+        144,
+        1331
+       ]
+      ]
+     },
+     "baseline_metrics": {
+      "n": 2850,
+      "correct_count": 2429,
+      "accuracy": 0.852280701754386,
+      "macro_f1": 0.8512520748280723,
+      "recall_0": 0.7970909090909091,
+      "recall_1": 0.903728813559322,
+      "confusion_matrix": [
+       [
+        1096,
+        279
+       ],
+       [
+        142,
+        1333
+       ]
+      ]
+     },
+     "delta_accuracy_pp": 0.0,
+     "ci_95_pp": [
+      -1.0110198427306296,
+      0.9972778140659719
+     ],
+     "ci_repetitions": 500,
+     "bootstrap_seed": 42
+    },
+    {
+     "context": "500_centroid/seed43",
+     "aligned": true,
+     "metrics": {
+      "n": 2850,
+      "correct_count": 2434,
+      "accuracy": 0.8540350877192983,
+      "macro_f1": 0.8531760342074082,
+      "recall_0": 0.8058181818181818,
+      "recall_1": 0.8989830508474577,
+      "confusion_matrix": [
+       [
+        1108,
+        267
+       ],
+       [
+        149,
+        1326
+       ]
+      ]
+     },
+     "baseline_metrics": {
+      "n": 2850,
+      "correct_count": 2460,
+      "accuracy": 0.8631578947368421,
+      "macro_f1": 0.8626576625779879,
+      "recall_0": 0.832,
+      "recall_1": 0.8922033898305085,
+      "confusion_matrix": [
+       [
+        1144,
+        231
+       ],
+       [
+        159,
+        1316
+       ]
+      ]
+     },
+     "delta_accuracy_pp": -0.9122807017543866,
+     "ci_95_pp": [
+      -2.126276303209823,
+      0.4185323472049361
+     ],
+     "ci_repetitions": 500,
+     "bootstrap_seed": 43
+    }
+   ]
+  },
+  {
+   "id": "H4",
+   "condition": "zcr",
+   "change": "ZCR 평균·표준편차 추가",
+   "reason": "1,000통화에서 개선 방향 불일치; Recall·CI 기준 미충족",
+   "mean_delta_accuracy_pp": 0.6140350877193002,
+   "scope": "500통화 → 1,000통화",
+   "decision": "미채택",
+   "seed_results": [
+    {
+     "context": "500_integrated/zcr/seed42",
+     "aligned": true,
+     "metrics": {
+      "n": 2850,
+      "correct_count": 2430,
+      "accuracy": 0.8526315789473684,
+      "macro_f1": 0.8523050772504905,
+      "recall_0": 0.8349090909090909,
+      "recall_1": 0.8691525423728813,
+      "confusion_matrix": [
+       [
+        1148,
+        227
+       ],
+       [
+        193,
+        1282
+       ]
+      ]
+     },
+     "delta_accuracy_pp": 0.070175438596487,
+     "delta_macro_f1": 0.0006042788737792293,
+     "delta_recall_0_pp": -0.7272727272727209,
+     "delta_recall_1_pp": 0.8135593220338966,
+     "ci_95_pp": [
+      -1.07144224458543,
+      1.1040705497885424
+     ],
+     "ci_repetitions": 2000,
+     "bootstrap_seed": 42
+    },
+    {
+     "context": "500_integrated/zcr/seed43",
+     "aligned": true,
+     "metrics": {
+      "n": 2850,
+      "correct_count": 2453,
+      "accuracy": 0.860701754385965,
+      "macro_f1": 0.8604418127651985,
+      "recall_0": 0.8472727272727273,
+      "recall_1": 0.8732203389830508,
+      "confusion_matrix": [
+       [
+        1165,
+        210
+       ],
+       [
+        187,
+        1288
+       ]
+      ]
+     },
+     "delta_accuracy_pp": 1.1578947368421133,
+     "delta_macro_f1": 0.011845100718315016,
+     "delta_recall_0_pp": 2.836363636363637,
+     "delta_recall_1_pp": -0.40677966101695384,
+     "ci_95_pp": [
+      0.03234370223406908,
+      2.281559445542972
+     ],
+     "ci_repetitions": 2000,
+     "bootstrap_seed": 43
+    }
+   ],
+   "confirmation_mean_delta_accuracy_pp": -0.17091361093847235
+  },
+  {
+   "id": "H5",
+   "condition": "bandpass",
+   "change": "200–4,000Hz 필터 후 Mel",
+   "reason": "상황실 Recall -2.7636 / -2.4727%p",
+   "mean_delta_accuracy_pp": 0.9122807017543866,
+   "scope": "500통화",
+   "decision": "미채택",
+   "seed_results": [
+    {
+     "context": "500_integrated/bandpass/seed42",
+     "aligned": true,
+     "metrics": {
+      "n": 2850,
+      "correct_count": 2452,
+      "accuracy": 0.8603508771929824,
+      "macro_f1": 0.8595738612025716,
+      "recall_0": 0.8145454545454546,
+      "recall_1": 0.9030508474576271,
+      "confusion_matrix": [
+       [
+        1120,
+        255
+       ],
+       [
+        143,
+        1332
+       ]
+      ]
+     },
+     "delta_accuracy_pp": 0.8421052631578885,
+     "delta_macro_f1": 0.00787306282586031,
+     "delta_recall_0_pp": -2.763636363636357,
+     "delta_recall_1_pp": 4.203389830508475,
+     "ci_95_pp": [
+      -0.14357139076514677,
+      1.8988152009852488
+     ],
+     "ci_repetitions": 2000,
+     "bootstrap_seed": 42
+    },
+    {
+     "context": "500_integrated/bandpass/seed43",
+     "aligned": true,
+     "metrics": {
+      "n": 2850,
+      "correct_count": 2448,
+      "accuracy": 0.8589473684210527,
+      "macro_f1": 0.857726575736849,
+      "recall_0": 0.7941818181818182,
+      "recall_1": 0.9193220338983051,
+      "confusion_matrix": [
+       [
+        1092,
+        283
+       ],
+       [
+        119,
+        1356
+       ]
+      ]
+     },
+     "delta_accuracy_pp": 0.9824561403508847,
+     "delta_macro_f1": 0.00912986368996549,
+     "delta_recall_0_pp": -2.472727272727271,
+     "delta_recall_1_pp": 4.203389830508475,
+     "ci_95_pp": [
+      -0.22279468529991373,
+      2.2175534395097074
+     ],
+     "ci_repetitions": 2000,
+     "bootstrap_seed": 43
+    }
+   ]
+  }
+ ],
+ "zcr_confirmation": {
+  "split": {
+   "train_calls": 784,
+   "dev_calls": 216,
+   "train_samples": 24144,
+   "dev_samples": 6436,
+   "call_overlap": 0
+  },
+  "seeds": [
+   {
+    "seed": 42,
+    "baseline_accuracy": 0.8634244872591672,
+    "candidate_accuracy": 0.8483530142945929,
+    "delta_accuracy_pp": -1.507147296457434,
+    "ci_95_pp": [
+     -2.3908287822775844,
+     -0.6064189499604904
+    ],
+    "delta_macro_f1": -0.014053127678584687,
+    "delta_recall_0_pp": 6.494345718901462,
+    "delta_recall_1_pp": -8.919485184076626
+   },
+   {
+    "seed": 43,
+    "baseline_accuracy": 0.8516159105034182,
+    "candidate_accuracy": 0.8632691112492231,
+    "delta_accuracy_pp": 1.1653200745804893,
+    "ci_95_pp": [
+     0.37494466449207825,
+     2.0205700714037276
+    ],
+    "delta_macro_f1": 0.011264242322998719,
+    "delta_recall_0_pp": -2.229402261712443,
+    "delta_recall_1_pp": 4.310086800359169
+   }
+  ]
+ },
+ "experiment_tables": {
+  "window": {
+   "title": "윈도우·패딩·FFT 초기 비교",
+   "headers": [
+    "조건",
+    "입력",
+    "패딩",
+    "FFT / Mel",
+    "Accuracy",
+    "Macro F1"
+   ],
+   "rows": [
+    [
+     "Pre-1",
+     "1.5초",
+     "zero",
+     "2048 / 128",
+     "84.92%",
+     "0.8480"
+    ],
+    [
+     "Pre-2",
+     "3초",
+     "repeat",
+     "2048 / 128",
+     "85.14%",
+     "0.8503"
+    ],
+    [
+     "Pre-3",
+     "3초",
+     "zero",
+     "2048 / 128",
+     "85.93%",
+     "0.8584"
+    ],
+    [
+     "Pre-4",
+     "3초",
+     "zero",
+     "1024 / 128",
+     "85.48%",
+     "0.8545"
+    ]
+   ],
+   "notes": [
+    "초기 ResNet 부분 집합: Training 30,313발화 / Validation 9,138발화.",
+    "검토한 네 조건에서 3초·zero·FFT 2048이 가장 높아 기본 조건으로 채택. 모든 모델의 최적 길이를 증명한 것은 아닙니다."
+   ]
+  },
+  "architectures": {
+   "title": "후보 아키텍처와 실행 범위",
+   "headers": [
+    "계열",
+    "모델",
+    "파라미터",
+    "Train / 평가 발화",
+    "학습 예산",
+    "환경",
+    "시간",
+    "Accuracy / 상태"
+   ],
+   "rows": [
+    [
+     "CNN / TDNN",
+     "ReDimNet2-B2",
+     "2,567,489",
+     "873,137 / 111,919",
+     "10에포크",
+     "RTX 3060 계열",
+     "Train 루프 1,066.03분",
+     "91.75%"
+    ],
+    [
+     "CNN / TDNN",
+     "ECAPA-TDNN",
+     "5,795,265",
+     "873,137 / 111,919",
+     "10에포크",
+     "RTX 3060 계열",
+     "Train 루프 1,087.57분",
+     "92.05%"
+    ],
+    [
+     "CNN / TDNN",
+     "AudioResNet-50",
+     "23,503,809",
+     "873,137 / 111,919",
+     "10에포크",
+     "RTX 3060 계열",
+     "Train 루프 1,189.40분",
+     "91.17%"
+    ],
+    [
+     "스펙트로그램 Transformer",
+     "SSAST_Tiny 프로토타입",
+     "실제 생성 인자 미확인",
+     "미확인",
+     "검증 중단",
+     "미기록",
+     "미측정",
+     "OOM, 세션 제한으로 인한 검증 중단; 추가 구조·학습 검증의 시간 비용을 고려해 보류"
+    ],
+    [
+     "사전학습 음성 Transformer",
+     "Wav2Vec2-base 분류기",
+     "분류 헤드 포함 미집계",
+     "38,267 / 9,138",
+     "5에포크, B=32",
+     "A100 40GB",
+     "27.08분",
+     "89.72%, F1 0.8965"
+    ],
+    [
+     "사전학습 음성 Transformer",
+     "HuBERT 후보",
+     "미집계",
+     "미확인",
+     "실행 중단",
+     "Colab T4",
+     "미측정",
+     "OOM과 Colab 세션 만료로 실행 중단; 추가 구조·학습 검증의 시간 비용을 고려해 보류"
+    ],
+    [
+     "사전학습 음성 Transformer",
+     "WavLM 후보",
+     "미집계",
+     "미확인",
+     "실행 중단",
+     "Colab (GPU 미기록)",
+     "미측정",
+     "OOM과 Colab 세션 만료로 실행 중단; 추가 구조·학습 검증의 시간 비용을 고려해 보류"
+    ]
+   ],
+   "notes": [
+    "CNN/TDNN 행은 후보 비교 시점의 평가입니다. 최종 제출 가중치의 성적은 마지막 표에서 확인합니다.",
+    "서로 다른 데이터량·초기화·GPU·학습 예산이므로 전체 행을 동일 조건의 성능 순위로 해석하지 않습니다.",
+    "Wav2Vec2 + ResNet은 9,138발화에서 Accuracy 91.05%, Macro F1 0.9101. 트랜스포머 전체가 실패한 실험은 아닙니다.",
+    "시간은 CNN/TDNN의 Train 진행 구간 합계입니다. 검증·준비 시간을 포함한 전체 소요시간과 구분합니다.",
+    "중단 후보는 완료 성적과 자원 계측을 확보하지 못해 정량 성능 비교에서 제외했습니다."
+   ]
+  },
+  "observations": {
+   "title": "음향 관찰 → 가설 → 대조 조건",
+   "headers": [
+    "가설",
+    "355발화 상황실 / 신고자",
+    "200통화 상황실 / 신고자",
+    "실험에서 바꾼 내용"
+   ],
+   "rows": [
+    [
+     "H1 길이",
+     "2.11 / 2.38초",
+     "1.77 / 2.14초",
+     "기본 3초 대 1.5초 중앙 입력"
+    ],
+    [
+     "H2 RMS",
+     "프레임 Std 0.0376 / 0.0488",
+     "프레임 Std 0.0325 / 0.0406",
+     "RMS 평균·표준편차 2개 추가"
+    ],
+    [
+     "H3 Centroid",
+     "1,070.9 / 891.8Hz",
+     "866.4 / 1,043.5Hz",
+     "Centroid 평균·표준편차 2개 추가"
+    ],
+    [
+     "H4 ZCR",
+     "0.1048 / 0.0900",
+     "0.0874 / 0.1044",
+     "ZCR 평균·표준편차 2개 추가"
+    ],
+    [
+     "H5 대역",
+     "전화 유효 대역에 집중한다는 가설",
+     "클래스 차이 통계와 별도",
+     "200–4,000Hz 필터 적용 후 Mel"
+    ]
+   ],
+   "notes": [
+    "Centroid는 스펙트럼 무게중심, ZCR은 영교차 비율입니다. pitch·감정·마찰음 비율을 직접 측정한 지표가 아닙니다.",
+    "Centroid·ZCR의 클래스 방향이 표본에 따라 반대여서 고정된 역할 특성으로 단정하지 않습니다."
+   ]
+  },
+  "pilot200": {
+   "title": "200통화 탐색: 작은 비용으로 유망 조건 찾기",
+   "headers": [
+    "모델/학습 범위",
+    "기본 Accuracy",
+    "Centroid",
+    "ZCR",
+    "1.5초"
+   ],
+   "rows": [
+    [
+     "로지스틱 회귀",
+     "전체 특징 72.98%",
+     "소거 후 67.13%",
+     "전체-소거 -0.17%p",
+     "Duration 소거 차이 -0.34%p"
+    ],
+    [
+     "Tiny CNN / seed 42",
+     "63.25%",
+     "72.38% (+9.12%p)",
+     "70.48% (+7.23%p)",
+     "66.70% (+3.44%p)"
+    ],
+    [
+     "Tiny CNN / seed 43",
+     "조건 내 기준선과 비교",
+     "+11.88%p",
+     "+11.36%p",
+     "+9.72%p"
+    ],
+    [
+     "ResNet Frozen Head",
+     "72.20%",
+     "75.65% (+3.44%p)",
+     "74.96% (+2.75%p)",
+     "72.55% (+0.34%p)"
+    ],
+    [
+     "ResNet Full FT",
+     "82.96%",
+     "82.44% (-0.52%p)",
+     "82.53% (-0.43%p)",
+     "이 단계 미비교"
+    ]
+   ],
+   "notes": [
+    "200통화·6,075발화: Train 4,913 / 내부 Dev 1,162. 80-Mel, 신경망 최대 3에포크, 내부 Dev best 비교.",
+    "Tiny 23,367개 / 보조 입력 ResNet 23,503,815개. 같은 모델 안에서는 비활성 슬롯을 0으로 두어 파라미터 수를 통제.",
+    "전체 미세조정의 Centroid CI [-2.19,+1.01], ZCR [-2.44,+1.61]%p는 0을 포함. 효과 부재의 증명으로 해석하지 않습니다."
+   ]
+  },
+  "ablation200": {
+   "title": "200통화: 통계 특징 소거와 입력 변경",
+   "headers": [
+    "비교",
+    "ΔAccuracy %p",
+    "95% 통화 CI %p",
+    "해석"
+   ],
+   "rows": [
+    [
+     "Duration 전체-소거",
+     "-0.34",
+     "[-0.80, 0.00]",
+     "기여 미확인"
+    ],
+    [
+     "RMS 전체-소거",
+     "+1.46",
+     "[-1.36, +4.77]",
+     "개선 확정 불가"
+    ],
+    [
+     "Centroid 전체-소거",
+     "+5.85",
+     "[+1.78, +10.14]",
+     "로지스틱에서 기여 확인"
+    ],
+    [
+     "ZCR 전체-소거",
+     "-0.17",
+     "[-1.52, +1.27]",
+     "로지스틱에서 기여 미확인"
+    ],
+    [
+     "Tiny 1.5초 / seed 42",
+     "+3.44",
+     "[+0.72, +5.82]",
+     "경량 모델의 개선 신호"
+    ],
+    [
+     "Tiny 1.5초 / seed 43",
+     "+9.72",
+     "[+7.08, +12.46]",
+     "초기 3초 설정 재확인 동기"
+    ],
+    [
+     "Frozen ResNet 1.5초",
+     "+0.34",
+     "[-1.69, +2.47]",
+     "심층 모델에서는 불확실"
+    ],
+    [
+     "Tiny bandpass",
+     "-0.26",
+     "[-0.91, +0.44]",
+     "개선 근거 미확인"
+    ]
+   ],
+   "notes": [
+    "특징 소거는 로지스틱 회귀 실험입니다. 신경망 보조 입력 실험과 구분합니다. 통화 단위 paired bootstrap 500회."
+   ]
+  },
+  "bandpass": {
+   "title": "초기 3모델 bandpass 미세조정 비교",
+   "headers": [
+    "모델",
+    "기본 비교 성적",
+    "필터 FT 3에포크",
+    "차이"
+   ],
+   "rows": [
+    [
+     "ReDimNet",
+     "91.89%",
+     "91.57%",
+     "-0.32%p"
+    ],
+    [
+     "ECAPA-TDNN",
+     "92.10%",
+     "91.82%",
+     "-0.28%p"
+    ],
+    [
+     "AudioResNet-50",
+     "91.20%",
+     "90.70%",
+     "-0.50%p"
+    ]
+   ],
+   "notes": [
+    "같은 추가 학습량의 무필터 대조군이 없으므로 필터만의 효과로 단정하지 않습니다. 이후 500통화 통제 비교를 별도로 수행했습니다."
+   ]
+  },
+  "zcr_reference": {
+   "title": "1,000통화 ZCR: 내부 Dev 최고점 참고",
+   "headers": [
+    "Seed",
+    "Baseline best",
+    "Epoch",
+    "ZCR best",
+    "Epoch",
+    "ΔAccuracy %p",
+    "95% 통화 CI %p"
+   ],
+   "rows": [
+    [
+     42,
+     "86.3424%",
+     5,
+     "86.4512%",
+     4,
+     "+0.1088",
+     "[-0.6112, +0.8303]"
+    ],
+    [
+     43,
+     "86.4201%",
+     2,
+     "86.3269%",
+     5,
+     "-0.0932",
+     "[-0.6987, +0.4786]"
+    ]
+   ],
+   "notes": [
+    "평균 차이 +0.0078%p, 양쪽 CI가 0을 포함. 참고 비교이며 사전 고정 마지막 epoch 5의 채택 판정을 대체하지 않습니다."
+   ]
+  },
+  "ensemble": {
+   "title": "단일 모델·균등 앙상블 7조합과 참고 후보",
+   "headers": [
+    "구성",
+    "Accuracy",
+    "Macro F1",
+    "정답 / 111,919",
+    "파라미터",
+    "가중치 크기"
+   ],
+   "rows": [
+    [
+     "ReDimNet",
+     "91.75%",
+     "0.9171",
+     "102,685",
+     "2.57M",
+     "9.84 MiB"
+    ],
+    [
+     "ECAPA-TDNN",
+     "92.05%",
+     "0.9201",
+     "103,018",
+     "5.80M",
+     "22.23 MiB"
+    ],
+    [
+     "AudioResNet",
+     "91.17%",
+     "0.9112",
+     "102,032",
+     "23.50M",
+     "89.97 MiB"
+    ],
+    [
+     "ReDim + ECAPA",
+     "92.42%",
+     "0.9238",
+     "103,435",
+     "8.36M",
+     "32.08 MiB"
+    ],
+    [
+     "ReDim + ResNet",
+     "91.75%",
+     "0.9171",
+     "102,686",
+     "26.07M",
+     "99.81 MiB"
+    ],
+    [
+     "ECAPA + ResNet",
+     "91.78%",
+     "0.9173",
+     "102,719",
+     "29.30M",
+     "112.20 MiB"
+    ],
+    [
+     "3모델 균등 평균",
+     "92.46%",
+     "0.9242",
+     "103,484",
+     "31.87M",
+     "122.04 MiB"
+    ],
+    [
+     "참고: 가중 .45/.40/.15",
+     "92.54%",
+     "0.9250",
+     "103,565",
+     "31.87M",
+     "122.04 MiB"
+    ]
+   ],
+   "notes": [
+    "후보 비교 시점의 가중치 평가. 최종 제출 가중치의 Recall·혼동행렬은 마지막 표와 구분합니다.",
+    "후보 3모델 혼동행렬 [[47729,6101],[2334,55755]], Recall 0/1 = 88.67%/95.98%. 최종 전수 행렬과는 다릅니다.",
+    "7개 단일/균등 조합 중 3모델의 정확도가 가장 높고 2모델보다 49건 더 정답. 2모델은 파라미터 약 74% 절감.",
+    "사후 가중 후보는 참고로만 표시합니다. 균등 결합을 유지하고 동일 검증셋에 대한 추가 가중치 피팅은 채택하지 않았습니다."
+   ]
+  },
+  "benchmark": {
+   "title": "추론 효율성 계측",
+   "headers": [
+    "Batch",
+    "Mel ms/건",
+    "3모델 forward ms/건",
+    "합계 ms/건",
+    "건/초",
+    "RTF"
+   ],
+   "rows": [
+    [
+     1,
+     "4.88",
+     "16.96",
+     "21.84",
+     "45.8",
+     "0.00728"
+    ],
+    [
+     32,
+     "0.81",
+     "0.71",
+     "1.52",
+     "657.0",
+     "0.00051"
+    ],
+    [
+     128,
+     "0.75",
+     "0.64",
+     "1.39",
+     "719.6",
+     "0.00046"
+    ]
+   ],
+   "notes": [
+    "RTX 3060 Laptop 계측, 가중치 메모리 122.67 MB / 최대 VRAM 1,129.12 MB. RTF 분모는 3초 정규화 입력.",
+    "초기 전수 평가 약 242초. 이 계측은 후보 비교 단계이며 최종 Librosa CLI의 종단간 시간으로 대체하지 않습니다."
+   ]
+  },
+  "audit": {
+   "title": "실행·데이터·제출 검증 요약",
+   "headers": [
+    "항목",
+    "결과"
+   ],
+   "rows": [
+    [
+     "데이터 모집단",
+     "라벨 3,640통화·111,947발화 / 유효 WAV 3,639통화·111,919발화 / 누락 1통화·28발화"
+    ],
+    [
+     "통화 ID 중복",
+     "Training 29,142 / Validation 3,640 비교: 0건; 화자 신원·원음 중복까지 보장하는 검사는 아님"
+    ],
+    [
+     "초기 NaN 수정",
+     "무음/패딩 1,180건 비정상 값 보고; ResNet 90.27→91.17%, 앙상블 91.56→92.46%; ref 하한 및 비정상 확률 거부"
+    ],
+    [
+     "반올림 과거 기록",
+     "92.48%와 수정 평가 92.46%는 약 0.02%p 차이; 과거 개별 배열 미보존"
+    ],
+    [
+     "학습 업데이트 감사",
+     "ReDim Adam 27,280 step / skip 6; ECAPA 54,555 step / skip 17; 학습 파라미터 변경 확인"
+    ],
+    [
+     "회귀 검사",
+     "Windows 회귀 15개 통과"
+    ],
+    [
+     "Training 스모크",
+     "144발화 94.44%; 전수 성적을 대체하지 않음"
+    ],
+    [
+     "격리 CLI 표본 확인",
+     "45발화 중 42정답(93.33%), 5.13초, CSV 4열·45행 통과"
+    ],
+    [
+     "최종 ZIP 실행",
+     "독립 압축 해제 후 실제 음성 inference.py 및 CSV 규격 확인"
+    ],
+    [
+     "제출 ZIP 크기",
+     "177,965,393 bytes = 169.72 MiB = 177.97 MB"
+    ],
+    [
+     "제출 ZIP SHA-256",
+     "402b684d9f4ce8c14509d414ad9ba8add0d87b70ad4a3f19f7f7717d7c94bdb4"
+    ]
+   ],
+   "notes": [
+    "스모크 정확도는 소량 표본의 동작 확인입니다. 최종 성능은 유효 111,919발화 전수 평가로 제시합니다.",
+    "ZIP을 수정·재생성하면 SHA-256은 다시 계산합니다."
+   ]
+  }
+ }
+}

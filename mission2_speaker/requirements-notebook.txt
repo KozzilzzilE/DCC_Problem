@@ -1,0 +1,3 @@
+# Optional: for opening notebooks interactively. Recorded-result CLI uses stdlib.
+jupyterlab>=4,<5
+ipykernel>=6,<7

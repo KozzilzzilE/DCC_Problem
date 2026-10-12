@@ -1,0 +1,27 @@
+{
+  "evaluation_denominator": 111919,
+  "missing_audio_fallback_rows": 28,
+  "total_csv_rows": 111947,
+  "total_correct": 103486,
+  "accuracy": 0.9246508635709755,
+  "accuracy_percent": 92.46508635709755,
+  "macro_f1": 0.9242242108038514,
+  "recall_0_dispatch": 0.883224967490247,
+  "recall_1_caller": 0.9630394739107232,
+  "confusion_matrix": {
+    "tn": 47544,
+    "fp": 6286,
+    "fn": 2147,
+    "tp": 55942
+  },
+  "batch_vs_cli_comparison": {
+    "batch_accuracy": 0.9246329935042308,
+    "cli_accuracy": 0.9246508635709755,
+    "batch_correct": 103484,
+    "cli_correct": 103486,
+    "correct_delta": 2,
+    "identical_predictions_count": 111913,
+    "differing_predictions_count": 6,
+    "agreement_rate": 99.99463897997659
+  }
+}
