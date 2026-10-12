@@ -20,18 +20,19 @@ python tools/show_recorded_results.py --format html --output recorded_results.ht
 
 ## 2. 환경 설치
 
-검증 환경: Windows 11, Python 3.11.7, RTX 3060 Laptop GPU 6GB, PyTorch/Torchaudio 2.7.1+cu118, Librosa 0.11.0.
+검증 환경: Windows 11, Python 3.11.7, RTX 3060 Laptop GPU 6GB, PyTorch 2.7.1+cu118, Librosa 0.11.0.
 
 ```text
 py -3.11 -m venv .venv
 .venv\Scripts\python -m pip install --upgrade pip
 .venv\Scripts\python -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu118
 .venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\activate
 ```
 
 Mission 2는 `torchaudio`를 사용하지 않으므로 설치하지 않습니다. 오디오 로딩·Mel 변환은 `soundfile`·`librosa`를 사용합니다.
 
-이후 `python`은 이 가상환경의 Python을 의미합니다. CPU 환경은 Torch index URL을 `https://download.pytorch.org/whl/cpu`로 바꿉니다. Mac은 일반 pip 설치를 사용하며, 현재 추론 코드는 CPU 또는 CUDA를 선택합니다.
+활성화 후 `python`은 이 가상환경의 Python을 의미합니다. PowerShell에서는 `.\.venv\Scripts\Activate.ps1`을 사용하거나 `python` 대신 `.venv\Scripts\python`을 지정합니다. CPU 환경은 Torch index URL을 `https://download.pytorch.org/whl/cpu`로 바꿉니다. Mac은 일반 pip 설치를 사용하며, 현재 추론 코드는 CPU 또는 CUDA를 선택합니다.
 
 노트북을 직접 열 때만 추가 설치:
 
@@ -158,3 +159,10 @@ python experiments/run_zcr_confirmation.py --stage train --cache-dir "D:/pilot10
 음원·라벨·캐시·발화별 예측·대형 로그는 Git 업로드 대상에서 제외합니다. 결과를 확인하는 데 재학습은 필요하지 않으며, 이 정리본에는 가중치·원본 음원이 포함되어 있지 않습니다.
 
 Windows 최종 테스트에는 `tools/verify_submission.py`를 사용합니다. `check-weights`는 최종 SHA-256, `prepare-smoke`는 실제 음성 표본·경계 사례 준비, `check-csv`는 발화 매핑·행 수·형식·성적, `run`은 UTF-8 실행 로그를 담당합니다. `python tools/verify_submission.py --help`에서 인자를 확인할 수 있습니다. 성적 비교에서 차이가 있으면 기능 검사 통과와 별도로 검토합니다.
+
+
+## 재개 범위
+
+`quick_hypotheses.py probe`는 동일 설정·출력 경로를 다시 실행하면 에포크 경계 체크포인트에서 재개합니다. 수정 전 구형 파일에 DataLoader 난수 상태가 없으면 새 출력 폴더를 사용해야 합니다. 실행 시간은 설정 동일성 판단에서 제외합니다.
+
+`run_all_audio_hypotheses.py --resume`는 같은 계획에서 이미 완료된 조건을 검증한 뒤 건너뛰는 옵션입니다. 부분 학습을 이어가는 기능은 아닙니다. 계획이나 데이터를 변경할 때는 새 출력 디렉터리를 사용합니다.

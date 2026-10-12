@@ -21,6 +21,9 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision.models import resnet50, ResNet50_Weights
 from sklearn.metrics import accuracy_score, f1_score, recall_score, confusion_matrix
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from m2.experiment_checks import call_split_counts
+
 
 def finite(val, name='value'):
     val = np.asarray(val)
@@ -127,10 +130,13 @@ def evaluate_model(model, loader, device, threshold=0.5):
             mels = mels.to(device)
             extras = extras.to(device)
             logits = model(mels, extras)
+            if not torch.isfinite(logits).all():
+                raise RuntimeError('Non-finite hypothesis evaluation logits')
             probs = torch.sigmoid(logits)
             all_probs.extend(probs.cpu().numpy().tolist())
             all_targets.extend(targets.numpy().tolist())
     probs = np.array(all_probs, dtype=np.float64)
+    finite(probs, 'hypothesis evaluation probabilities')
     targets = np.array(all_targets, dtype=np.int64)
     preds = (probs >= threshold).astype(np.int64)
     
@@ -151,6 +157,10 @@ def evaluate_model(model, loader, device, threshold=0.5):
 
 
 def compute_paired_call_bootstrap(calls, y, prob_cand, prob_base, iterations=2000, seed=42, threshold=0.5):
+    finite(prob_cand, 'candidate bootstrap probabilities')
+    finite(prob_base, 'baseline bootstrap probabilities')
+    if not len(y) or not (len(calls) == len(y) == len(prob_cand) == len(prob_base)):
+        raise ValueError('Bootstrap calls, targets and probabilities must be nonempty and aligned')
     rng = np.random.RandomState(seed)
     unique_calls = np.array(sorted(set(calls)))
     n_calls = len(unique_calls)
@@ -398,19 +408,47 @@ def stage_timing(plan):
     print(f'Stage timing completed. Estimated 50 epochs time: {budget_est_sec/60:.1f} minutes.')
 
 
+def condition_resume_identity(cond, seed, plan, cache_dir):
+    """Exact settings required before reusing an already completed condition."""
+    cache_config = json.loads((cache_dir / 'config.json').read_text(encoding='utf-8'))
+    if not cache_config.get('ready') or not cache_config.get('cache_id'):
+        raise ValueError('Prepared cache identity is required')
+    return {'schema': 1, 'condition': cond, 'seed': seed, 'model': 'resnet50',
+            'epochs': plan['epochs'], 'batch_size': plan['batch_size'],
+            'lr': plan['optimizer']['lr'], 'weight_decay': plan['optimizer']['weight_decay'],
+            'head_dropout': plan['head_dropout'], 'threshold': plan['threshold'],
+            'initialization': 'ImageNet', 'freeze_backbone': False, 'precision': 'FP32',
+            'cache_id': cache_config['cache_id'],
+            'cache_config_sha256': hashlib.sha256((cache_dir / 'config.json').read_bytes()).hexdigest(),
+            'features_sha256': hashlib.sha256((cache_dir / 'features.npz').read_bytes()).hexdigest()}
+
+
 def run_condition_training(cond, seed, plan, cache_dir, out_dir, features, standardized, resume=False):
     out_dir.mkdir(parents=True, exist_ok=True)
+    expected_identity = condition_resume_identity(cond, seed, plan, cache_dir)
+    config_file = out_dir / 'run_config.json'
     metrics_file = out_dir / 'epoch_metrics.csv'
     best_ckpt = out_dir / 'best_dev.pt'
     last_ckpt = out_dir / 'last.pt'
     best_pred_file = out_dir / 'best_dev_predictions.npz'
     
-    # Check if already completed
-    if resume and metrics_file.exists() and best_ckpt.exists() and best_pred_file.exists():
-        df_existing = pd.read_csv(metrics_file)
-        if len(df_existing) >= plan['epochs']:
+    # --resume only reuses completed, identically configured runs; it never
+    # restarts partial training or infers settings from legacy result files.
+    if any(out_dir.iterdir()):
+        if not resume:
+            raise FileExistsError('Use a new output directory for a new condition execution')
+        if not config_file.is_file():
+            raise ValueError('Legacy or incomplete run metadata; use a new output directory')
+        saved_config = json.loads(config_file.read_text(encoding='utf-8'))
+        if saved_config.get('resume_identity') != expected_identity:
+            raise ValueError('Completed-run configuration or cache changed; use a new output directory')
+        if metrics_file.exists() and best_ckpt.exists() and best_pred_file.exists() and last_ckpt.exists() and (out_dir / 'last_predictions.npz').exists():
+            df_existing = pd.read_csv(metrics_file)
+            if len(df_existing) != plan['epochs']:
+                raise ValueError('Incomplete or inconsistent condition; use a new output directory')
             print(f'Skipping already completed condition {cond} (seed {seed}).')
             return
+        raise ValueError('Partial training resume is unsupported; use a new output directory')
             
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     train_mask = ~features['dev']
@@ -526,7 +564,8 @@ def run_condition_training(cond, seed, plan, cache_dir, out_dir, features, stand
         'initial_state_sha256': init_hash,
         'parameters': sum(p.numel() for p in model.parameters()),
         'trainable_parameters': sum(p.numel() for p in model.parameters() if p.requires_grad),
-        'best_dev_accuracy': best_acc
+        'best_dev_accuracy': best_acc,
+        'resume_identity': expected_identity
     }
     with open(out_dir / 'run_config.json', 'w', encoding='utf-8') as f:
         json.dump(run_config, f, indent=2)
@@ -536,6 +575,7 @@ def stage_compare(plan, resume=False):
     output_root = Path(plan['output_root'])
     cache_dir = output_root / 'cache_500_resnet128'
     features = np.load(cache_dir / 'features.npz')
+    population = call_split_counts(features['calls'], features['dev'])
     train_mask = ~features['dev']
     feat_mean = features['x'][train_mask].mean(axis=0)
     feat_std = np.maximum(features['x'][train_mask].std(axis=0), 1e-6)
@@ -569,6 +609,11 @@ def stage_compare(plan, resume=False):
             pred_file = cond_dir / 'best_dev_predictions.npz'
             metrics_file = cond_dir / 'epoch_metrics.csv'
             data = np.load(pred_file)
+            if not np.array_equal(data['y'], base_data['y']) or not np.array_equal(data['calls'], base_data['calls']):
+                raise ValueError(f'Unaligned internal Dev predictions: {cond}, seed {s}')
+            if 'sample_ids' in data and 'sample_ids' in base_data and not np.array_equal(data['sample_ids'], base_data['sample_ids']):
+                raise ValueError(f'Unaligned internal Dev sample IDs: {cond}, seed {s}')
+            finite(data['probability'], f'{cond} saved probabilities')
             metrics = pd.read_csv(metrics_file)
             best_idx = metrics['accuracy'].idxmax()
             best_row = metrics.iloc[best_idx]
@@ -608,10 +653,7 @@ def stage_compare(plan, resume=False):
                 'hypothesis': 'B0' if cond == 'baseline' else ('H1' if cond == 'short' else ('H2' if cond == 'rms' else ('H4' if cond == 'zcr' else 'H5'))),
                 'condition': cond,
                 'seed': s,
-                'train_calls': 409,
-                'dev_calls': 91,
-                'train_utterances': 12482,
-                'dev_utterances': 2850,
+                **population,
                 'selected_epoch': int(best_row['epoch']),
                 'accuracy': float(best_row['accuracy']),
                 'delta_accuracy_pp': float(delta_acc),
@@ -719,8 +761,8 @@ def stage_combine_and_confirm(plan):
         print(f'R3 Gate evaluation: 1 candidate passed: {chosen["condition"]}. Proceeding to R5 confirmation.')
         return chosen['condition']
     else:
-        # Multiple passed: build combined_passed
-        print(f'R3 Gate evaluation: {len(passed)} conditions passed. Building combined candidate...')
+        # This runner selects one single condition; it does not train combinations.
+        print(f'R3 Gate evaluation: {len(passed)} conditions passed. Selecting the strongest single candidate...')
         # Sort and select top candidate per section 8.3
         passed.sort(key=lambda x: (x['mean_delta_acc_pp'], min(x['s42_delta_acc'], x['s43_delta_acc']), x['mean_delta_f1']), reverse=True)
         top = passed[0]
@@ -743,6 +785,11 @@ def stage_report(plan):
     cand_file = output_root / 'confirmation_candidate.json'
     with open(cand_file, 'r', encoding='utf-8') as f:
         cand_info = json.load(f)
+    population = {key: int(df_comp.iloc[0][key]) for key in
+                  ('train_calls', 'dev_calls', 'train_utterances', 'dev_utterances')}
+    n_calls = population['train_calls'] + population['dev_calls']
+    n_utterances = population['train_utterances'] + population['dev_utterances']
+    scope = f'{n_calls:,}통화, {plan["epochs"]}에포크, Seed ' + '/'.join(map(str, plan['seeds']))
         
     # Generate REMAINING_HYPOTHESES_RESULT.md
     res_lines = [
@@ -750,14 +797,14 @@ def stage_report(plan):
         '',
         '- 작성일: 2026-10-10',
         '- 실행 환경: Local Windows 11 / NVIDIA GeForce RTX 3060 Laptop GPU',
-        f'- 데이터 규격: 서울 Training 500통화 (15,332발화, Train 12,482 / Dev 2,850, 통화 중복 0)',
+        f'- 데이터 규격: 서울 Training {n_calls:,}통화 ({n_utterances:,}발화, Train {population["train_utterances"]:,} / Dev {population["dev_utterances"]:,}, 통화 중복 0)',
         '- Mel 프로필: resnet128 (128-Mel, FFT 2048, hop 512, float32)',
         '- 모델 아키텍처: ImageNet ResNet-50 백본 (1ch conv1) + Head Linear(2048+6 -> 1, Dropout 0.3), 총 파라미터 23,503,815 (전체 학습)',
         '- 평가 방식: 통화 단위 클러스터 paired bootstrap 2,000회, 95% 탐색 CI',
         '',
         '## 1. 5개 조건 x 2개 Seed 전체 비교 결과표',
         '',
-        '| 가설 | 조건 | Seed | Best Epoch | Dev Accuracy | Delta Acc (%p) | 95% Bootstrap CI (%p) | Macro F1 | Delta F1 | Recall 0 | Recall 1 | 정답수 / 2850 |',
+        f'| 가설 | 조건 | Seed | Best Epoch | Dev Accuracy | Delta Acc (%p) | 95% Bootstrap CI (%p) | Macro F1 | Delta F1 | Recall 0 | Recall 1 | 정답수 / {population["dev_utterances"]} |',
         '|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|'
     ]
     for _, r in df_comp.iterrows():
@@ -796,11 +843,11 @@ def stage_report(plan):
         '',
         '| 가설 ID | 가설 명칭 | 검증 조건 및 입력 | 수행 범위 및 Seed | 검증 결과 (Accuracy Delta) | 채택 여부 | 비고 / 근거 |',
         '|---|---|---|---|---|:---:|---|',
-        '| **H1** | 발화 길이·윈도우 단축 | 1.5초 입력 (47프레임) vs 3초 (94프레임) | 500통화, 5에포크, Seed 42/43 | [H1 결과] | [H1 판정] | 입력 시간축 절반 단축 비교 완료 |',
-        '| **H2** | 진폭 변동(RMS) 통계 | RMS 평균/표준편차 보조 슬롯 0,1 주입 | 500통화, 5에포크, Seed 42/43 | [H2 결과] | [H2 판정] | 6슬롯 중 0,1 활성화 대조 완료 |',
+        f'| **H1** | 발화 길이·윈도우 단축 | 1.5초 입력 (47프레임) vs 3초 (94프레임) | {scope} | [H1 결과] | [H1 판정] | 입력 시간축 절반 단축 비교 완료 |',
+        f'| **H2** | 진폭 변동(RMS) 통계 | RMS 평균/표준편차 보조 슬롯 0,1 주입 | {scope} | [H2 결과] | [H2 판정] | 6슬롯 중 0,1 활성화 대조 완료 |',
         '| **H3** | 스펙트럴 센트로이드 | Centroid 평균/표준편차 보조 슬롯 2,3 주입 | 500통화, 5에포크, Seed 42/43 | Seed 42 0.00%p, Seed 43 -0.91%p (평균 -0.46%p) | **미채택** | 이전 정밀 확인에서 기각 완료 (폐쇄 가설) |',
-        '| **H4** | 영교차율(ZCR) 통계 | ZCR 평균/표준편차 보조 슬롯 4,5 주입 | 500통화, 5에포크, Seed 42/43 | [H4 결과] | [H4 판정] | 6슬롯 중 4,5 활성화 대조 완료 |',
-        '| **H5** | 대역 제한(Bandpass) | 200–4000Hz 4차 버터워스 필터링 파형 Mel | 500통화, 5에포크, Seed 42/43 | [H5 결과] | [H5 판정] | 전화 음성 대역 필터링 대조 완료 |',
+        f'| **H4** | 영교차율(ZCR) 통계 | ZCR 평균/표준편차 보조 슬롯 4,5 주입 | {scope} | [H4 결과] | [H4 판정] | 6슬롯 중 4,5 활성화 대조 완료 |',
+        f'| **H5** | 대역 제한(Bandpass) | 200–4000Hz 4차 버터워스 필터링 파형 Mel | {scope} | [H5 결과] | [H5 판정] | 전화 음성 대역 필터링 대조 완료 |',
         '',
         '## 종합 결론',
         '',
@@ -848,13 +895,17 @@ def stage_report(plan):
             f'{"충족" if passed_cond else "불충족"} |'
         )
         
+    if cand_info.get('candidate') is None:
+        preservation_note = '- **모델 보존 정책**: R3 채택 후보가 없어 추가 본 학습이나 CLI 변경을 하지 않고 기존 제출 모델을 유지합니다.'
+    else:
+        preservation_note = f'- **모델 보존 정책**: `{cand_info["candidate"]}`가 R3를 통과해 확대 재확인 대상입니다. 최종 채택 판정 전까지 기존 제출 모델을 유지하며, 이 중간 결과만으로 최종 미채택이나 채택을 확정하지 않습니다.'
     dec_lines.extend([
         '',
         '## 2. 최종 판정 및 후속 조치',
         '',
         f'- **최종 판정**: `{cand_info.get("action")}`',
         f'- **사유**: {cand_info.get("reason", "후보 평가 완료")}',
-        '- **모델 보존 정책**: 채택 기준을 일관되게 만족하는 후보가 없으므로, 불필요한 재학습(F1)이나 CLI 수정(F2~F4)을 진행하지 않고, 기존 공식 제출 모델(128-Mel AudioResNet baseline 및 3모델 앙상블)을 공식 모델로 최종 확정보존합니다.'
+        preservation_note
     ])
     (output_root / 'ADOPTION_DECISION.md').write_text('\n'.join(dec_lines), encoding='utf-8')
     update_stage_status(output_root, 'report', 'completed')
@@ -893,7 +944,7 @@ def main():
                         help='Path to experiment plan JSON')
     parser.add_argument('--stage', choices=['all', 'verify', 'prepare', 'timing', 'compare', 'combine', 'report', 'self-test'],
                         default='verify', help='Stage to execute (default: verify; training is explicit)')
-    parser.add_argument('--resume', action='store_true', help='Resume from existing completed runs')
+    parser.add_argument('--resume', action='store_true', help='Skip completed runs with matching settings/cache; partial training resume is unsupported')
     parser.add_argument('--smoke', action='store_true', help='Run smoke timing mode')
     args = parser.parse_args()
     

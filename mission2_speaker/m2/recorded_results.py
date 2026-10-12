@@ -58,6 +58,7 @@ def _section(snapshot, section):
             ["가설", "Seed", "기준선 Accuracy", "조건 Accuracy", "ΔAcc %p", "Macro F1",
              "ΔRecall 0 %p", "ΔRecall 1 %p", "95% 통화 CI %p", "재표집 횟수"], rows), [
             "각 실행 안의 기준선과 비교합니다. Centroid 별도 실행과 통합 실행의 기준선은 구분합니다.",
+            snapshot.get("hypothesis_ci_provenance", "CI 출처는 집계 파일을 참고합니다."),
             "학습 초기화뿐 아니라 DataLoader 셔플 순서도 결과에 영향을 주므로 같은 seed 숫자만으로 실행 간 동일성을 보장하지 않습니다."]
     if section == "final":
         final = snapshot["final"]

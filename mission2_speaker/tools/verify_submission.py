@@ -42,10 +42,11 @@ def wav_index(root):
         raise FileNotFoundError(root)
     result = {}
     for path in sorted(root.rglob("*")):
-        if path.suffix.lower() == ".wav":
-            if path.name in result:
-                raise ValueError(f"Ambiguous duplicate WAV filename: {path.name}")
-            result[path.name] = path
+        if path.is_file() and path.suffix.lower() == ".wav":
+            name = path.stem + ".wav"
+            if name in result:
+                raise ValueError(f"Ambiguous duplicate WAV call ID: {path.stem}")
+            result[name] = path
     return result
 
 

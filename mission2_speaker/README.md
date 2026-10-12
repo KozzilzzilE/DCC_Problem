@@ -10,11 +10,12 @@
 py -3.11 -m venv .venv
 .venv\Scripts\python -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu118
 .venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\activate
 ```
 
 Mission 2는 `torchaudio`를 사용하지 않으므로 설치하지 않습니다. 오디오 로딩·Mel 변환은 `soundfile`·`librosa`를 사용합니다.
 
-이후 `python`은 위 가상환경의 Python입니다. CPU 환경은 Torch 설치 index URL을 `https://download.pytorch.org/whl/cpu`로 바꿉니다.
+활성화 후 `python`은 위 가상환경의 Python입니다. PowerShell에서는 `.\.venv\Scripts\Activate.ps1`을 사용하거나 `python` 대신 `.venv\Scripts\python`을 지정합니다. CPU 환경은 Torch 설치 index URL을 `https://download.pytorch.org/whl/cpu`로 바꿉니다.
 
 ## 제출 추론
 

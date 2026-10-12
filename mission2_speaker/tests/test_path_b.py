@@ -214,16 +214,20 @@ class PathBTests(unittest.TestCase):
         (self.root/'label/bad.json').write_text('{invalid')
         with self.assertRaises(ValueError): pb.DCCAudioDatasetUnified(self.root)
 
-    def test_fresh_notebook_define_only_finishes_without_model_or_dataset_execution(self):
+    def test_fresh_notebook_recorded_results_finishes_without_training_or_inference(self):
         nb = json.loads((PKG/'Mission2_Speaker_Classification.ipynb').read_text(encoding='utf-8'))
         namespace = {'__name__':'__main__'}
-        with patch.object(pb,'build_model',side_effect=AssertionError('model execution')), \
+        from m2 import experiment_workflow as workflow
+        with patch.object(workflow, 'train_model', side_effect=AssertionError('training execution')), \
+             patch.object(workflow, 'evaluate_models', side_effect=AssertionError('evaluation execution')), \
+             patch.object(infer, 'Mission2InferenceEngine', side_effect=AssertionError('inference execution')), \
+             patch.object(pb,'build_model',side_effect=AssertionError('model execution')), \
              patch.object(pb,'DCCAudioDatasetUnified',side_effect=AssertionError('dataset execution')):
             for i, cell in enumerate(nb['cells']):
                 if cell['cell_type'] == 'code':
                     exec(compile(''.join(cell['source']),f'cell{i}','exec'),namespace)
-        self.assertEqual(namespace['RUN_STAGE'],'define_only')
-        self.assertEqual(namespace['FROZEN_CONFIG_PATH'],namespace['OUTPUT_ROOT']/'final_model_config.json')
+        self.assertEqual(namespace['RUN_STAGE'],'recorded_results')
+        self.assertEqual(namespace['recorded']['final']['batch']['n'],111919)
 
     def test_all_steps_skipped_aborts_checkpoint_save_and_preserves_existing(self):
         target = self.root / 'all_skipped'

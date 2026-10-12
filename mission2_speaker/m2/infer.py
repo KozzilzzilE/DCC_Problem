@@ -245,6 +245,7 @@ def predict_directory(
 ) -> pd.DataFrame:
     import librosa
     from m2.audio_features import load_and_resample_call, extract_utterance_clip
+    from m2.input_mapping import discover_input_files
 
     audio_dir = Path(audio_dir).resolve()
     label_dir = Path(label_dir).resolve()
@@ -257,18 +258,8 @@ def predict_directory(
     if not label_dir.exists():
         raise FileNotFoundError(f"[Error] label_dir does not exist: {label_dir}")
 
+    unique_json_files, wav_files = discover_input_files(audio_dir, label_dir)
     engine = Mission2InferenceEngine(ckpt_path=ckpt_path, ensemble_mode=ensemble_mode)
-
-    all_json_files = sorted(list(label_dir.rglob("*.json")))
-    if not all_json_files:
-        raise FileNotFoundError(f"[Error] No JSON files found in {label_dir}")
-
-    seen_stems = set()
-    unique_json_files = []
-    for jf in all_json_files:
-        if jf.stem not in seen_stems:
-            seen_stems.add(jf.stem)
-            unique_json_files.append(jf)
 
     results = []
     correct_count = 0
@@ -282,32 +273,28 @@ def predict_directory(
     for jf in tqdm(unique_json_files, desc="[Mission 2] Inference"):
         stem = jf.stem
         wav_name = f"{stem}.wav"
-        wav_path = audio_dir / wav_name
+        wav_path = wav_files.get(stem)
 
         with open(jf, "r", encoding="utf-8") as f:
             data = json.load(f)
 
         dialog_list = data.get("utterances") or data.get("dialogs") or data.get("dialogue") or []
 
-        if not wav_path.exists():
-            found = list(audio_dir.glob(f"**/{wav_name}"))
-            if found:
-                wav_path = found[0]
-            else:
-                missing_audio_files += 1
-                for utt in dialog_list:
-                    start_ms = int(utt.get("startAt", utt.get("start_time", 0)))
-                    end_ms = int(utt.get("endAt", utt.get("end_time", 0)))
-                    silent_prob = engine.predict_clip(np.zeros(TARGET_LENGTH, dtype=np.float32), sr=sr)
-                    final_pred = 1 if silent_prob >= DECISION_THRESHOLD else 0
-                    results.append({
-                        "audio file name": wav_name,
-                        "startAt": start_ms,
-                        "endAt": end_ms,
-                        "speaker": final_pred
-                    })
-                    missing_audio_utts += 1
-                continue
+        if wav_path is None:
+            missing_audio_files += 1
+            for utt in dialog_list:
+                start_ms = int(utt.get("startAt", utt.get("start_time", 0)))
+                end_ms = int(utt.get("endAt", utt.get("end_time", 0)))
+                silent_prob = engine.predict_clip(np.zeros(TARGET_LENGTH, dtype=np.float32), sr=sr)
+                final_pred = 1 if silent_prob >= DECISION_THRESHOLD else 0
+                results.append({
+                    "audio file name": wav_name,
+                    "startAt": start_ms,
+                    "endAt": end_ms,
+                    "speaker": final_pred
+                })
+                missing_audio_utts += 1
+            continue
 
         try:
             full_audio = load_and_resample_call(str(wav_path), target_sr=sr)

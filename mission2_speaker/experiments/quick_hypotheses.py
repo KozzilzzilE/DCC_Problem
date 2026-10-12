@@ -22,6 +22,8 @@ HERE = Path(__file__).resolve().parent
 if str(HERE.parent) not in sys.path:
     sys.path.insert(0, str(HERE.parent))
 
+from m2.experiment_checks import stable_spec_id
+
 FEATURES = ['duration_s', 'rms_mean', 'rms_std', 'centroid_mean_hz',
             'centroid_std_hz', 'zcr_mean', 'zcr_std']
 GROUPS = {'length': [0], 'rms': [1, 2], 'centroid': [3, 4], 'zcr': [5, 6]}
@@ -527,8 +529,8 @@ def probe(args):
         )
         run = args.output_dir / f'{condition}_seed{args.seed}'
         run.mkdir(parents=True, exist_ok=True)
-        spec_id = digest(spec)
-        write_json(run / 'run_config.json', spec)
+        spec_id = stable_spec_id(spec)
+        g_loader = torch.Generator().manual_seed(args.seed)
 
         last = run / 'last.pt'
         start_epoch, history, best = 0, [], -1.
@@ -536,6 +538,8 @@ def probe(args):
             state = torch.load(last, map_location='cpu', weights_only=False)
             if state['spec_id'] != spec_id:
                 raise ValueError('Resume config changed; use a new output directory')
+            if 'loader_rng' not in state:
+                raise ValueError('Checkpoint lacks DataLoader RNG state; use a new output directory')
             model.load_state_dict(state['model'])
             optimizer.load_state_dict(state['optimizer'])
             start_epoch = state['epoch']
@@ -549,11 +553,13 @@ def probe(args):
                 np.random.set_state(state['numpy_rng'])
             if 'python_rng' in state:
                 random.setstate(state['python_rng'])
+            g_loader.set_state(state['loader_rng'])
             print(f'Resumed {condition} from completed epoch {start_epoch}/{args.epochs}')
 
+        # Preserve the old run configuration if checkpoint validation fails.
+        write_json(run / 'run_config.json', spec)
+
         criterion = nn.BCEWithLogitsLoss()
-        g_loader = torch.Generator()
-        g_loader.manual_seed(args.seed)
         train_loader = DataLoader(Clips(train_indices, condition), batch_size=args.batch_size,
                                   shuffle=True, generator=g_loader)
         dev_loader = DataLoader(Clips(dev_indices, condition), batch_size=args.batch_size, shuffle=False)
@@ -606,7 +612,8 @@ def probe(args):
                 epoch=epoch, history=history, best_accuracy=best, is_smoke=is_smoke,
                 torch_rng=torch.get_rng_state(),
                 cuda_rng=torch.cuda.get_rng_state_all() if device.type == 'cuda' else None,
-                numpy_rng=np.random.get_state(), python_rng=random.getstate()
+                numpy_rng=np.random.get_state(), python_rng=random.getstate(),
+                loader_rng=g_loader.get_state()
             )
             if improved:
                 torch.save(state, run / 'best_dev.tmp')

@@ -2,6 +2,7 @@
  "schema_version": 1,
  "source_commit": "aac31fa29a37f28b64064043342fdc1bb0cdd811",
  "scope": "Display of existing recorded aggregates; no training/inference rerun",
+ "hypothesis_ci_provenance": "500통화 seed_results의 CI는 전달된 예측 배열을 이용한 Mac 감사 재계산값(audit_results.json)이다. ALL_HYPOTHESES_COMPARISON.csv는 Windows 보존 CI를 유지한다. 원본 bootstrap RNG 설정 미보존으로 구간값에 차이가 있지만 채택 판정은 동일하다.",
  "models": [
   {
    "name": "ReDimNet2-B2",
@@ -908,13 +909,14 @@
      "86.4201%",
      2,
      "86.3269%",
-     5,
+     "미확인",
      "-0.0932",
      "[-0.6987, +0.4786]"
     ]
    ],
    "notes": [
-    "평균 차이 +0.0078%p, 양쪽 CI가 0을 포함. 참고 비교이며 사전 고정 마지막 epoch 5의 채택 판정을 대체하지 않습니다."
+    "평균 차이 +0.0078%p, 양쪽 CI가 0을 포함. 참고 비교이며 사전 고정 마지막 epoch 5의 채택 판정을 대체하지 않습니다.",
+    "seed 43 ZCR의 best/last는 Accuracy가 같지만 예측 506건과 F1·Recall이 다릅니다. best의 실제 epoch는 제공된 checkpoint metadata로 확인하지 못해 미확인으로 표기합니다."
    ]
   },
   "ensemble": {
@@ -1042,7 +1044,7 @@
    ]
   },
   "audit": {
-   "title": "실행·데이터·제출 검증 요약",
+   "title": "실행·데이터·제출 검증 기록 요약",
    "headers": [
     "항목",
     "결과"
@@ -1081,21 +1083,21 @@
      "45발화 중 42정답(93.33%), 5.13초, CSV 4열·45행 통과"
     ],
     [
-     "최종 ZIP 실행",
+     "당시 ZIP 실행",
      "독립 압축 해제 후 실제 음성 inference.py 및 CSV 규격 확인"
     ],
     [
-     "제출 ZIP 크기",
+     "당시 검증 ZIP 크기",
      "177,965,393 bytes = 169.72 MiB = 177.97 MB"
     ],
     [
-     "제출 ZIP SHA-256",
+     "당시 검증 ZIP SHA-256",
      "402b684d9f4ce8c14509d414ad9ba8add0d87b70ad4a3f19f7f7717d7c94bdb4"
     ]
    ],
    "notes": [
     "스모크 정확도는 소량 표본의 동작 확인입니다. 최종 성능은 유효 111,919발화 전수 평가로 제시합니다.",
-    "ZIP을 수정·재생성하면 SHA-256은 다시 계산합니다."
+    "ZIP 크기·SHA-256은 해당 시점 검증 패키지의 역사적 기록입니다. 현재 제출 ZIP의 식별 정보로 재사용하지 않고 최종 압축 파일에서 다시 계산합니다."
    ]
   }
  }
