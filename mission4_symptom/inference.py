@@ -425,6 +425,8 @@ class Predictor:
         """새 통화가 시작되면 누적 전사와 직전 예측을 버린다."""
         self._texts = []
         self._last_pred = []
+        self._consecutive_count = 0
+        self._consecutive_pred = []
 
     def _predict(self) -> List[str]:
         """지금까지 쌓인 전사로 9개 확률을 평균하고 0.5로 판정한다."""
@@ -465,11 +467,24 @@ class Predictor:
             return pred
 
         # 4-2: 더 듣기 = None. [] 를 반환하면 빈 예측으로 그 자리에서 끊긴다.
+        # 연속성 검증: 직전 턴 예측과 동일한 비어있지 않은 예측이 유지되는지 카운트
+        if pred and pred == self._consecutive_pred:
+            self._consecutive_count += 1
+        elif pred:
+            self._consecutive_pred = list(pred)
+            self._consecutive_count = 1
+        else:
+            self._consecutive_pred = []
+            self._consecutive_count = 0
+
         n_seen = utt.index + 1
         if n_seen < self.MIN_HALT_UTTERANCES:
             return None
-        if pred:
+
+        # 최소 5턴 이상 + 동일 증상 예측이 2턴 연속 안정 유지될 때만 중단
+        if pred and self._consecutive_count >= 2:
             return pred
+
         return None
 
     # -------------------------------------------------------------- TODO (4)
