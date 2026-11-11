@@ -472,7 +472,7 @@ class Predictor:
         if text:
             # 모델이 화자 태그로 학습되었으면 [대원]/[신고자] 태그를 붙여 누적
             tag = "[대원] " if utt.speaker == 0 else ("[신고자] " if utt.speaker == 1 else "")
-            use_tag = any(k in str(self.ckpt_path) for k in ("best_speaker", "best_dense", "p42", "koelectra"))
+            use_tag = any(k in str(self.ckpt_path) for k in ("best_speaker", "best_dense", "p42", "koelectra", "kcelectra"))
             formatted = f"{tag}{text}" if use_tag else text
             self._texts.append(formatted)
         pred = self._predict()
