@@ -1,0 +1,14 @@
+# Mission 4 로컬 추론 (예선 mission3.pt 기준선)
+# 프로젝트 루트의 .venv 에서 설치:
+#   .\.venv\Scripts\python -m pip install -r mission4_symptom\requirements.txt
+
+torch>=2.2.0
+transformers>=4.44.0
+safetensors>=0.4.0
+numpy>=1.26.0
+scipy>=1.11.0
+soundfile>=0.12.0
+tqdm>=4.66.0
+pandas>=2.0.0
+scikit-learn>=1.5.0
+joblib>=1.4.0
