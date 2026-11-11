@@ -424,14 +424,15 @@ class Predictor:
 
     # -------------------------------------------------------------- TODO (2)
     def reset(self) -> None:
-        """새 통화가 시작되면 누적 전사와 직전 예측을 버린다."""
+        """새 통화가 시작되면 누적 전사와 직전 예측, 평활화 확률을 버린다."""
         self._texts = []
         self._last_pred = []
         self._consecutive_count = 0
         self._consecutive_pred = []
+        self._smooth_probs = None
 
     def _predict(self) -> List[str]:
-        """지금까지 쌓인 전사로 9개 확률을 평균하고 0.5로 판정한다."""
+        """지금까지 쌓인 전사로 9개 확률을 평균하고, 시간적 지수 평활화를 거쳐 0.5로 판정한다."""
         pack = self.model
         torch = pack["torch"]
         np = pack["np"]
@@ -439,6 +440,7 @@ class Predictor:
         text = " ".join(t for t in self._texts if t).strip()
         if not text:
             self._last_pred = []
+            self._smooth_probs = None
             return []
 
         probs = None
@@ -450,7 +452,16 @@ class Predictor:
                 row = torch.sigmoid(logits.float()).cpu().numpy()[0]
                 probs = row if probs is None else probs + row
         probs = probs / float(len(pack["members"]))
-        pred = pack["symptoms_from_probabilities"](probs, self.DECISION_THRESHOLD)
+
+        # 시간적 지수 평활화 (Temporal Exponential Smoothing)
+        # alpha: 현재 턴 가중치. 주소/행정 확인 구간에서 직전 턴의 증상 확률 누수를 방어 (alpha=0.8)
+        alpha = 0.80
+        if self._smooth_probs is None:
+            self._smooth_probs = probs
+        else:
+            self._smooth_probs = alpha * probs + (1.0 - alpha) * self._smooth_probs
+
+        pred = pack["symptoms_from_probabilities"](self._smooth_probs, self.DECISION_THRESHOLD)
         self._last_pred = list(pred)
         return self._last_pred
 
