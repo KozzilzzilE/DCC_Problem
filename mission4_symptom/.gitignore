@@ -1,0 +1,14 @@
+# 큰 산출물은 저장소에 넣지 않는다. 수치(metrics_*.json, *.meta.json)와 로그는 남긴다.
+runs/cache/
+runs/**/*.npz
+runs/**/*.npy
+runs/**/*.csv
+runs/**/best_model/
+runs/**/checkpoint*/
+# 재검토(W001) 중간 산출물은 넣지 않는다. 관점별 REPORT.md 와 검증 통과 실험의 스크립트만 골라서 넣는다.
+runs/W001_rethink/**
+!runs/W001_rethink/*/
+!runs/W001_rethink/*/verify/
+!runs/W001_rethink/*/REPORT.md
+runs/**/*.pt
+runs/**/e2e/

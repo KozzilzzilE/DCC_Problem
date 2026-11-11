@@ -1,0 +1,12 @@
+{
+  "model": "runs/E007_prefix_uniform_s43/best_model",
+  "calls": "runs/cache/train.jsonl",
+  "ids": "runs/cache/dev_ids.txt",
+  "fmt": "space",
+  "max_length": 512,
+  "truncation_side": "right",
+  "n_calls": 2920,
+  "n_moments": 87814,
+  "seconds": 109.2,
+  "truncated_moments": 652
+}
