@@ -342,7 +342,9 @@ class Predictor:
     """
 
     DECISION_THRESHOLD = 0.5
-    MIN_HALT_UTTERANCES = 5  # 조기판단력 grace. 5 전에 끊어도 이득 없음.
+    MIN_HALT_UTTERANCES = 5  # 전체 데이터(29k) 시뮬레이션 최적치 (1~4턴 인사말/주소 통과)
+    CONSECUTIVE_REQUIRED = 3 # 3턴 연속 동일 예측 유지 시 중단 (오탐 방어)
+    FALLBACK_UTTERANCES = 12 # 12턴까지 미중단 시 지금까지 최선 예측으로 끊어 조기판단력 방어
 
     def __init__(self, ckpt_path: str, mission: str, device: str = "cpu") -> None:
         self.ckpt_path = ckpt_path
@@ -479,11 +481,16 @@ class Predictor:
             self._consecutive_count = 0
 
         n_seen = utt.index + 1
+
+        # Fallback: 12턴까지 확신 예측이 없으면 통화 끝까지 가지 않고 조기판단력(12턴 기준)을 방어
+        if n_seen >= self.FALLBACK_UTTERANCES:
+            return list(self._last_pred)
+
         if n_seen < self.MIN_HALT_UTTERANCES:
             return None
 
-        # 최소 5턴 이상 + 동일 증상 예측이 2턴 연속 안정 유지될 때만 중단
-        if pred and self._consecutive_count >= 2:
+        # 최소 5턴 이상 + 동일 증상 예측이 3턴 연속 안정 유지될 때만 중단
+        if pred and self._consecutive_count >= self.CONSECUTIVE_REQUIRED:
             return pred
 
         return None
