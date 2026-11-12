@@ -12,3 +12,5 @@ runs/W001_rethink/**
 !runs/W001_rethink/*/REPORT.md
 runs/**/*.pt
 runs/**/e2e/
+# 실험 요약표는 저장소에 넣는다 (최상위 .gitignore 의 *.csv 예외)
+!docs/results.csv
