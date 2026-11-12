@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
+
+from . import SYMPTOM_CLASSES
 
 BUNDLE_FORMAT = "dcc-mission4-bundle"
 BUNDLE_VERSION = 1
@@ -31,6 +33,68 @@ DEFAULT_SETTINGS: Dict[str, object] = {
     # 4-2 중단 기준 (m4.streaming.should_halt). 제출 번들은 scripts/pack_bundle.py 가 expected·tau 0.52 로 덮어쓴다
     "halt": {"type": "confidence", "tau": 0.8, "min_step": 5},
 }
+
+
+def member_pos_weight(config: Dict[str, object]) -> Optional[List[float]]:
+    """학습 설정 하나에서 클래스별 pos_weight 9개를 꺼낸다. 적혀 있지 않으면 None.
+
+    본선 학습 스크립트는 `pos_weight` 목록으로 남기고, 예선(Mission 3) 학습 스크립트는
+    `train_pos_weight_statistics` 에 증상 이름별로 남긴다. 두 형식을 모두 읽는다.
+    """
+    weights = config.get("pos_weight")
+    if weights is None:
+        stats = config.get("train_pos_weight_statistics")
+        if not isinstance(stats, dict) or any(c not in stats for c in SYMPTOM_CLASSES):
+            return None
+        weights = [stats[c]["pos_weight"] for c in SYMPTOM_CLASSES]
+    weights = [float(w) for w in weights]
+    if len(weights) != len(SYMPTOM_CLASSES) or not all(w > 0 for w in weights):
+        raise ValueError(f"pos_weight 는 양수 {len(SYMPTOM_CLASSES)}개여야 합니다: {weights}")
+    return weights
+
+
+def shared_pos_weight(configs: Sequence[Dict[str, object]], names: Sequence[str],
+                      tol: float = 1e-5) -> Tuple[Optional[List[float]], List[str]]:
+    """멤버들의 pos_weight 를 하나로 정한다. (pos_weight 또는 None, 값이 적혀 있지 않은 멤버 이름) 을 돌려준다.
+
+    번들은 평균한 확률에 보정값 하나를 쓰므로, 값이 적힌 멤버끼리는 같아야 한다 (다르면 ValueError).
+    tol 은 float32 로 저장된 값과 float64 값의 차이(1e-7 수준)만 넘기는 크기다.
+    값이 없는 멤버는 확인할 길이 없으니 이름만 돌려주고, 묶는 쪽에서 알린다.
+    """
+    chosen: Optional[List[float]] = None
+    chosen_name = ""
+    missing: List[str] = []
+    for config, name in zip(configs, names):
+        weights = member_pos_weight(config)
+        if weights is None:
+            missing.append(name)
+        elif chosen is None:
+            chosen, chosen_name = weights, name
+        elif max(abs(a - b) for a, b in zip(chosen, weights)) > tol:
+            raise ValueError(f"멤버끼리 pos_weight 가 다릅니다 ({chosen_name} / {name}). "
+                             "보정값 하나를 평균 확률에 쓰므로 함께 묶을 수 없습니다.")
+    return chosen, missing
+
+
+def shared_prior_source(configs: Sequence[Dict[str, object]], names: Sequence[str]
+                        ) -> Tuple[Optional[str], Optional[str]]:
+    """사전분포를 만들 (라벨 캐시, 통화 목록) 을 정한다. 학습 설정에 적어 둔 첫 멤버의 것을 쓴다.
+
+    적어 둔 멤버끼리 서로 다르면 어느 쪽 라벨로 만들지 정할 수 없으므로 멈춘다 (ValueError).
+    아무도 적어 두지 않았으면 (None, None).
+    """
+    chosen: Optional[Tuple[str, Optional[str]]] = None
+    chosen_name = ""
+    for config, name in zip(configs, names):
+        if not config.get("calls"):
+            continue
+        source = (str(config["calls"]), str(config["ids"]) if config.get("ids") else None)
+        if chosen is None:
+            chosen, chosen_name = source, name
+        elif source != chosen:
+            raise ValueError(f"멤버끼리 학습 통화가 다릅니다 ({chosen_name}: {chosen} / {name}: {source}). "
+                             "--calls 와 --prior-ids 로 직접 지정하십시오.")
+    return chosen if chosen is not None else (None, None)
 
 
 def pack_bundle(member_dirs: Sequence[Union[str, Path]], output: Union[str, Path],

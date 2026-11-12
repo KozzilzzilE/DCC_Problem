@@ -2,9 +2,11 @@
 
     python scripts/pack_bundle.py --members runs/E002_prefix_uniform --out ckpt/mission4.pt
 
-확률 보정에 쓰는 log(pos_weight) 는 첫 멤버의 run_config.json 에서 읽어 번들에 넣는다.
-maxent 규칙이면 증상 조합 사전분포를 학습에 쓴 통화의 라벨로 만들어 함께 넣는다. 통화 목록은 첫 멤버의
-run_config.json(calls, ids)에서 읽고, `--calls` / `--prior-ids` 로 바꿀 수 있다 (dev·Validation 라벨로 만들면 안 된다).
+멤버가 여러 개면 추론 때 확률을 평균한다. 확률 보정에 쓰는 log(pos_weight) 는 멤버들의 run_config.json 에서
+읽는데, 평균 확률에 보정값 하나를 쓰므로 멤버끼리 값이 다르면 묶지 않고 멈춘다. 값이 적혀 있지 않은 멤버
+(run_config.json 이 없거나 형식이 다른 경우)는 확인할 수 없다는 경고만 내고 묶는다.
+maxent 규칙이면 증상 조합 사전분포를 학습에 쓴 통화의 라벨로 만들어 함께 넣는다. 통화 목록은 run_config.json 에
+calls / ids 를 적어 둔 첫 멤버에서 읽고, `--calls` / `--prior-ids` 로 바꿀 수 있다 (dev·Validation 라벨로 만들면 안 된다).
 """
 from __future__ import annotations
 
@@ -17,9 +19,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 
-from m4.bundle import pack_bundle  # noqa: E402
+from m4.bundle import pack_bundle, shared_pos_weight, shared_prior_source  # noqa: E402
 from m4.data import label_matrix, load_cache, read_ids  # noqa: E402
 from m4.decision import label_set_prior  # noqa: E402
+
+
+def read_run_config(member: Path) -> dict:
+    """멤버 폴더의 run_config.json. 없으면 빈 설정으로 본다 (best_model 폴더만 받은 멤버)."""
+    path = member / "run_config.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
 
 
 def main() -> int:
@@ -35,14 +43,24 @@ def main() -> int:
     ap.add_argument("--halt-tau", type=float, default=0.52)
     ap.add_argument("--note", default="")
     args = ap.parse_args()
-    config_path = Path(args.members[0]) / "run_config.json"
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    weights = config.get("pos_weight")          # 학습 스크립트가 남긴 클래스별 pos_weight
+    configs = [read_run_config(Path(m)) for m in args.members]
+    names = [Path(m).name for m in args.members]
+    # 사전분포 출처는 maxent 규칙이고 --calls / --prior-ids 중 비운 것이 있을 때만 학습 설정에서 찾는다
+    need_source = args.rule == "maxent" and (not args.calls or args.prior_ids is None)
+    try:
+        weights, unknown = shared_pos_weight(configs, names)       # 멤버끼리 다르면 여기서 멈춘다
+        calls_default, ids_default = shared_prior_source(configs, names) if need_source else (None, None)
+    except ValueError as err:
+        raise SystemExit(str(err))
+    if weights is None:
+        print("경고: 어느 멤버에도 pos_weight 가 없어 확률을 보정하지 않습니다.")
+    elif unknown:
+        print(f"경고: pos_weight 를 확인할 수 없는 멤버 {unknown} — 다른 멤버의 값으로 보정합니다. 같은 값으로 학습했는지 확인하십시오.")
     label_prior = None
     if args.rule == "maxent":
         # 사전분포는 모델이 학습에 쓴 통화의 라벨로만 만든다. 따로 주지 않으면 학습 설정에 적힌 캐시와 목록을 쓴다.
-        calls_path = args.calls or config.get("calls")
-        ids_path = args.prior_ids if args.prior_ids is not None else config.get("ids")
+        calls_path = args.calls or calls_default
+        ids_path = args.prior_ids if args.prior_ids is not None else ids_default
         if not calls_path:
             raise SystemExit("학습 설정에 라벨 캐시 경로가 없습니다. --calls 와 --prior-ids 를 직접 지정하십시오.")
         if "val" in Path(calls_path).name.lower():

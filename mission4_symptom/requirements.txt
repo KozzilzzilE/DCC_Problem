@@ -1,14 +1,40 @@
-# Mission 4 로컬 추론 (예선 mission3.pt 기준선)
-# 프로젝트 루트의 .venv 에서 설치:
-#   .\.venv\Scripts\python -m pip install -r mission4_symptom\requirements.txt
+# Mission 4 (환자 증상 조기예측) 실행 환경 — 이 폴더 단독 제출 기준
+#
+# 검증 환경: Python 3.14.6, Windows 10, NVIDIA RTX 5060 8GB (드라이버 610.62, CUDA 13.0)
+# 버전은 학습·추론에 실제로 쓴 환경의 설치 버전이다.
+#
+# 설치 (이 폴더에서):
+#   python -m venv venv
+#   venv/Scripts/python -m pip install -r requirements.txt      (Linux: venv/bin/python)
+#
+# torch 는 아래 extra-index 의 CUDA 13.0 빌드(2.13.0+cu130)를 받는다. NVIDIA 드라이버 580 이상이 필요하다.
+#   - 드라이버가 더 오래됐으면 cu130 을 cu126 으로 바꾼다.
+# 사전학습 모델의 tokenizer/config/가중치는 제출 번들(.pt)에 모두 들어 있어 추론 때 인터넷 접속이 없다.
 
-torch>=2.2.0
-transformers>=4.44.0
-safetensors>=0.4.0
-numpy>=1.26.0
-scipy>=1.11.0
-soundfile>=0.12.0
-tqdm>=4.66.0
-pandas>=2.0.0
-scikit-learn>=1.5.0
-joblib>=1.4.0
+--extra-index-url https://download.pytorch.org/whl/cu130
+
+# 추론 (inference.py, m4/)
+torch==2.13.0
+transformers==5.15.0
+tokenizers==0.22.2
+huggingface_hub==1.27.0
+safetensors==0.8.0
+numpy==2.4.6
+# 대회 템플릿의 오디오 로딩: soundfile 로 읽고 scipy 로 16kHz 로 맞춘다. librosa 는 둘 중 하나가 실패할 때의 대체 경로다.
+soundfile==0.14.0
+scipy==1.18.0
+librosa==1.0.0
+# 진행 표시 (없어도 동작한다)
+tqdm==4.70.0
+
+# 학습 (scripts/train_prefix.py, scripts/run_final_training.sh) 은 위 패키지만 쓴다.
+
+# dev 분석 스크립트 (scripts/halt_study.py 의 학습형 중단 정책 비교) 와 테스트 (tests/) 에만 필요
+scikit-learn==1.9.0
+pytest==9.1.1
+
+# 학습 기록 노트북(model_train.ipynb)을 다시 만들거나 실행할 때만 필요 (scripts/build_notebook.py)
+pandas==3.0.5
+nbformat==5.11.1
+nbclient==0.11.0
+ipykernel==7.3.0
