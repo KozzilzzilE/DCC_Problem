@@ -30,7 +30,8 @@ DEFAULT_SETTINGS: Dict[str, object] = {
     "label_prior": None,
     # 4-2 중단 시점의 결정 규칙. 4-2 는 전체를 모아 증상별 F1 을 내므로 4-1 규칙과 따로 둔다 (EXPERIMENT_LOG E004).
     "halt_rule": {"type": "threshold", "threshold": 0.5, "force_top1": True},
-    # 4-2 중단 기준 (m4.streaming.should_halt). 제출 번들은 scripts/pack_bundle.py 가 expected·tau 0.52 로 덮어쓴다
+    # 4-2 중단 기준 (m4.streaming.should_halt). 제출 번들은 scripts/pack_bundle.py 가 expected·tau 0.52 로 덮어쓴다.
+    # 학습형 정책은 {"type": "learned", beta, tau, min_step, logit_shift, feature_names, model_str, ...} 이다 (learned_halt_setting)
     "halt": {"type": "confidence", "tau": 0.8, "min_step": 5},
 }
 
@@ -95,6 +96,32 @@ def shared_prior_source(configs: Sequence[Dict[str, object]], names: Sequence[st
             raise ValueError(f"멤버끼리 학습 통화가 다릅니다 ({chosen_name}: {chosen} / {name}: {source}). "
                              "--calls 와 --prior-ids 로 직접 지정하십시오.")
     return chosen if chosen is not None else (None, None)
+
+
+def learned_halt_setting(policy: Dict[str, object], bundle_shift: Optional[Sequence[float]],
+                         tol: float = 1e-5) -> Dict[str, object]:
+    """학습형 중단 정책(m4.halting.HaltPolicy.to_dict, policy.json)을 settings["halt"] 에 넣을 형태로 확인해 돌려준다.
+
+    정책의 특징(보정 확률, 기대 점수)은 정책을 학습할 때의 보정값(logit_shift)으로 만든 것이다. 번들의 보정값과
+    다르면 학습 때와 다른 특징이 들어가므로 멈춘다 (ValueError). tol 은 shared_pos_weight 와 같은 뜻이다
+    (float32 로 저장된 pos_weight 와 float64 값의 차이만 넘긴다).
+    """
+    if policy.get("type") != "learned":
+        raise ValueError(f"학습형 중단 정책이 아닙니다 (type = {policy.get('type')!r})")
+    missing = [k for k in ("beta", "tau", "min_step", "feature_names", "model_str") if k not in policy]
+    if missing or not policy.get("model_str"):
+        raise ValueError(f"중단 정책에 빠진 항목이 있습니다: {missing or ['model_str']}")
+    shift = policy.get("logit_shift")
+    if (shift is None) != (bundle_shift is None):
+        raise ValueError("중단 정책과 번들 중 한쪽에만 확률 보정값(logit_shift)이 있습니다.")
+    if shift is not None:
+        if len(shift) != len(bundle_shift):
+            raise ValueError(f"중단 정책과 번들의 logit_shift 길이가 다릅니다 ({len(shift)} 대 {len(bundle_shift)})")
+        gap = max(abs(float(a) - float(b)) for a, b in zip(shift, bundle_shift))
+        if gap > tol:
+            raise ValueError(f"중단 정책과 번들의 logit_shift 가 다릅니다 (최대 차 {gap:.3g}). "
+                             "정책을 이 번들의 멤버와 같은 pos_weight 로 학습했는지 확인하십시오.")
+    return json.loads(json.dumps(policy))
 
 
 def pack_bundle(member_dirs: Sequence[Union[str, Path]], output: Union[str, Path],

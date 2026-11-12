@@ -10,7 +10,7 @@ HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 
 from m4 import SYMPTOM_CLASSES  # noqa: E402
-from m4.bundle import member_pos_weight, shared_pos_weight, shared_prior_source  # noqa: E402
+from m4.bundle import learned_halt_setting, member_pos_weight, shared_pos_weight, shared_prior_source  # noqa: E402
 
 WEIGHTS = [2.1, 2.3, 3.0, 1.8, 1.9, 2.7, 2.8, 2.1, 2.5]
 
@@ -67,3 +67,35 @@ def test_shared_prior_source():
     assert shared_prior_source([_final(ids=None)], ["a"]) == ("runs/cache/train.jsonl", None)
     with pytest.raises(ValueError, match="학습 통화"):
         shared_prior_source([_final(), _final(ids="other.txt")], ["a", "b"])
+
+
+def _policy_dict(shift) -> dict:
+    return {"type": "learned", "beta": 16.0, "tau": 0.64, "min_step": 5, "logit_shift": shift,
+            "feature_names": ["a", "b"], "model_str": "tree"}
+
+
+def test_learned_halt_setting_checks_logit_shift():
+    """학습형 중단 정책을 번들에 넣기 전에 보정값을 대조한다. 다르면 멈추고, 저장 정밀도 차이(1e-7 수준)는 넘긴다."""
+    shift = [0.76, 0.85, 1.10, 0.60, 0.64, 1.01, 1.02, 0.75, 0.93]
+    near = [x + 4e-8 for x in shift]
+    got = learned_halt_setting(_policy_dict(shift), near)
+    assert got["type"] == "learned" and got["logit_shift"] == shift and got["beta"] == 16.0      # 정책의 값을 그대로 둔다
+    other = list(shift)
+    other[3] += 0.01
+    with pytest.raises(ValueError, match="logit_shift"):
+        learned_halt_setting(_policy_dict(shift), other)
+    with pytest.raises(ValueError, match="logit_shift"):
+        learned_halt_setting(_policy_dict(shift), None)
+    with pytest.raises(ValueError, match="logit_shift"):
+        learned_halt_setting(_policy_dict(None), shift)
+    with pytest.raises(ValueError, match="logit_shift"):
+        learned_halt_setting(_policy_dict(shift), shift[:8])
+
+
+def test_learned_halt_setting_rejects_other_policies():
+    with pytest.raises(ValueError, match="학습형"):
+        learned_halt_setting({"type": "expected", "tau": 0.5, "min_step": 5}, None)
+    broken = _policy_dict(None)
+    del broken["model_str"]
+    with pytest.raises(ValueError, match="model_str"):
+        learned_halt_setting(broken, None)

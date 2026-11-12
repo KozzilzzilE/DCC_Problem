@@ -339,9 +339,11 @@ class Predictor:
     모델과 추론 설정(입력 형식, 결정 규칙, 중단 기준)은 모두 가중치 파일(.pt) 안에 있다.
     실제 계산은 m4/streaming.py 의 StreamingSymptomModel 이 맡는다.
 
-    * 입력으로 쓰는 것은 utt.text 와 utt.speaker 뿐이다. 그 순간까지 받은 전사를 누적해 분류한다.
+    * 증상 분류의 입력은 utt.text 와 utt.speaker 뿐이다. 그 순간까지 받은 전사를 누적해 분류한다.
     * 4-1 은 매 발화마다 증상 리스트를 낸다. 기대 순간 점수가 가장 커지는 개수만큼 내며, 항상 1개 이상이다.
     * 4-2 는 5번째 발화부터, 지금 답했을 때의 기대 점수가 기준 이상이면 그 순간의 예측으로 중단한다.
+      학습형 중단 기준을 담은 번들에서는 "더 들어도 나아지지 않을지"를 함께 보며, 이 판단에만
+      그 순간까지 받은 발화의 시각(utt.start_ms, utt.end_ms)을 쓴다. 오디오와 통화 전체 길이는 쓰지 않는다.
     """
 
     def __init__(self, ckpt_path: str, mission: str, device: str = "cpu") -> None:
@@ -365,7 +367,7 @@ class Predictor:
 
     def step(self, utt: Utterance) -> Optional[List[str]]:
         """발화 하나를 누적한다. 4-1 은 증상 리스트를, 4-2 는 중단할 때만 리스트를(아니면 None) 돌려준다."""
-        self.model.push(utt.text, utt.speaker)
+        self.model.push(utt.text, utt.speaker, utt.start_ms, utt.end_ms)
         if self.mission == "4-1":
             return self.model.symptoms()
         # 4-2: 빈 리스트를 돌려주면 그 자리에서 빈 예측으로 중단되므로, 더 들을 때는 반드시 None 이다.

@@ -26,6 +26,8 @@ scipy==1.18.0
 librosa==1.0.0
 # 진행 표시 (없어도 동작한다)
 tqdm==4.70.0
+# 4-2 학습형 중단 정책 (m4/halting.py). 번들에 든 정책 모델을 복원해 예측만 한다. 예전 방식(expected) 번들에서는 읽지 않는다.
+lightgbm==4.7.0
 
 # 학습 (scripts/train_prefix.py, scripts/run_final_training.sh) 은 위 패키지만 쓴다.
 
