@@ -391,6 +391,9 @@ class Predictor:
         if ckpt.is_dir():
             print(f"[model] HuggingFace 모델 디렉토리 로드: {ckpt}", file=sys.stderr)
             tokenizer = AutoTokenizer.from_pretrained(str(ckpt), local_files_only=True)
+            if tokenizer.pad_token is None and tokenizer.eos_token is not None:
+                tokenizer.pad_token = tokenizer.eos_token
+                tokenizer.pad_token_id = tokenizer.eos_token_id
             tokenizer.truncation_side = "left"
             model = AutoModelForSequenceClassification.from_pretrained(str(ckpt), local_files_only=True)
             model.to(device).eval()
