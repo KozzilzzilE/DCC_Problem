@@ -61,7 +61,11 @@ def main() -> int:
     # 빈 문자열(전사가 빈 발화만 들어온 순간)도 [CLS][SEP] 로 인코딩해 확률을 낸다.
     enc = tokenizer(texts, truncation=True, max_length=args.max_length, padding=False)["input_ids"]
     order = np.argsort([-len(x) for x in enc], kind="stable")
-    probs = np.zeros((len(texts), model.config.num_labels), dtype=np.float32)
+    # 증상 개수 보조 출력이 있는 모델은 출력이 9개보다 많다. 앞 9개가 증상이고 나머지는 개수 칸이다.
+    n_sym = label_matrix(calls).shape[1]
+    n_count = model.config.num_labels - n_sym
+    probs = np.zeros((len(texts), n_sym), dtype=np.float32)
+    count_probs = np.zeros((len(texts), n_count), dtype=np.float32)
     pad = tokenizer.pad_token_id
     pos = 0
     with torch.inference_mode():
@@ -76,13 +80,17 @@ def main() -> int:
                 mask[row, : len(enc[j])] = 1
             with torch.autocast("cuda", dtype=torch.float16, enabled=device.type == "cuda"):
                 logits = model(input_ids=ids.to(device), attention_mask=mask.to(device)).logits
-            probs[idx] = torch.sigmoid(logits.float()).cpu().numpy()
+            probs[idx] = torch.sigmoid(logits.float()[:, :n_sym]).cpu().numpy()
+            if n_count:
+                count_probs[idx] = torch.softmax(logits.float()[:, n_sym:], dim=1).cpu().numpy()
             pos += size
     seconds = time.time() - t0
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     PrefixTable([c.call_id for c in calls], np.asarray(offsets), probs, label_matrix(calls)).save(out)
+    if n_count:
+        np.save(out.with_suffix(".count.npy"), count_probs)
     meta = {"model": str(args.model), "calls": str(args.calls), "ids": args.ids, "fmt": args.fmt,
             "max_length": args.max_length, "truncation_side": args.truncation_side,
             "n_calls": len(calls), "n_moments": len(texts), "seconds": round(seconds, 1),

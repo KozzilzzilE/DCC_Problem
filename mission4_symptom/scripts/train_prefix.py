@@ -79,6 +79,9 @@ def main() -> int:
     ap.add_argument("--llrd", type=float, default=0.8)
     ap.add_argument("--pos-weight-power", type=float, default=0.5)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--count-classes", type=int, default=0,
+                    help="증상 개수 보조 출력의 칸 수 (0 = 끔). 3 이면 1개 / 2개 / 3개 이상")
+    ap.add_argument("--count-weight", type=float, default=0.5, help="보조 손실(교차 엔트로피)에 곱하는 값")
     ap.add_argument("--max-steps", type=int, default=0, help="점검용. 0 이면 끝까지")
     args = ap.parse_args()
 
@@ -107,9 +110,17 @@ def main() -> int:
 
     tokenizer = AutoTokenizer.from_pretrained(args.backbone)
     tokenizer.truncation_side = args.truncation_side
+    # 보조 출력을 켜면 분류 헤드의 출력이 9 + count_classes 개가 된다. 앞 9개가 증상, 뒤가 증상 개수 칸이다.
+    n_sym = len(SYMPTOM_CLASSES)
+    names = list(SYMPTOM_CLASSES) + [f"count_{k + 1}" for k in range(args.count_classes)]
     model = AutoModelForSequenceClassification.from_pretrained(
-        args.backbone, num_labels=len(SYMPTOM_CLASSES), problem_type="multi_label_classification",
-        id2label=dict(enumerate(SYMPTOM_CLASSES)), label2id={c: i for i, c in enumerate(SYMPTOM_CLASSES)})
+        args.backbone, num_labels=len(names), problem_type="multi_label_classification",
+        id2label=dict(enumerate(names)), label2id={c: i for i, c in enumerate(names)})
+    count_target = np.clip(labels.sum(axis=1).astype(np.int64), 1, max(args.count_classes, 1)) - 1
+    if args.count_classes:
+        say("증상 개수 칸별 통화 비율 " + ", ".join(
+            f"{k + 1}{'+' if k + 1 == args.count_classes else ''}개 {(count_target == k).mean():.3f}"
+            for k in range(args.count_classes)))
     device = torch.device("cuda")
     model.to(device)
 
@@ -143,7 +154,10 @@ def main() -> int:
             target = torch.tensor(labels[[i for i, _ in batch]], device=device)
             with torch.autocast("cuda", dtype=torch.float16):
                 logits = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"]).logits
-            loss = loss_fn(logits.float(), target)
+            loss = loss_fn(logits.float()[:, :n_sym], target)
+            if args.count_classes:
+                ctarget = torch.tensor(count_target[[i for i, _ in batch]], device=device)
+                loss = loss + args.count_weight * torch.nn.functional.cross_entropy(logits.float()[:, n_sym:], ctarget)
             scaler.scale(loss / args.grad_accum).backward()
             running += loss.item()
             seen += 1
