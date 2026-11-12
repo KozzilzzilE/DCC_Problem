@@ -1,0 +1,222 @@
+{
+ "args": {
+  "fit_tables": [
+   "runs/E011_oof/fold0/oof_prefix.npz",
+   "runs/E011_oof/fold1/oof_prefix.npz",
+   "runs/E011_oof/fold2/oof_prefix.npz",
+   "runs/E011_oof/fold3/oof_prefix.npz",
+   "runs/E011_oof/fold4/oof_prefix.npz"
+  ],
+  "eval_tables": [
+   "runs/E001_m3_baseline/dev_prefix.npz",
+   "runs/E002_prefix_uniform/dev_prefix.npz",
+   "runs/E007_prefix_uniform_s43/dev_prefix.npz"
+  ],
+  "shift_from": "runs/E002_prefix_uniform",
+  "calls": "runs/cache/train.jsonl",
+  "out": "runs/E012_halt_policy/ens3",
+  "base_tau": 0.5,
+  "ref_tau": 0.52,
+  "folds": 5,
+  "seed": 0,
+  "boot": 1000,
+  "threads": 4,
+  "rehearse_seed": null
+ },
+ "n_features": 57,
+ "feature_names": [
+  "cal_0",
+  "cal_1",
+  "cal_2",
+  "cal_3",
+  "cal_4",
+  "cal_5",
+  "cal_6",
+  "cal_7",
+  "cal_8",
+  "top1",
+  "top2",
+  "top3",
+  "value",
+  "value_delta",
+  "value_max",
+  "same_pred_run",
+  "cal_sum",
+  "raw_max",
+  "n_pred",
+  "step",
+  "cal_rise_max",
+  "cal_change_abs",
+  "sec",
+  "chars",
+  "caller_ratio",
+  "last_dur",
+  "mean_dur",
+  "last_chars",
+  "mean_chars",
+  "char_rate",
+  "last_spk",
+  "turn_rate",
+  "short_cum",
+  "gap_mean",
+  "addr_cum",
+  "pii_cum",
+  "dispatch_cum",
+  "question_cum",
+  "conscious_cum",
+  "age_cum",
+  "symptom_cum",
+  "phone_cum",
+  "bye_cum",
+  "addr_last",
+  "pii_last",
+  "dispatch_last",
+  "question_last",
+  "conscious_last",
+  "age_last",
+  "symptom_last",
+  "phone_last",
+  "bye_last",
+  "since_addr",
+  "since_pii",
+  "since_dispatch",
+  "caller_sym_cum",
+  "disp_q_cum"
+ ],
+ "runs": [
+  {
+   "tag": "본실험",
+   "n_fit_calls": 26280,
+   "n_eval_calls": 2920,
+   "beta": 16.0,
+   "tau": 0.64,
+   "tau_only": 0.48,
+   "base_tau": 0.5,
+   "ref_tau": 0.52,
+   "scores": {
+    "base": {
+     "score": 0.49829406308724317,
+     "macro_f1": 0.6129276480090051,
+     "earliness": 0.8129737085704482,
+     "halt_median": 6.0,
+     "never_halted": 0.08116438356164384
+    },
+    "tau_only": {
+     "score": 0.4951536686046168,
+     "macro_f1": 0.6042122659857623,
+     "earliness": 0.8195028411030051,
+     "halt_median": 6.0,
+     "never_halted": 0.06780821917808219
+    },
+    "learned": {
+     "score": 0.5052337943664476,
+     "macro_f1": 0.6142446218769884,
+     "earliness": 0.8225286414760472,
+     "halt_median": 7.0,
+     "never_halted": 0.030136986301369864
+    }
+   },
+   "learned_vs_base": {
+    "diff": 0.006939731279204386,
+    "lo": 0.0014093857471943444,
+    "hi": 0.012376120246667068,
+    "p_gt0": 0.996
+   },
+   "learned_vs_tau_only": {
+    "diff": 0.01008012576183076,
+    "lo": 0.004906683408958806,
+    "hi": 0.01569616287226132,
+    "p_gt0": 1.0
+   },
+   "tau_only_vs_base": {
+    "diff": -0.003140394482626374,
+    "lo": -0.006121895163287662,
+    "hi": -0.00019221364983762357,
+    "p_gt0": 0.016
+   },
+   "fit": {
+    "target": {
+     "ref_tau": 0.52,
+     "macro_f1": 0.5953006749530971,
+     "earliness": 0.8086381319774315,
+     "n_calls": 26280,
+     "n_rows": 670151,
+     "delta_mean": -0.0210716739556977,
+     "delta_pos_rate": 0.8661734444923607
+    },
+    "crossfit_r2": 0.29587293162181294,
+    "folds": 5,
+    "seed": 0,
+    "gbm_params": {
+     "objective": "regression",
+     "learning_rate": 0.06,
+     "num_leaves": 15,
+     "min_data_in_leaf": 100,
+     "bagging_fraction": 0.7,
+     "bagging_freq": 1,
+     "feature_fraction": 0.8,
+     "lambda_l2": 5.0,
+     "seed": 0,
+     "deterministic": true,
+     "force_row_wise": true,
+     "verbose": -1
+    },
+    "gbm_rounds": 200,
+    "fit_score_ref_tau": 0.4813828257589766,
+    "fit_score_tau_only": 0.48189572153254506,
+    "fit_tau_only": 0.48,
+    "fit_score_selected": 0.49428565852708967
+   },
+   "top_features": [
+    [
+     "value_max",
+     0.3832
+    ],
+    [
+     "value",
+     0.3143
+    ],
+    [
+     "conscious_cum",
+     0.0389
+    ],
+    [
+     "cal_3",
+     0.0308
+    ],
+    [
+     "mean_chars",
+     0.0258
+    ],
+    [
+     "cal_5",
+     0.0252
+    ],
+    [
+     "cal_sum",
+     0.0139
+    ],
+    [
+     "cal_8",
+     0.0117
+    ],
+    [
+     "chars",
+     0.0109
+    ],
+    [
+     "cal_0",
+     0.0108
+    ],
+    [
+     "cal_4",
+     0.0107
+    ],
+    [
+     "cal_7",
+     0.0106
+    ]
+   ]
+  }
+ ]
+}
