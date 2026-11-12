@@ -1,0 +1,24 @@
+{
+  "m4_1": 0.5511947316719709,
+  "m4_1_thirds": {
+    "앞": 0.414734933134241,
+    "가운데": 0.5837985582015102,
+    "뒤": 0.6488106266128497
+  },
+  "m4_2_tau0.52": {
+    "score": 0.4943381536235585,
+    "macro_f1": 0.612979142170448,
+    "earliness": 0.806451834353118,
+    "halt_median": 7.0
+  },
+  "m4_2_cv": 0.4938327286376582,
+  "full_call_f1": 0.6530202136217688,
+  "maxent_low_sum_rate": 0.01793563668663311,
+  "maxent_misfit_rate": 0.0072935146855903805,
+  "mean_labels_4_1": 1.4445646480060128,
+  "tables": [
+    "runs/E002_prefix_uniform/dev_prefix.npz",
+    "runs/E007_prefix_uniform_s43/dev_prefix.npz",
+    "runs/E013_more_members/tl_s43.dev_prefix.npz"
+  ]
+}
