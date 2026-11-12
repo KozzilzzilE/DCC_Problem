@@ -23,9 +23,12 @@ DEFAULT_SETTINGS: Dict[str, object] = {
     "logit_shift": None,
     # 4-1 결정 규칙 (m4.decision.make_rule)
     "rule": {"type": "threshold", "threshold": 0.5, "force_top1": True, "max_labels": None},
-    # 4-2 중단 시점의 결정 규칙. None 이면 4-1 과 같은 규칙을 쓴다.
-    "halt_rule": None,
-    # 4-2 중단 기준: min_step 번째 발화부터, 최대 확률이 tau 이상이면 중단한다
+    # maxent 규칙에 쓰는 증상 조합 사전분포 {"prior": 511개, "marg": 9개} (m4.decision.label_set_prior).
+    # 그 모델의 학습에 쓴 통화의 라벨로만 만든다. 다른 규칙에서는 쓰지 않으며, 예전 번들에는 이 키가 없다.
+    "label_prior": None,
+    # 4-2 중단 시점의 결정 규칙. 4-2 는 전체를 모아 증상별 F1 을 내므로 4-1 규칙과 따로 둔다 (EXPERIMENT_LOG E004).
+    "halt_rule": {"type": "threshold", "threshold": 0.5, "force_top1": True},
+    # 4-2 중단 기준 (m4.streaming.should_halt). 제출 번들은 scripts/pack_bundle.py 가 expected·tau 0.52 로 덮어쓴다
     "halt": {"type": "confidence", "tau": 0.8, "min_step": 5},
 }
 

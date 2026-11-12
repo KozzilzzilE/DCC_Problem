@@ -24,8 +24,9 @@ class StreamingSymptomModel:
         self.device = torch.device(device if want_cuda else "cpu")
         self.members, self.settings = load_bundle(ckpt_path, self.device)
         shift = self.settings.get("logit_shift")
-        self._rule = make_rule(self.settings["rule"], shift)                                  # 4-1 결정 규칙
-        self._halt_rule = make_rule(self.settings.get("halt_rule") or self.settings["rule"], shift)  # 4-2 중단 시점 규칙
+        prior = self.settings.get("label_prior")           # maxent 규칙용 (예전 번들에는 없다)
+        self._rule = make_rule(self.settings["rule"], shift, prior)                                  # 4-1 결정 규칙
+        self._halt_rule = make_rule(self.settings.get("halt_rule") or self.settings["rule"], shift, prior)  # 4-2 중단 시점 규칙
         self.reset()
 
     def reset(self) -> None:
