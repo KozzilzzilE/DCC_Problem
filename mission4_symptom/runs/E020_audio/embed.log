@@ -1,0 +1,18 @@
+Loading weights:   0%|          | 0/248 [00:00<?, ?it/s]Loading weights: 100%|██████████| 248/248 [00:00<00:00, 47425.68it/s]
+통화 6000건, 모델 microsoft/wavlm-base-plus (768차원), 층 [4, 8, 12], 화자 [1]
+C:\Python314\Lib\site-packages\torch\nn\functional.py:6802: UserWarning: Support for mismatched key_padding_mask and attn_mask is deprecated. Use same type for both instead.
+  key_padding_mask = _canonical_mask(
+  500/6000 통화, 발화 7963, 99s
+  1000/6000 통화, 발화 16440, 206s
+  1500/6000 통화, 발화 24314, 302s
+  2000/6000 통화, 발화 31925, 392s
+  2500/6000 통화, 발화 39370, 482s
+  3000/6000 통화, 발화 47226, 578s
+  3500/6000 통화, 발화 54742, 669s
+  4000/6000 통화, 발화 62051, 757s
+  4500/6000 통화, 발화 69430, 845s
+  5000/6000 통화, 발화 77136, 940s
+  5500/6000 통화, 발화 85655, 1043s
+  6000/6000 통화, 발화 93403, 1133s
+{"model": "microsoft/wavlm-base-plus", "dim": 768, "layers": [4, 8, 12], "layers_note": "hidden_states 튜플 인덱스 (0=임베딩 출력, k=k번째 트랜스포머 층 출력)", "pooling": "패딩 제외 프레임 평균", "precision": "fp32 계산, float16 저장", "speakers": [1], "max_sec": 6.0, "min_sec": 0.3, "max_utts": 40, "batching": "single", "batch_sec": 60.0, "max_batch": 256, "chunk_calls": 100, "slice": "inference.Sample._slice 와 같은 반올림", "n_calls": 6000, "n_utts": 93403, "missing_wav_calls": 0, "calls_with_zero_utts": 0, "utts_per_call_mean": 15.567166666666667, "audio_hours_fed": 53.489646666666665, "embed_seconds": 1133.2, "total_seconds": 1147.8}
+exit 0
