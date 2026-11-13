@@ -595,6 +595,19 @@ python scripts/pack_bundle.py --members <예선>/runs/devsel/final_s42 runs/fina
 - 쓰지 않을 것 (조사 담당): Hugging Face 에 AI-Hub 119 데이터로 학습했다고 밝힌 모델이 있다. 평가 데이터가 섞였을 수 있어 쓰지 않는다. 감정·나이 판별로 미세조정된 모델(audeering 등)은 외부 라벨과 비상업 라이선스가 걸려 있어, 쓰려면 주최측 문의가 먼저다.
 - 산출물: `runs/E020_audio/` (stage1.txt·json, explore_vs_control.txt, 표본 목록, 임베딩 메타·로그, 점검 기록). 임베딩 `emb.npz`(402MB)와 겹 밖 예측 `stage1_oof.npz` 는 git 제외.
 
+### EX KcELECTRA 전체 학습 (11-13, Validation 확인, streaming 번호와 별개)
+
+- 모델: `beomi/KcELECTRA-base-v2022`. Training 라벨 캐시 32,840통화로 2 epoch. 입력은 화자 태그(`[대원]`/`[신고자]`), prefix는 앞 3·5·8·12발화와 전체. `pos_weight` 지수는 0.35. 가중치는 팀 공용 드라이브 `본선/KcELECTRA`.
+- 추론: streaming `inference.py`. 4-1은 임계값 0.5와 maxent. 4-2 중단은 기대 점수 0.52, 최소 5발화.
+- 채점: 공식 `score.py`, Validation 3,640통화. 이 결과로 streaming 실험 번호는 바꾸지 않는다.
+
+| 설정 | 4-1 | 4-2 |
+|---|---|---|
+| 임계값 0.5 | 0.6870 | |
+| maxent | 0.6933 | 0.6438 (Macro-F1 0.7512 × 조기판단력 0.8569) |
+
+- 같은 Validation의 E017 최종 번들은 4-1 0.5302, 4-2 0.5042였다.
+
 ---
 
 ## Validation 사용 기록
