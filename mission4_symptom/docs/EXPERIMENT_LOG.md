@@ -610,3 +610,8 @@ python scripts/pack_bundle.py --members <예선>/runs/devsel/final_s42 runs/fina
 - 4-2 (교체 조합): 0.4952 (교차검증 0.4927). 통화 전체 시점 F1 은 교체 조합이 0.6470 으로 3개 평균 0.6424 보다 높지만 참고값이다.
 - 판정: 사전 등록 기준(차이 > 0.002, 구간이 0 을 벗어남) 미달 → **미채택**. 차이가 시드 잡음(4-1 약 0.0006) 수준이고 추론은 약 3배 느리다.
 - 결론: 모델 쪽·입력 쪽 레버가 모두 포화. 제출 번들은 E016 그대로 둔다.
+
+### 제출 폴더 조립 (2026-11-14)
+- `python scripts/build_submission.py --out <Desktop>/DCC_submission/mission4_symptom` 로 조립했다. 커밋된 파일만 `git archive HEAD` 로 내보내고(코드 26개, 커밋 a3778db), 번들 `ckpt/mission4.pt` 는 sha256 ce35f219… 를 대조해 복사했다. `SUBMISSION_README.md` 가 제출 폴더의 `README.md` 다. 637 MB.
+- 넣지 않은 것: 실험 분석 스크립트(eval_*, halt_study, audio_embed, run_e018/e019), docs, runs, 0.5 고정판 번들(`mission4_thr05.pt`, 주최측 답에 따라 교체).
+- 검증 (Validation 은 쓰지 않음): 제출 폴더에서 네트워크를 막고(죽은 프록시) HF·torch 캐시를 빈 폴더로 둔 채 공식 명령을 Training dev 앞 200통화에 돌렸다. 4-1 201초, 4-2 63초, 둘 다 정상 종료. 출력 CSV 가 E016 실제 경로 점검(`runs/E016_final/e2e`)과 바이트 단위로 같다. 캐시에 생긴 파일 0개. 제출 폴더 안 테스트 37건 통과.
