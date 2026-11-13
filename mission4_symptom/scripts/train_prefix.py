@@ -83,6 +83,9 @@ def main() -> int:
                     help="증상 개수 보조 출력의 칸 수 (0 = 끔). 3 이면 1개 / 2개 / 3개 이상")
     ap.add_argument("--count-weight", type=float, default=0.5, help="보조 손실(교차 엔트로피)에 곱하는 값")
     ap.add_argument("--max-steps", type=int, default=0, help="점검용. 0 이면 끝까지")
+    ap.add_argument("--grad-ckpt", action="store_true",
+                    help="gradient checkpointing. 큰 백본이 8GB 에 안 들어갈 때 활성값 메모리를 줄인다 (계산은 약 30%% 늘어남)")
+    ap.add_argument("--log-every", type=int, default=200, help="이 스텝마다 진행 기록")
     args = ap.parse_args()
 
     random.seed(args.seed)
@@ -122,6 +125,8 @@ def main() -> int:
             f"{k + 1}{'+' if k + 1 == args.count_classes else ''}개 {(count_target == k).mean():.3f}"
             for k in range(args.count_classes)))
     device = torch.device("cuda")
+    if args.grad_ckpt:
+        model.gradient_checkpointing_enable()
     model.to(device)
 
     per_epoch = len(calls) * (args.samples_per_call + int(args.include_full))
@@ -169,7 +174,7 @@ def main() -> int:
                 scaler.update()
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
-            if step % 200 == 0:
+            if step % args.log_every == 0:
                 say(f"epoch {epoch} step {step}/{total_steps} loss {running / seen:.4f} "
                     f"lr {scheduler.get_last_lr()[0]:.2e} 경과 {time.time() - t0:.0f}s")
             if args.max_steps and step >= args.max_steps:

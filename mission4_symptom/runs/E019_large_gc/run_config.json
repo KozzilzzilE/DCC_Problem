@@ -1,0 +1,55 @@
+{
+  "calls": "runs/cache/train.jsonl",
+  "ids": "runs/cache/fit_ids.txt",
+  "backbone": "klue/roberta-large",
+  "out": "runs/E019_large_gc",
+  "fmt": "space",
+  "truncation_side": "right",
+  "max_length": 512,
+  "epochs": 3,
+  "samples_per_call": 2,
+  "include_full": false,
+  "batch_size": 16,
+  "grad_accum": 1,
+  "lr": 5e-05,
+  "llrd": 0.8,
+  "pos_weight_power": 0.5,
+  "seed": 42,
+  "count_classes": 0,
+  "count_weight": 0.5,
+  "max_steps": 0,
+  "grad_ckpt": true,
+  "log_every": 200,
+  "n_calls": 26280,
+  "total_steps": 9855,
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.5327287409947887,
+      "seconds": 3155.7
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.4777646874501462,
+      "seconds": 7486.8
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.44042547186397163,
+      "seconds": 12042.9
+    }
+  ],
+  "pos_weight": [
+    2.1466705799102783,
+    2.3466062545776367,
+    3.015321969985962,
+    1.8262537717819214,
+    1.8965275287628174,
+    2.7440295219421387,
+    2.7716174125671387,
+    2.1146111488342285,
+    2.5336804389953613
+  ],
+  "training_seconds": 12043.6,
+  "peak_cuda_memory_bytes": 5857420800
+}
