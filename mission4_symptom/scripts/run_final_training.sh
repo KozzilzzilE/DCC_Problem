@@ -83,7 +83,7 @@ log "0. 캐시 확인: $CALLS $n_calls 통화 (Training 전체)"
 # 1. TAPT 백본
 #    reuse: 예선 dev 선택 단계의 백본을 그대로 쓴다 (학습 없음).
 #    full : Training 전체 전사(통화 전체, 발화 공백 결합, Mission 4 와 같은 발화 순서)로 MLM 을 다시 돌린다.
-#           라벨은 쓰지 않는다. 캐시의 본문만 CSV 로 옮겨 예선 TAPT 스크립트(tapt_mlm.py)에 넘긴다.
+#           라벨은 쓰지 않는다. 캐시의 본문만 CSV 로 옮겨 scripts/tapt_mlm.py 에 넘긴다.
 # ---------------------------------------------------------------------------------------------
 if [ "$TAPT_MODE" = reuse ]; then
   BACKBONE="$M3_DIR/runs/devsel/tapt"
@@ -93,7 +93,6 @@ else
   if is_done tapt && [ -f "$BACKBONE/model.safetensors" ]; then
     log "1. 건너뜀 tapt"
   else
-    [ -f "$M3_DIR/tapt_mlm.py" ] || die "예선 TAPT 스크립트가 없습니다: $M3_DIR/tapt_mlm.py"
     rm -f "$FINAL/.done/tapt"
     for s in $SEEDS; do rm -f "$FINAL/.done/prefix_s$s"; done     # 백본이 바뀌므로 뒤 단계도 다시 돈다
     rm -rf "$FINAL/tapt"
@@ -117,8 +116,8 @@ with open(src, encoding="utf-8") as f, open(dst, "w", encoding="utf-8-sig", newl
 print(f"TAPT 본문 {n}건 -> {dst}", flush=True)
 PYEOF
     log "1. TAPT $TAPT_EPOCHS epoch 시작 (진행 막대는 $LOGS/tapt.log)"
-    (cd "$M3_DIR" && "$PY" -B tapt_mlm.py --train-csv "$HERE/$FINAL/tapt_train_text.csv" --output-dir "$HERE/$FINAL/tapt" \
-        --model-name-or-path klue/roberta-base --epochs "$TAPT_EPOCHS" --max-length "$MAXLEN" --amp --local-files-only) \
+    "$PY" -B scripts/tapt_mlm.py --train-csv "$FINAL/tapt_train_text.csv" --output-dir "$FINAL/tapt" \
+        --model-name-or-path klue/roberta-base --epochs "$TAPT_EPOCHS" --max-length "$MAXLEN" --amp --local-files-only \
         > "$LOGS/tapt.log" 2>&1 || die "TAPT 실패. $LOGS/tapt.log 를 확인하십시오"
     grep -a "^Epoch " "$LOGS/tapt.log" | tee -a "$LOGS/queue.log" || true
     [ -f "$BACKBONE/model.safetensors" ] || die "TAPT 결과가 없습니다: $BACKBONE"

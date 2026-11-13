@@ -1,0 +1,12 @@
+[11-13 14:02:22] 최종 학습 시작: FINAL_ROOT=runs/final SEEDS=[42 43] TAPT_MODE=reuse MAX_STEPS=0
+[11-13 14:02:25] python: 3.14.6 | torch 2.13.0+cu130 | transformers 5.15.0 | cuda True
+[11-13 14:02:25] GPU: NVIDIA GeForce RTX 5060, 599 MiB, 8151 MiB
+[11-13 14:02:25] 0. 캐시 확인: runs/cache/train.jsonl 29200 통화 (Training 전체)
+[11-13 14:02:25] 1. 백본: ../../mission3-calibration/mission3_symptom/runs/devsel/tapt — 본문 26280 건, 20 epoch, 마지막 MLM loss 0.9254 , Training CSV text column only (labels unused, Validation unused)
+[11-13 14:02:25] 2. 시작 prefix_s42
+확인: 통화 29200, 스텝 10950, 1822초, GPU 최대 4.71 GiB
+[11-13 14:32:55] 2. 끝 prefix_s42
+[11-13 14:32:55] 2. 시작 prefix_s43
+확인: 통화 29200, 스텝 10950, 1817초, GPU 최대 4.70 GiB
+[11-13 15:03:20] 2. 끝 prefix_s43
+[11-13 15:03:20] 모든 학습 단계 끝. 번들 조립은 scripts/pack_bundle.py 로 따로 한다
