@@ -1,0 +1,10 @@
+[20:33:36] 학습 통화 26280건, 설정 {"calls": "runs/cache/train.jsonl", "ids": "runs/cache/fit_ids.txt", "backbone": "klue/roberta-large", "out": "runs/E019_large", "fmt": "space", "truncation_side": "right", "max_length": 512, "epochs": 3, "samples_per_call": 2, "include_full": false, "batch_size": 4, "grad_accum": 4, "lr": 5e-05, "llrd": 0.8, "pos_weight_power": 0.5, "seed": 42, "count_classes": 0, "count_weight": 0.5, "max_steps": 0}
+[20:33:36] pos_weight 고열 2.15, 구토 2.35, 두통 3.02, 복통 1.83, 어지러움 1.90, 열상 2.74, 오심 2.77, 전신쇠약 2.11, 호흡곤란 2.53
+[20:35:44] epoch 1 step 200/39420 loss 0.7832 lr 1.20e-08 경과 124s
+[20:37:48] epoch 1 step 400/39420 loss 0.7612 lr 2.40e-08 경과 248s
+[20:39:45] epoch 1 step 600/39420 loss 0.7538 lr 3.60e-08 경과 365s
+[20:42:03] epoch 1 step 800/39420 loss 0.7491 lr 4.79e-08 경과 503s
+[20:44:08] epoch 1 step 1000/39420 loss 0.7418 lr 5.99e-08 경과 628s
+[20:46:12] epoch 1 step 1200/39420 loss 0.7236 lr 7.19e-08 경과 752s
+[20:48:23] epoch 1 step 1400/39420 loss 0.6993 lr 8.39e-08 경과 883s
+[20:52:22] epoch 1 step 1600/39420 loss 0.6801 lr 9.59e-08 경과 1122s
