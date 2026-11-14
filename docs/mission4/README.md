@@ -6,7 +6,9 @@
 
 1. [실험 흐름](EXPERIMENT_HISTORY.md)에서 문제, 비교, 결과와 후속 질문을 읽는다.
 2. [결과 표](RESULTS.csv)에서 실행 ID, 조건, seed, 평가 범위와 수치를 확인한다.
-3. [공개 채점 코드](../../mission4_symptom/score.py)에서 점수 계산을 확인한다.
+3. [팀원 결과 검토](TEAM_RESULT_REVIEW.md)에서 비교 가능한 결과와 추가 확인할 부분을 읽는다.
+4. [다음 비교 계획](NEXT_COMPARISON.md)에서 고정 임계값과 공통 분할을 사용하는 후속 절차를 확인한다.
+5. [공개 채점 코드](../../mission4_symptom/score.py)에서 점수 계산을 확인한다.
 
 **Seed**는 학습의 초기화와 무작위 순서를 정하는 숫자다. 서로 다른 seed의 결과를 나란히 보면 해당 실행들 사이의 변동을 볼 수 있지만, 두 seed만으로 모든 학습 변동을 알 수는 없다. `ensemble`은 두 seed 모델의 확률을 평균한 한 결과이며 별도 seed가 아니다.
 
