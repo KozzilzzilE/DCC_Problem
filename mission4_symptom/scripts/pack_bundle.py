@@ -51,6 +51,9 @@ def main() -> int:
                     help="학습형 정책을 읽지 못할 때(lightgbm 없음) 쓸 기대 점수 기준 (3개 평균 0.50, 단일 모델 0.52)")
     ap.add_argument("--halt-policy", help="학습형 중단 정책 policy.json (scripts/train_halt_policy.py 산출물). "
                                           "주면 --halt-type / --halt-tau 대신 이 정책을 넣는다")
+    ap.add_argument("--no-force-top1", action="store_true",
+                    help="임계값 규칙(4-1 --rule threshold 와 4-2 중단 시점)에서 0.5 를 넘는 증상이 없을 때 1위를 강제로 내지 않는다. "
+                         "대회 규정(판정 임계값 0.5 고정)대로 보정 없는 확률 >= 0.5 만 낸다")
     ap.add_argument("--note", default="")
     args = ap.parse_args()
     if args.halt_policy and any(a.split("=")[0] in ("--halt-type", "--halt-tau") for a in sys.argv[1:]):
@@ -98,11 +101,15 @@ def main() -> int:
         halt["fallback"] = {"type": "expected", "tau": args.halt_fallback_tau, "min_step": 5}
         print(f"학습형 중단 정책: {args.halt_policy} / beta {halt['beta']:g}, tau {halt['tau']:.2f}, "
               f"min_step {halt['min_step']}, 특징 {len(halt['feature_names'])}개, 학습 통화 {halt.get('n_fit_calls')}")
+    top1 = not args.no_force_top1
+    rule = {"type": args.rule}
+    if args.rule == "threshold":
+        rule.update({"threshold": 0.5, "force_top1": top1})   # 보정하지 않은 확률(calibrated 없음)에 0.5 를 적용한다
     settings = {"fmt": args.fmt, "truncation_side": args.truncation_side,
                 "logit_shift": logit_shift,
-                "rule": {"type": args.rule}, "label_prior": label_prior,
+                "rule": rule, "label_prior": label_prior,
                 # 4-2 중단 시점에는 Macro-F1 에 맞는 임계값 규칙을 쓴다 (dev 비교 결과, EXPERIMENT_LOG E004)
-                "halt_rule": {"type": "threshold", "threshold": 0.5, "force_top1": True},
+                "halt_rule": {"type": "threshold", "threshold": 0.5, "force_top1": top1},
                 "halt": halt}
     path = pack_bundle(args.members, args.out, settings, note=args.note)
     print(f"{path} ({path.stat().st_size / 2**20:.0f} MiB)")

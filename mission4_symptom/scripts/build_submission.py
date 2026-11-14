@@ -36,8 +36,10 @@ FILES = [
     "tests/test_streaming.py",
 ]
 RENAME = {"SUBMISSION_README.md": "README.md"}
-BUNDLE = "ckpt/mission4.pt"
-BUNDLE_SHA256 = "ce35f219ab347989350cb25ec7c935b026144126e6356d45a5f15b6eb95af140"   # E016 번들, E017 에서 Validation 확인
+# 판정 임계값 0.5 고정 규정에 맞춘 번들(E023). 멤버·중단 정책은 E016 번들과 같고 출력 규칙만 보정 없는 확률 >= 0.5 다.
+BUNDLE_SRC = "ckpt/mission4_strict05.pt"
+BUNDLE = "ckpt/mission4.pt"                 # 제출 폴더 안 이름
+BUNDLE_SHA256 = "63878e6ea4c06a34b6d95f519414af292c4177f5743595600ee79d368bb6ed72"
 
 
 def sha256(path: Path) -> str:
@@ -81,9 +83,9 @@ def main() -> int:
         print(f"내보낸 파일 수가 다릅니다: {written} / {len(paths)}", file=sys.stderr)
         return 1
 
-    src = HERE / BUNDLE
+    src = HERE / BUNDLE_SRC
     if sha256(src) != BUNDLE_SHA256:
-        print(f"{BUNDLE} 해시가 확인한 번들과 다릅니다.", file=sys.stderr)
+        print(f"{BUNDLE_SRC} 해시가 확인한 번들과 다릅니다.", file=sys.stderr)
         return 1
     (out / "ckpt").mkdir(exist_ok=True)
     shutil.copyfile(src, out / BUNDLE)
