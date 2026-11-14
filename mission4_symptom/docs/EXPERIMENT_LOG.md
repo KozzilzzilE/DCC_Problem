@@ -667,3 +667,8 @@ python scripts/pack_bundle.py --members <예선>/runs/devsel/final_s42 runs/fina
   - 시작 1~5 가 같은 것은 다섯 번째 발화 전에 신호가 거의 서지 않기 때문이다. 이미 lightgbm 없을 때의 대체 기준으로 테스트된 경로인 "기대 점수 >= 0.5, 다섯 번째 발화부터"를 쓴다. (E023 에서 적은 0.4990 은 다른 스크립트 값이고, 이 표의 0.4988 로 고친다.)
 - 번들 `ckpt/mission4_halt05.pt` (sha256 eb7e0584…, 666,798,993 B): 멤버는 E016·E023 과 같다. `pack_bundle.py --rule threshold --no-force-top1 --halt-type expected --halt-tau 0.50`. 4-1 은 E023 과 같다(dev 0.5060), 4-2 dev 0.5075 → **0.4988**.
 - 제출 README·조립 스크립트를 이 번들로 바꿨다. lightgbm 은 추론에 필요 없어졌다(requirements 에는 재현용으로 남김).
+- (11-14) E022 분류 학습을 배치 16 으로 시작했더니 8GB 를 넘쳐 공유 메모리로 새서 200스텝에 605초(E021 은 36초)였다. 학습만 끊고 실효 배치 16 은 같게 8x2 로 다시 시작했다(200스텝 26초). TAPT 는 끝난 것을 그대로 쓴다. 첫 시도 로그 `runs/E022_kcelectra_tapt/run_tapt_attempt1.log`.
+
+### E025 Validation 확인 — 예정 (2026-11-14, 사용자 승인)
+- 제출 폴더 번들(sha256 eb7e0584…)을 공식 명령 그대로(`--device cuda`) Validation 3,640통화에 돌려 score.py 로 잰다. 확인용 1회이고 **이 결과로 아무 값도 바꾸지 않는다.**
+- GPU 를 같이 쓰지 않도록 E022 가 끝난 뒤 실행하고, 이어서 E024 를 시작한다: `runs/E025_halt05/run_val_then_e024.sh`, 산출물 `runs/E025_halt05/val_check/`.

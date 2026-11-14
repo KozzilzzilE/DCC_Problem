@@ -17,9 +17,10 @@ if [ ! -f "$OUT/tapt/model.safetensors" ]; then
       || { echo "E022 TAPT 실패"; echo "=== 끝 ($(date +%H:%M)) ==="; exit 1; }
 fi
 
+# 배치 16 은 8GB 를 넘쳐 공유 메모리로 새서 17배 느려졌다(11-14 실측 3초/스텝). 실효 배치 16 은 같게 8x2 로 나눴다.
 echo "=== E022 학습 ($(date +%H:%M)) ==="
 $PY scripts/train_prefix.py --calls runs/cache/train.jsonl --ids runs/cache/fit_ids.txt \
-    --backbone "$OUT/tapt" --out "$OUT" --seed 42 --batch-size 16 --grad-accum 1 \
+    --backbone "$OUT/tapt" --out "$OUT" --seed 42 --batch-size 8 --grad-accum 2 \
     || { echo "E022 학습 실패"; echo "=== 끝 ($(date +%H:%M)) ==="; exit 1; }
 
 echo "=== 확률표 ($(date +%H:%M)) ==="
