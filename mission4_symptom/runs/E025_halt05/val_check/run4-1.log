@@ -1,0 +1,8 @@
+[data] label json           : 3640건
+[data] symptom 빈 리스트     : 0건
+[data] 9개 클래스 밖만 보유  : 0건
+[data] 발화 없음             : 0건
+[data] wav 미발견 제외       : 0건
+[data] (stem 재탐색으로 해결 : 3640건)
+[data] 평가 대상             : 3640건
+[done] C:/Users/Administrator/Desktop/DCC_Problem/.worktrees/mission4-streaming/mission4_symptom/runs/E025_halt05/val_check/mission4-1.csv (111947행)

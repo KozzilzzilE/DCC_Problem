@@ -15,7 +15,7 @@ python inference.py --mission 4-2 --audio_dir {wav folder} --label_dir {json fol
 
 - 설치: `pip install -r requirements.txt` (설치 방법과 검증 환경은 파일 머리말에 적었다).
 - 번들 안에 tokenizer·config·가중치·결정 규칙·멈춤 기준이 모두 들어 있어 추론 때 인터넷 접속이 없다.
-- 실측 시간 (RTX 5060 8GB, cuda, Validation 3,640통화): 4-1 1,411초, 4-2 410초.
+- 실측 시간 (RTX 5060 8GB, cuda, Validation 3,640통화): 4-1 2,178초, 4-2 949초.
 
 ## 파일
 
@@ -54,7 +54,11 @@ dev (Training 내부 2,920통화, 같은 구성을 학습용 26,280통화로만 
 |---|---|---|
 | 제출 번들 구성 (판정·멈춤 모두 0.5 고정) | 0.5060 | 0.4988 |
 
-최종 번들은 dev 통화까지 학습했으므로 dev 로 잴 수 없다. 이 번들의 Validation 점수는 아직 재지 않았다.
+최종 번들은 dev 통화까지 학습했으므로 dev 로 잴 수 없어, Validation 으로 한 번 확인했다 (이 결과로 바꾼 값은 없다):
+
+| | 4-1 | 4-2 |
+|---|---|---|
+| 제출 번들, Validation 3,640통화 | 0.4867 | 0.4883 (Macro-F1 0.6069 × 조기판단력 0.8046) |
 
 ## 다시 학습하기
 

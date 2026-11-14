@@ -1,0 +1,55 @@
+{
+  "calls": "runs/cache/train.jsonl",
+  "ids": "runs/cache/fit_ids.txt",
+  "backbone": "runs/E022_kcelectra_tapt/tapt",
+  "out": "runs/E022_kcelectra_tapt",
+  "fmt": "space",
+  "truncation_side": "right",
+  "max_length": 512,
+  "epochs": 3,
+  "samples_per_call": 2,
+  "include_full": false,
+  "batch_size": 8,
+  "grad_accum": 2,
+  "lr": 5e-05,
+  "llrd": 0.8,
+  "pos_weight_power": 0.5,
+  "seed": 42,
+  "count_classes": 0,
+  "count_weight": 0.5,
+  "max_steps": 0,
+  "grad_ckpt": false,
+  "log_every": 200,
+  "n_calls": 26280,
+  "total_steps": 19710,
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.5470507266291926,
+      "seconds": 751.1
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.47955912441536896,
+      "seconds": 1479.3
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.4531884573649507,
+      "seconds": 2228.9
+    }
+  ],
+  "pos_weight": [
+    2.1466705799102783,
+    2.3466062545776367,
+    3.015321969985962,
+    1.8262537717819214,
+    1.8965275287628174,
+    2.7440295219421387,
+    2.7716174125671387,
+    2.1146111488342285,
+    2.5336804389953613
+  ],
+  "training_seconds": 2229.3,
+  "peak_cuda_memory_bytes": 4077054976
+}
