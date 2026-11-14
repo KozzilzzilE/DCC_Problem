@@ -615,3 +615,11 @@ python scripts/pack_bundle.py --members <예선>/runs/devsel/final_s42 runs/fina
 - `python scripts/build_submission.py --out <Desktop>/DCC_submission/mission4_symptom` 로 조립했다. 커밋된 파일만 `git archive HEAD` 로 내보내고(코드 26개, 커밋 a3778db), 번들 `ckpt/mission4.pt` 는 sha256 ce35f219… 를 대조해 복사했다. `SUBMISSION_README.md` 가 제출 폴더의 `README.md` 다. 637 MB.
 - 넣지 않은 것: 실험 분석 스크립트(eval_*, halt_study, audio_embed, run_e018/e019), docs, runs, 0.5 고정판 번들(`mission4_thr05.pt`, 주최측 답에 따라 교체).
 - 검증 (Validation 은 쓰지 않음): 제출 폴더에서 네트워크를 막고(죽은 프록시) HF·torch 캐시를 빈 폴더로 둔 채 공식 명령을 Training dev 앞 200통화에 돌렸다. 4-1 201초, 4-2 63초, 둘 다 정상 종료. 출력 CSV 가 E016 실제 경로 점검(`runs/E016_final/e2e`)과 바이트 단위로 같다. 캐시에 생긴 파일 0개. 제출 폴더 안 테스트 37건 통과.
+
+### E021 KcELECTRA 깨끗한 비교 — 사전 등록 (2026-11-14, 결과 보기 전)
+- 계기: 팀원 KcELECTRA 점수(Validation 4-1 0.6933 / 4-2 0.6438)는 Validation 을 학습에 넣은 결과다. 첫 노트북(`origin/mission4-kcelectra` KcELECTRA.ipynb)은 라벨 폴더 자동 탐색이 `Validation/VL_서울_구급` 3,640통화를 골라 3,094통화로 학습했고, 전체판(`origin/mission4-kcelectra-full` e0a31fb)의 32,840통화는 Training 29,200 + Validation 3,640 과 같다. 그래서 이 점수는 비교 근거가 아니다. 4-1 0.69 는 통화 전체 예측을 매 순간 쓰는 상한(0.646)도 넘는다. 가중치는 쓰지 않는다.
+- 백본: `beomi/KcELECTRA-base-v2022` (MIT, revision 87285578b4686b6d190abd40e947a2a416add6de, 사용자 승인 후 11-14 내려받음). TAPT 없음.
+- 레시피: E002 그대로 (fit 26,280통화, 앞부분 균등 표본 2개/통화, 3 epoch, 묶음 16, lr 5e-5, LLRD 0.8, pos_weight^0.5, 512토큰, 공백 결합, seed 42). 값 탐색 없이 1회.
+- 사전 점검: dev 600통화 통화 전체 토큰 중앙값 202(RoBERTa 242), 512 초과 1.0%(4.2%), UNK 0.0007%. 120스텝 점검 학습 스텝당 0.16초, 최대 4.9GiB, LLRD 그룹이 전체 파라미터 127,783,689개를 덮는다. 저장 후 토크나이저 결과가 원본과 같다.
+- 판정 (E018·E019 와 같음): dev 2,920통화 4-1 maxent, 통화 단위 짝 부트스트랩 2,000회. "E002→E021 교체" 또는 "4개 평균(+E021)" 이 3개 평균 대비 차이 > 0.002 이고 95% 구간이 0 을 벗어나면 채택 후보. 원 확률 0.5 고정 규칙 비교는 참고로만 낸다.
+- 실행: `bash scripts/run_e021.sh`, 산출물 `runs/E021_kcelectra/`.
