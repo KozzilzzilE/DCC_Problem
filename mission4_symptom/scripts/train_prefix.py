@@ -86,7 +86,25 @@ def main() -> int:
     ap.add_argument("--grad-ckpt", action="store_true",
                     help="gradient checkpointing. 큰 백본이 8GB 에 안 들어갈 때 활성값 메모리를 줄인다 (계산은 약 30%% 늘어남)")
     ap.add_argument("--log-every", type=int, default=200, help="이 스텝마다 진행 기록")
+    ap.add_argument("--t1-mask-manifest", help="명시적으로 지정할 때만 Fit 오심 음성 Loss 마스킹")
     args = ap.parse_args()
+
+    if args.t1_mask_manifest:
+        from m4 import t1_loss_masking as t1
+        manifest = json.loads(Path(args.t1_mask_manifest).read_text(encoding="utf-8"))
+        if not args.ids or t1.sha(args.calls) != manifest["cache_sha256"] or t1.sha(args.ids) != manifest["fit_ids_sha256"]:
+            raise ValueError("T1은 동결된 Fit 캐시/ID에서만 실행할 수 있습니다")
+        expected = {"fmt": "space", "truncation_side": "right", "max_length": 512, "epochs": 3,
+                    "samples_per_call": 2, "include_full": False, "batch_size": 16, "grad_accum": 1,
+                    "lr": 5e-5, "llrd": .8, "pos_weight_power": .5, "seed": 42, "count_classes": 0,
+                    "max_steps": 0, "grad_ckpt": False}
+        if any(getattr(args, k) != v for k, v in expected.items()):
+            raise ValueError("T1 통제 학습 설정 불일치")
+        t1_root = (HERE.parent / "outputs/mission4_prefix/t1_loss_masking").resolve()
+        if not Path(args.out).resolve().is_relative_to(t1_root):
+            raise ValueError("T1 출력은 outputs/mission4_prefix/t1_loss_masking 아래에만 허용")
+        if Path(args.out).exists() and any(Path(args.out).iterdir()):
+            raise FileExistsError("T1 학습 출력이 이미 존재합니다. 기존 기록을 덮어쓰지 않습니다")
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -113,6 +131,11 @@ def main() -> int:
 
     tokenizer = AutoTokenizer.from_pretrained(args.backbone)
     tokenizer.truncation_side = args.truncation_side
+    if args.t1_mask_manifest:
+        if not tokenizer.is_fast:
+            raise ValueError("T1은 잘린 근거를 배제하기 위해 Fast Tokenizer offset이 필요합니다")
+        mask_plan = t1.load_plan(args.t1_mask_manifest, calls, tokenizer)
+        mask_stats = t1.MaskStats()
     # 보조 출력을 켜면 분류 헤드의 출력이 9 + count_classes 개가 된다. 앞 9개가 증상, 뒤가 증상 개수 칸이다.
     n_sym = len(SYMPTOM_CLASSES)
     names = list(SYMPTOM_CLASSES) + [f"count_{k + 1}" for k in range(args.count_classes)]
@@ -136,13 +159,16 @@ def main() -> int:
     optimizer = torch.optim.AdamW(llrd_groups(model, args.lr, args.llrd, 0.01))
     scheduler = get_linear_schedule_with_warmup(optimizer, int(0.1 * updates), updates)
     scaler = torch.amp.GradScaler("cuda")
-    loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight, dtype=torch.float32, device=device))
+    loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight, dtype=torch.float32, device=device),
+                                       reduction="none" if args.t1_mask_manifest else "mean")
 
     history = []
     step = 0
     optimizer.zero_grad(set_to_none=True)
     t0 = time.time()
     for epoch in range(1, args.epochs + 1):
+        if args.t1_mask_manifest:
+            mask_stats.start(epoch)
         rng = np.random.default_rng([args.seed, epoch])
         # (통화 번호, 앞부분 길이) 표본. 길이는 1..n 균등.
         items = [(i, int(rng.integers(1, len(p) + 1))) for i, p in enumerate(prefixes)
@@ -160,6 +186,12 @@ def main() -> int:
             with torch.autocast("cuda", dtype=torch.float16):
                 logits = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"]).logits
             loss = loss_fn(logits.float()[:, :n_sym], target)
+            if args.t1_mask_manifest:
+                batch_ids = [calls[i].call_id for i, _ in batch]
+                batch_lengths = [t for _, t in batch]
+                mask = t1.loss_mask(target, batch_ids, batch_lengths, mask_plan)
+                loss = (loss * mask).mean()  # 분모는 마스킹 전 B*9 그대로
+                mask_stats.update(target, batch_ids, batch_lengths, mask)
             if args.count_classes:
                 ctarget = torch.tensor(count_target[[i for i, _ in batch]], device=device)
                 loss = loss + args.count_weight * torch.nn.functional.cross_entropy(logits.float()[:, n_sym:], ctarget)
@@ -180,6 +212,8 @@ def main() -> int:
             if args.max_steps and step >= args.max_steps:
                 break
         history.append({"epoch": epoch, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1)})
+        if args.t1_mask_manifest:
+            mask_stats.finish()
         say(f"epoch {epoch} 끝: 평균 loss {running / max(seen, 1):.4f}")
         if args.max_steps and step >= args.max_steps:
             break
@@ -190,6 +224,12 @@ def main() -> int:
                   pos_weight=[float(w) for w in pos_weight], training_seconds=round(time.time() - t0, 1),
                   peak_cuda_memory_bytes=int(torch.cuda.max_memory_allocated()))
     (out / "run_config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    if args.t1_mask_manifest:
+        report = mask_stats.report()
+        report.update({"manifest_sha256": t1.sha(args.t1_mask_manifest), "version": t1.VERSION,
+                       "review_counts": manifest["review_counts"],
+                       "maskable_calls_with_visible_evidence": sum(bool(v) for v in mask_plan.values())})
+        (out / "masking_stats.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     say(f"저장 {out / 'best_model'} ({config['training_seconds']}s)")
     return 0
 

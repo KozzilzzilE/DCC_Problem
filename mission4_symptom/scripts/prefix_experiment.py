@@ -159,6 +159,11 @@ def evaluate(e002_table):
     if not cfg_path.is_file():
         cfg_path = Path(e002_table).parent / "run_config.json"
     meta_path = Path(e002_table).with_suffix(".meta.json")
+    if not cfg_path.is_file() and meta_path.is_file():
+        model_path = Path(read(meta_path)["model"])
+        if not model_path.is_absolute():
+            model_path = HERE / model_path
+        cfg_path = model_path.parent / "run_config.json"
     result["timing"]["e002_training_record"] = read(cfg_path) if cfg_path.is_file() else None
     result["timing"]["e002_offline_extraction_record"] = read(meta_path) if meta_path.is_file() else None
     result["timing"]["fixed_members_offline_extraction_records"] = {
@@ -199,28 +204,59 @@ def invoke(script, args, log):
                        env=env, stdout=out, stderr=subprocess.STDOUT, check=True)
 
 
-def run(out):
+def run(out, strategy="baseline", mask_manifest=None, all_stages=False, reference_path=None,
+        stop_after_train=False, device="cuda"):
+    if strategy == "t1":
+        if mask_manifest is None:
+            raise ValueError("T1은 --mask-manifest를 명시해야 합니다")
+        if not Path(out).resolve().is_relative_to((OUTPUTS / "t1_loss_masking").resolve()):
+            raise ValueError("T1 출력은 t1_loss_masking 아래로 분리해야 합니다")
+        mask_manifest = Path(mask_manifest).resolve()
+        if reference_path is None:
+            reference_path = OUTPUTS / "localcontrol/metrics.json"
+    elif mask_manifest is not None:
+        raise ValueError("Baseline에는 마스킹 파일을 지정할 수 없습니다")
     # 먼저 팀 기록과 동일한 평가 경로인지 확인한다. 불일치 시 새 학습을 시작하지 않는다.
     reference, _, _ = verify()
+    if reference_path is not None:
+        reference = read(reference_path)
     cfg = read(E002 / "run_config.json")
     if any(cfg[k] != v for k, v in RECIPE.items()):
         raise ValueError("E002 팀 레시피가 예상값과 다름")
     if any(digest(BACKBONE / p) != h for p, h in BACKBONE_SHA256.items()):
         raise ValueError("팀 TAPT 초기 가중치 또는 Tokenizer가 변경됨")
     out = reserve(out)
-    save(out / "initial.json", {"recipe": RECIPE, "backbone": str(BACKBONE),
+    save(out / "initial.json", {"recipe": RECIPE, "strategy": strategy, "backbone": str(BACKBONE),
+        "mask_manifest": str(mask_manifest) if mask_manifest else None,
+        "mask_manifest_sha256": digest(mask_manifest) if mask_manifest else None,
         "initial_weights_sha256": digest(BACKBONE / "model.safetensors"),
         "initial_tokenizer_sha256": digest(BACKBONE / "tokenizer.json"),
         "fit_ids_sha256": digest(FIT), "dev_ids_sha256": digest(DEV),
         "source_sha256": {str(p): digest(p) for p in [Path(__file__), HERE / "scripts/train_prefix.py",
-            HERE / "scripts/prefix_probs.py", HERE / "m4/halting.py", HERE / "m4/simulate.py"]}})
+            HERE / "scripts/prefix_probs.py", HERE / "m4/halting.py", HERE / "m4/simulate.py"]
+            + ([HERE / "m4/t1_loss_masking.py", HERE / "scripts/prepare_t1_mask.py"] if strategy == "t1" else [])}})
     args = ["--calls", str(CALLS), "--ids", str(FIT), "--backbone", str(BACKBONE), "--out", str(out / "training")]
     for key, value in RECIPE.items():
         if key != "include_full":
             args += ["--" + key.replace("_", "-"), str(value)]
     args += ["--grad-accum", "1", "--count-classes", "0", "--max-steps", "0"]
+    if strategy == "t1":
+        args += ["--t1-mask-manifest", str(mask_manifest)]
     invoke("train_prefix.py", args, out / "training.log")
-    invoke("prefix_probs.py", ["--model", str(out / "training/best_model"), "--calls", str(CALLS),
+    if stop_after_train:
+        return
+    extract_stage(out / "training", out, reference=reference, existing=True)
+    if all_stages:
+        sequential(out / "sequential", out / "training", device)
+
+
+def extract_stage(e002_run, out, reference=None, existing=False):
+    e002_run = Path(e002_run)
+    check_fit_run(e002_run)
+    if not (e002_run / "best_model/model.safetensors").is_file():
+        raise FileNotFoundError(e002_run / "best_model/model.safetensors")
+    out = Path(out) if existing else reserve(out)
+    invoke("prefix_probs.py", ["--model", str(e002_run / "best_model"), "--calls", str(CALLS),
         "--ids", str(DEV), "--out", str(out / "dev_prefix.npz"), "--fmt", "space",
         "--max-length", "512", "--truncation-side", "right", "--token-budget", "24000"], out / "extract.log")
     write_evaluation(out / "dev_prefix.npz", out, existing=True, reference=reference)
@@ -247,14 +283,18 @@ def write_evaluation(table_path, out, existing=False, reference=None):
                       "4-2": result["mission_4_2"]["score"]}, ensure_ascii=False))
 
 
+def check_fit_run(e002_run):
+    cfg = read(Path(e002_run) / "run_config.json")
+    if cfg["n_calls"] != 26280 or cfg["ids"] is None or digest(FIT) != digest(cfg["ids"] if Path(cfg["ids"]).is_absolute() else HERE / cfg["ids"]):
+        raise ValueError("E002는 기존 fit ID 26,280통화로만 학습한 모델이어야 합니다")
+
+
 def sequential(out, e002_run, device):
     """실측 전용: fit-only 멤버로 기존 StreamingSymptomModel을 실행한다."""
     import torch
     from m4.bundle import pack_bundle
     from m4.streaming import StreamingSymptomModel
-    cfg = read(Path(e002_run) / "run_config.json")
-    if cfg["n_calls"] != 26280 or cfg["ids"] is None or digest(FIT) != digest(cfg["ids"] if Path(cfg["ids"]).is_absolute() else HERE / cfg["ids"]):
-        raise ValueError("E002는 기존 fit ID 26,280통화로만 학습한 모델이어야 합니다")
+    check_fit_run(e002_run)
     # E001/E007은 고정된 팀 fit-only 모델 경로만 사용. 최종 제출 번들 사용 금지.
     for p in (MODEL1, MODEL7, Path(e002_run) / "best_model"):
         if not (p / "model.safetensors").is_file():
@@ -324,6 +364,20 @@ def main():
     v.add_argument("--check-online", action="store_true", help="기존 확률로 온라인 특징/중단을 재생해 통화별 일치 검사")
     r = sub.add_parser("run", help="기존 E002 재학습→확률 추출→고정 정책 평가")
     r.add_argument("--out", type=Path, required=True)
+    r.add_argument("--strategy", choices=["baseline", "t1"], default="baseline")
+    r.add_argument("--mask-manifest", type=Path)
+    r.add_argument("--all-stages", action="store_true", help="배치 평가 성공 후 실제 순차 추론도 실행")
+    r.add_argument("--reference", type=Path)
+    r.add_argument("--device", choices=["cuda", "cpu"], default="cuda")
+    t = sub.add_parser("train", help="기존 학습 단계만 실행; 후속 단계는 별도 실행")
+    t.add_argument("--out", type=Path, required=True)
+    t.add_argument("--strategy", choices=["baseline", "t1"], default="baseline")
+    t.add_argument("--mask-manifest", type=Path)
+    t.add_argument("--reference", type=Path)
+    x = sub.add_parser("extract", help="기존 학습 모델에서 확률 추출 후 고정 정책 평가")
+    x.add_argument("--e002-run", type=Path, required=True)
+    x.add_argument("--out", type=Path, required=True)
+    x.add_argument("--reference", type=Path)
     e = sub.add_parser("evaluate", help="기존 확률표에 고정 정책만 적용")
     e.add_argument("--e002-table", type=Path, required=True)
     e.add_argument("--out", type=Path, required=True)
@@ -340,7 +394,11 @@ def main():
             save(out / "metrics.json", result)
             np.savez_compressed(out / "halts.npz", call_ids=np.array(table.call_ids), halts=halts)
     elif args.command == "run":
-        run(args.out)
+        run(args.out, args.strategy, args.mask_manifest, args.all_stages, args.reference, device=args.device)
+    elif args.command == "train":
+        run(args.out, args.strategy, args.mask_manifest, reference_path=args.reference, stop_after_train=True)
+    elif args.command == "extract":
+        extract_stage(args.e002_run, args.out, reference=read(args.reference) if args.reference else None)
     elif args.command == "evaluate":
         write_evaluation(args.e002_table, args.out, reference=read(args.reference) if args.reference else None)
     else:
