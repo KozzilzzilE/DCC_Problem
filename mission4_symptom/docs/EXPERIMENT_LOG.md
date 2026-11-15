@@ -603,6 +603,7 @@ python scripts/pack_bundle.py --members <예선>/runs/devsel/final_s42 runs/fina
 |---|---|---|---|
 | 2026-11-13 | E017 | 최종 번들 `ckpt/mission4.pt` 의 점수 (확인용 1회, 값 변경 없음) | 4-1 0.5302, 4-2 0.5042 |
 | 2026-11-14 | E025 | 판정·멈춤 0.5 고정 제출 번들(sha256 eb7e0584…)의 점수 (사용자 승인, 확인용 1회, 값 변경 없음) | 4-1 0.4867, 4-2 0.4883 |
+| 2026-11-15 | E026 | LightGBM 멈춤(기준 0.5) 제출 번들(sha256 55e67545…)의 점수 (사용자 승인, 확인용 1회, 값 변경 없음) | 4-1 0.4867, 4-2 0.5070 |
 
 ### E019 결과 (2026-11-14, dev 2,920통화)
 - klue/roberta-large, TAPT 없음, E002 와 같은 레시피·묶음 16, gradient checkpointing. 학습 12,044초(3.3시간).
@@ -706,3 +707,17 @@ python scripts/pack_bundle.py --members <예선>/runs/devsel/final_s42 runs/fina
 - 판정: 구간 하한이 0 에 닿아 예전 사전 등록 기준(구간이 0 을 벗어남)에는 못 미치지만, 사용자 방침(LightGBM 사용)에 따라 채택한다. 규정상 쟁점(0.5 고정)은 해소된 형태다.
 - 번들 `ckpt/mission4_lgbm05.pt` (sha256 55e67545…, 667,121,553 B): 멤버는 E016·E025 와 같다. `pack_bundle.py --rule threshold --no-force-top1 --halt-policy runs/E026_learned_halt05/wide/policy.json --halt-fallback-tau 0.50`. 4-1 dev 0.5060 그대로.
 - 제출 README·조립 스크립트·requirements·노트북(`scripts/build_notebook.py` 의 2·5·6·7절을 0.5 고정 규칙으로 고치고 다시 실행)을 이 번들로 바꿨다. 이 번들의 Validation 은 재지 않았다.
+
+### E026 Validation 확인 결과 (2026-11-15, 1회, 사용자 승인)
+- 공식 명령 그대로 제출 폴더에서 `--device cuda` (번들 sha256 55e67545… 일치), score.py 채점. 3,640통화 전부 평가, 경고 0 (lightgbm 정상 로드, 대체 기준으로 내려가지 않음).
+
+| | Validation (제출 번들) | 참고: dev (fit-only 같은 구성) | 참고: E025 Validation (기대 점수 0.5 멈춤) | 참고: E017 Validation (1위 강제·τ 0.64) |
+|---|---|---|---|---|
+| 4-1 | **0.4867** | 0.5060 | 0.4867 | 0.5302 |
+| 4-2 | **0.5070** (Macro-F1 0.6144 × 조기판단력 0.8252) | 0.5031 | 0.4883 | 0.5042 |
+
+- 4-2 증상별 F1: 열상 0.851, 복통 0.800, 고열 0.665, 호흡곤란 0.648, 어지러움 0.630, 전신쇠약 0.567, 구토 0.524, 두통 0.485, 오심 0.359.
+- 실행 시간 (RTX 5060 8GB): 4-1 1,333초, 4-2 461초.
+- 읽는 법: 4-1 은 E025 와 같은 규칙이라 같은 값이다. 4-2 는 기대 점수 0.5 멈춤(E025) 대비 +0.0187 로 dev 차이(+0.0042)보다 크게 올랐다. 이 결과로 아무 값도 바꾸지 않는다. 발표 수치로는 이 Validation 값을 쓴다.
+- 산출물: `runs/E026_learned_halt05/val_check/` (채점 json·로그·실행 시간·번들 해시. 출력 csv 는 git 제외).
+- 팀 공유: 제출 폴더 zip 과 쉬운 말 요약(`Desktop/DCC_submission/미션4_진행정리.md`)을 Drive 코찔찔이 > DCC > 본선에 올렸다.
