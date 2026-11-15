@@ -78,7 +78,9 @@ def run_once(fit: hl.HaltData, ev: hl.HaltData, args, shift, tag: str):
     if overlap:
         raise SystemExit(f"학습용과 판정용 통화가 {len(overlap)}건 겹칩니다. 판정용 통화는 학습·선택에 쓰면 안 됩니다.")
     t0 = time.time()
-    policy = hl.train_policy(fit, ref_tau=args.ref_tau, logit_shift=shift, folds=args.folds, seed=args.seed, threads=args.threads)
+    policy = hl.train_policy(fit, ref_tau=args.ref_tau, logit_shift=shift, folds=args.folds, seed=args.seed, threads=args.threads,
+                             taus=tuple(args.taus) if args.taus else hl.TAUS,
+                             betas=tuple(args.betas) if args.betas else hl.BETAS)
     info = policy.info
     print(f"[{tag}] 학습용 {len(fit)}통화 / 학습 행 {info['target']['n_rows']} ({time.time() - t0:.0f}초). "
           f"δ 교차 학습 R² {info['crossfit_r2']:.3f}, δ>0 비율 {info['target']['delta_pos_rate']:.3f}", flush=True)
@@ -136,6 +138,9 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--boot", type=int, default=1000)
     ap.add_argument("--threads", type=int, default=4, help="LightGBM CPU 스레드 수")
+    ap.add_argument("--betas", type=float, nargs="+", default=None, help="고를 β 후보 (기본: 0~32)")
+    ap.add_argument("--taus", type=float, nargs="+", default=None,
+                    help="고를 τ 후보 (기본: 0.40~0.80). 판정 임계값 0.5 고정 규정에서는 --taus 0.5 로 β 만 고른다")
     ap.add_argument("--rehearse-seed", type=int, default=None, help="주면 판정용 통화를 절반씩 나눠 리허설한다")
     args = ap.parse_args()
 

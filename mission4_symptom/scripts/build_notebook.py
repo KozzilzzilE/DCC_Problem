@@ -144,9 +144,9 @@ dev 채점은 주최측 `score.py` 와 같은 식을 쓴다 (`m4/simulate.py`, �
 
 정한 것:
 - **학습 입력:** 통화 전체가 아니라 앞부분(길이 균등 표본)으로 학습한다 (E002). 4-1 채점이 모든 순간을 같은 무게로 평균하므로 학습 분포도 순간에 대해 균등하게 맞췄다.
-- **4-1 결정 규칙:** 임계값 대신, 보정한 확률과 Training 라벨의 증상 조합 분포로 기대 점수가 가장 큰 증상 집합을 낸다 (E009).
-- **4-2 중단 기준:** 5번째 발화부터 "지금 답했을 때의 기대 점수 + 16 × (지금 끊는 쪽의 예상 이득) ≥ 0.64" 이면 멈춘다 (E012).
-  예상 이득은 LightGBM 회귀가 낸다. 입력은 그 순간까지의 확률과 대화 진행(발화 수, 화자, 발화 시각) 57개뿐이고, 통화 전체 길이는 넣지 않는다.
+- **4-1 결정 규칙:** 대회 규정대로 판정 임계값은 0.5 로 고정한다. 3개 모델의 평균 확률(보정 없음)이 0.5 이상인 증상을 모두 내고, 없으면 빈 리스트를 낸다 (E023).
+- **4-2 중단 기준:** 멈춤 기준도 0.5 로 고정한다. 5번째 발화부터 "지금 답했을 때의 기대 점수 + β × (지금 끊는 쪽의 예상 이득) ≥ 0.5" 이면 멈춘다 (E026, β = 128).
+  멈출 때 내는 증상은 4-1 과 같은 0.5 판정이다. 예상 이득은 LightGBM 회귀가 낸다. 입력은 그 순간까지의 확률과 대화 진행(발화 수, 화자, 발화 시각) 57개뿐이고, 통화 전체 길이는 넣지 않는다.
   정책은 학습용 통화의 교차 학습 확률표(E011, 모델이 보지 않은 통화에서 낸 확률)로 학습했고 dev 는 판정에만 썼다 (6절).
 - **모델 평균:** 앞부분 학습 모델 2개(seed 42·43)와 통화 전체 학습 모델 1개 (E006, E010).
 - **해 봤지만 채택하지 않은 것:** 다른 계열 인코더(E008), 평균 모델 추가(E013), 증상 개수 보조 출력(E014), 오심 대책(E015).
@@ -255,8 +255,7 @@ pd.DataFrame(rows).set_index(["seed", "epoch"]) if rows else None
 
 학습이 남긴 `best_model` 폴더들을 `.pt` 파일 하나로 묶는다 (`scripts/pack_bundle.py`, `m4/bundle.py`).
 - **멤버마다:** tokenizer·config 파일 원문과 가중치(fp16 저장)가 들어 있어 인터넷 없이 로드된다.
-- **추론 설정:** 입력 형식, 확률 보정값(log pos_weight), 4-1 결정 규칙과 증상 조합 사전분포, 4-2 중단 기준이 파일 안에 들어 있다.
-  사전분포는 학습에 쓴 통화(Training 전체)의 라벨로만 만든다.
+- **추론 설정:** 입력 형식, 확률 보정값(log pos_weight), 4-1 판정 규칙(임계값 0.5), 4-2 중단 정책(LightGBM, 기준 0.5)이 파일 안에 들어 있다.
 - **통화 전체 학습 멤버:** 예선 Mission 3 최종 모델(`final_s42`)이다. Training 전체 29,200통화로, 같은 백본·같은 입력 형식·같은 pos_weight 로 학습했다.
 
 아래 셀은 번들 파일을 직접 열어 구성과 설정을 출력한다.
@@ -281,7 +280,6 @@ if BUNDLE.is_file():
             for k, v in settings["halt"].items() if k != "info"}          # info: 정책 학습 기록 (6절에서 요약)
     print(f"  halt: {halt}")
     print("  logit_shift:", None if settings.get("logit_shift") is None else [round(v, 3) for v in settings["logit_shift"]])
-    print("  사전분포 출처:", prior.get("source"))
 else:
     member_params = []
     print("번들이 아직 없습니다:", BUNDLE)
@@ -291,14 +289,15 @@ else:
 
 `scripts/train_halt_policy.py` 가 정책을 학습하고 판정한다 (수식과 특징은 `m4/halting.py`).
 - **학습 자료:** 학습용 26,280통화의 교차 학습 확률표 (`scripts/run_oof_tables.sh`). 5겹으로 나눠, 겹마다 나머지 4겹으로 학습한 모델이 보지 않은 겹의 확률을 낸다.
-- **(β, τ) 선택:** 학습용 통화 안에서 통화 단위 교차 학습 예측으로 고른다. dev 는 보지 않는다.
+- **기준 τ 는 0.5 로 고정한다** (판정 임계값 0.5 고정 규정). 예상 이득에 곱하는 β 만 학습용 통화 안에서 통화 단위 교차 학습 예측으로 고른다 (후보 0~256). dev 는 보지 않는다.
+- **멈출 때 예측:** 학습 목표와 채점 모두 제출과 같은 0.5 판정(1위 강제 없음)으로 계산한다.
 - **판정:** dev 2,920통화에 그대로 적용해 기존 기준(기대 점수 ≥ 0.50)과 통화 단위 짝 부트스트랩으로 비교한다.
 - **확률 보정값:** 최종 모델과 같은 값(Training 전체 라벨의 pos_weight)으로 특징을 만든다. 번들을 묶을 때 정책과 번들의 값이 다르면 멈춘다.
 
 아래 셀은 제출 번들에 넣은 정책의 학습 기록(`result.json`)을 출력한다.
 """),
     code(r"""
-POLICY = HERE / os.environ.get("M4_POLICY", "runs/E016_final/policy")
+POLICY = HERE / os.environ.get("M4_POLICY", "runs/E026_learned_halt05/wide")
 if (POLICY / "result.json").is_file():
     res = load_json(POLICY / "result.json")
     run = res["runs"][0]
@@ -321,23 +320,37 @@ else:
 최종 모델은 dev 통화까지 학습에 넣었으므로 dev 로 다시 재지 않는다 (재면 실제보다 높게 나온다).
 
 - **4-1:** 순간마다 맞힌 수 ÷ (정답 ∪ 예측 수) → 통화 안에서 평균 → 통화 평균.
-- **4-2:** 중단 시점 예측의 Macro-F1 × 평균 조기판단력. 아래 표의 4-2 는 기존 기준(기대 점수 ≥ 0.52)의 값이고, 제출에 쓴 학습형 정책의 값은 6절에 있다.
+- **4-1, 4-2 모두 제출 규칙(판정 임계값 0.5, 1위 강제 없음)으로 잰다.** 아래 표의 4-2 는 기존 기준(기대 점수 ≥ 0.50)의 값이고, 제출에 쓴 학습형 정책의 값은 6절에 있다.
 """),
     code(r"""
+from m4 import simulate as sim
+from m4.decision import calibrate, expected_rule
+
+DEV = {"E001": "runs/E001_m3_baseline", "E002": "runs/E002_prefix_uniform", "E007": "runs/E007_prefix_uniform_s43"}
+tables = {k: sim.PrefixTable.load(HERE / v / "dev_prefix.npz") for k, v in DEV.items() if (HERE / v / "dev_prefix.npz").is_file()}
 rows = []
-for label, name in [("앞부분 학습 seed 42 (E002)", "E002"), ("앞부분 학습 seed 43 (E007)", "E007"),
-                    ("3개 평균 (E001+E002+E007)", "E001+E002+E007")]:
-    path = HERE / "runs" / "E009_maxent_rule" / f"{name}.json"
-    if not path.is_file():
-        continue
-    m = load_json(path)
-    halt = m["m4_2_tau0.52"]
-    rows.append({"모델": label, "4-1": round(m["m4_1"], 4),
-                 "4-1 앞/가운데/뒤": " / ".join(f"{m['m4_1_thirds'][k]:.3f}" for k in ("앞", "가운데", "뒤")),
-                 "4-2 (기준 0.52)": round(halt["score"], 4), "Macro-F1": round(halt["macro_f1"], 4),
-                 "조기판단력": round(halt["earliness"], 4), "중단 발화(중앙값)": halt["halt_median"],
-                 "통화 전체 F1@0.5": round(m["full_call_f1"], 4)})
-pd.DataFrame(rows).set_index("모델") if rows else print("dev 수치 파일(runs/E009_maxent_rule)이 없습니다")
+if tables:
+    shift = np.log(load_json(HERE / DEV["E002"] / "run_config.json")["pos_weight"])
+    for label, names in [("앞부분 학습 seed 42 (E002)", ["E002"]), ("앞부분 학습 seed 43 (E007)", ["E007"]),
+                         ("3개 평균 (E001+E002+E007)", ["E001", "E002", "E007"])]:
+        t = tables[names[0]]
+        probs = np.mean([tables[k].probs for k in names], axis=0)
+        pred = probs >= 0.5                                      # 제출 규칙: 0.5 고정, 넘는 것이 없으면 빈 예측
+        gold = np.repeat(t.labels, t.n_utt, axis=0)
+        per_call = np.add.reduceat(sim.moment_scores(pred, gold), t.offsets[:-1]) / t.n_utt
+        value = expected_rule(calibrate(probs, shift))[1]          # 기대 점수 (보정 확률)
+        halts = []
+        for a, b in zip(t.offsets[:-1], t.offsets[1:]):
+            hit = np.flatnonzero(value[a:b] >= 0.5)
+            hit = hit[hit >= 4]                                  # 5번째 발화부터
+            halts.append(int(hit[0]) + 1 if len(hit) else int(b - a))
+        halts = np.array(halts)
+        f1 = sim.macro_f1(pred[t.offsets[:-1] + halts - 1], t.labels)["macro_f1"]
+        e = float(sim.earliness(halts, t.n_utt).mean())
+        rows.append({"모델": label, "4-1": round(float(per_call.mean()), 4), "빈 예측 순간": f"{(~pred.any(1)).mean():.1%}",
+                     "4-2 (기대 점수 ≥ 0.5)": round(f1 * e, 4), "Macro-F1": round(f1, 4), "조기판단력": round(e, 4),
+                     "중단 발화(중앙값)": float(np.median(halts))})
+pd.DataFrame(rows).set_index("모델") if rows else print("dev 확률표(runs/E00*/dev_prefix.npz)가 없습니다")
 """),
     md(r"""
 ## 8. 계산 효율

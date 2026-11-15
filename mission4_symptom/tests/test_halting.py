@@ -120,7 +120,7 @@ def test_score_matches_simulate():
     data = hl.HaltData.build(table, calls, SHIFT)
     halts = hl.first_halt(data.value >= 0.5, data)
     by_call = iter(halts)
-    ref = sim.score_4_2(table, lambda p: int(next(by_call)), lambda p: sim.decide(p, force_top1=True))
+    ref = sim.score_4_2(table, lambda p: int(next(by_call)), lambda p: sim.decide(p, force_top1=False))   # 제출 규칙: 0.5 고정, 1위 강제 없음
     ours = hl.score_halts(data, halts)
     fast = float(hl._weighted_scores(hl._score_parts(data, halts), np.ones((1, len(data))))[0])
     assert abs(ours["score"] - ref["score"]) < 1e-12 and abs(fast - ref["score"]) < 1e-12

@@ -20,7 +20,7 @@
            Macro-F1 은 9개 클래스 평균이므로 9 로 나눈다.
     양변에 N 을 곱해 통화 하나의 효용으로 쓴다.
       u(t) = E · (N/9) · Σ_c pred_c(t) · [ q_c·(2 − F1_c) − (1 − q_c)·F1_c ] / D_c  +  F · 조기판단력(t)
-    pred_c(t) 는 t 에서 끊을 때 낼 예측(보정 전 확률 ≥ 0.5, 없으면 1개)이다.
+    pred_c(t) 는 t 에서 끊을 때 낼 예측(보정 전 확률 ≥ 0.5, 없으면 빈 예측)이다.
     q_c 는 "클래스 c 가 정답일 확률"인데, 라벨(0/1) 대신 통화 끝의 보정 확률을 쓴다. 라벨을 그대로 쓰면
     목표의 잡음이 커서 회귀가 거의 학습되지 않는다 (W001: R² 0.03~0.05 대 0.21~0.25).
     F, E, F1_c, D_c 는 학습용 통화에서 기준 정책을 돌렸을 때의 값(운영점 상수)이다.
@@ -110,12 +110,12 @@ def moment_signals(raw: np.ndarray, logit_shift: Optional[Sequence[float]]) -> T
     """보정 전 확률 (m, 9) -> (보정 확률, 기대 순간 점수 v, 중단 시점 예측 0/1).
 
     보정 확률은 학습 때 pos_weight 로 올라간 로짓을 되돌린 것이고, v 는 그 확률로 계산한다.
-    중단 시점 예측은 채택 규칙 그대로다: 보정 전 확률 ≥ 0.5, 하나도 없으면 가장 높은 1개.
+    중단 시점 예측은 제출 규칙 그대로다: 보정 전 확률 ≥ 0.5 (판정 임계값 0.5 고정, 넘는 것이 없으면 빈 예측).
     """
     raw = np.asarray(raw, dtype=np.float32)
     cal = dec.calibrate(raw, logit_shift).astype(np.float64)
     value = dec.expected_rule(cal)[1]
-    pred = dec.threshold_rule(raw.copy())
+    pred = dec.threshold_rule(raw.copy(), force_top1=False)
     return cal, value, pred
 
 
