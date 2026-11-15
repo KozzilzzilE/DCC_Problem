@@ -1,0 +1,32 @@
+{
+ "model": "microsoft/wavlm-base-plus",
+ "dim": 768,
+ "layers": [
+  4,
+  8,
+  12
+ ],
+ "layers_note": "hidden_states 튜플 인덱스 (0=임베딩 출력, k=k번째 트랜스포머 층 출력)",
+ "pooling": "패딩 제외 프레임 평균",
+ "precision": "fp32 계산, float16 저장",
+ "speakers": [
+  1
+ ],
+ "max_sec": 6.0,
+ "min_sec": 0.3,
+ "max_utts": 40,
+ "batching": "single",
+ "batch_sec": 60.0,
+ "max_batch": 256,
+ "chunk_calls": 100,
+ "slice": "inference.Sample._slice 와 같은 반올림",
+ "n_calls": 6000,
+ "n_utts": 93403,
+ "missing_wav_calls": 0,
+ "calls_with_zero_utts": 0,
+ "utts_per_call_mean": 15.567166666666667,
+ "audio_hours_fed": 53.489646666666665,
+ "embed_seconds": 1133.2,
+ "total_seconds": 1147.8,
+ "check": {}
+}

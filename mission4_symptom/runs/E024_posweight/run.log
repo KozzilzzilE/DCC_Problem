@@ -1,0 +1,168 @@
+=== E022 끝나기 기다림 (21:49) ===
+=== 학습 pos_weight 지수 0.3 → runs/E024_posweight/p030 (21:49) ===
+[21:49:43] 학습 통화 26280건, 설정 {"calls": "runs/cache/train.jsonl", "ids": "runs/cache/fit_ids.txt", "backbone": "../../mission3-calibration/mission3_symptom/runs/devsel/tapt", "out": "runs/E024_posweight/p030", "fmt": "space", "truncation_side": "right", "max_length": 512, "epochs": 3, "samples_per_call": 2, "include_full": false, "batch_size": 16, "grad_accum": 1, "lr": 5e-05, "llrd": 0.8, "pos_weight_power": 0.3, "seed": 42, "count_classes": 0, "count_weight": 0.5, "max_steps": 0, "grad_ckpt": false, "log_every": 200}
+[21:49:43] pos_weight 고열 1.58, 구토 1.67, 두통 1.94, 복통 1.44, 어지러움 1.47, 열상 1.83, 오심 1.84, 전신쇠약 1.57, 호흡곤란 1.75
+Loading weights:   0%|          | 0/197 [00:00<?, ?it/s]Loading weights: 100%|██████████| 197/197 [00:00<00:00, 5820.87it/s]
+[transformers] [1mRobertaForSequenceClassification LOAD REPORT[0m from: ../../mission3-calibration/mission3_symptom/runs/devsel/tapt
+Key                        | Status     | 
+---------------------------+------------+-
+lm_head.dense.bias         | UNEXPECTED | 
+lm_head.dense.weight       | UNEXPECTED | 
+lm_head.layer_norm.bias    | UNEXPECTED | 
+lm_head.bias               | UNEXPECTED | 
+lm_head.layer_norm.weight  | UNEXPECTED | 
+classifier.out_proj.weight | MISSING    | 
+classifier.dense.weight    | MISSING    | 
+classifier.out_proj.bias   | MISSING    | 
+classifier.dense.bias      | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+[21:51:20] epoch 1 step 200/9855 loss 0.6614 lr 6.98e-07 경과 95s
+[21:52:55] epoch 1 step 400/9855 loss 0.5882 lr 1.40e-06 경과 190s
+[21:54:09] epoch 1 step 600/9855 loss 0.5435 lr 2.09e-06 경과 264s
+[21:55:06] epoch 1 step 800/9855 loss 0.5157 lr 2.79e-06 경과 320s
+[21:56:11] epoch 1 step 1000/9855 loss 0.4977 lr 3.43e-06 경과 386s
+[21:57:00] epoch 1 step 1200/9855 loss 0.4848 lr 3.35e-06 경과 435s
+[21:57:53] epoch 1 step 1400/9855 loss 0.4757 lr 3.28e-06 경과 487s
+[21:58:47] epoch 1 step 1600/9855 loss 0.4669 lr 3.20e-06 경과 542s
+[21:59:36] epoch 1 step 1800/9855 loss 0.4618 lr 3.12e-06 경과 591s
+[22:00:23] epoch 1 step 2000/9855 loss 0.4564 lr 3.04e-06 경과 637s
+[22:01:10] epoch 1 step 2200/9855 loss 0.4530 lr 2.97e-06 경과 685s
+[22:01:56] epoch 1 step 2400/9855 loss 0.4493 lr 2.89e-06 경과 730s
+[22:02:41] epoch 1 step 2600/9855 loss 0.4460 lr 2.81e-06 경과 776s
+[22:03:26] epoch 1 step 2800/9855 loss 0.4428 lr 2.73e-06 경과 821s
+[22:04:10] epoch 1 step 3000/9855 loss 0.4406 lr 2.66e-06 경과 864s
+[22:04:55] epoch 1 step 3200/9855 loss 0.4380 lr 2.58e-06 경과 909s
+[22:05:14] epoch 1 끝: 평균 loss 0.4372
+[22:05:40] epoch 2 step 3400/9855 loss 0.3949 lr 2.50e-06 경과 955s
+[22:06:27] epoch 2 step 3600/9855 loss 0.3944 lr 2.42e-06 경과 1002s
+[22:07:15] epoch 2 step 3800/9855 loss 0.3968 lr 2.35e-06 경과 1049s
+[22:07:59] epoch 2 step 4000/9855 loss 0.3973 lr 2.27e-06 경과 1094s
+[22:08:43] epoch 2 step 4200/9855 loss 0.3970 lr 2.19e-06 경과 1138s
+[22:09:30] epoch 2 step 4400/9855 loss 0.3967 lr 2.11e-06 경과 1184s
+[22:10:13] epoch 2 step 4600/9855 loss 0.3953 lr 2.04e-06 경과 1228s
+[22:11:01] epoch 2 step 4800/9855 loss 0.3944 lr 1.96e-06 경과 1276s
+[22:11:48] epoch 2 step 5000/9855 loss 0.3941 lr 1.88e-06 경과 1323s
+[22:12:33] epoch 2 step 5200/9855 loss 0.3939 lr 1.80e-06 경과 1367s
+[22:13:16] epoch 2 step 5400/9855 loss 0.3925 lr 1.73e-06 경과 1411s
+[22:13:59] epoch 2 step 5600/9855 loss 0.3927 lr 1.65e-06 경과 1454s
+[22:14:50] epoch 2 step 5800/9855 loss 0.3922 lr 1.57e-06 경과 1505s
+[22:15:36] epoch 2 step 6000/9855 loss 0.3918 lr 1.49e-06 경과 1551s
+[22:16:19] epoch 2 step 6200/9855 loss 0.3910 lr 1.42e-06 경과 1594s
+[22:17:02] epoch 2 step 6400/9855 loss 0.3903 lr 1.34e-06 경과 1637s
+[22:17:41] epoch 2 끝: 평균 loss 0.3900
+[22:17:49] epoch 3 step 6600/9855 loss 0.3758 lr 1.26e-06 경과 1683s
+[22:18:33] epoch 3 step 6800/9855 loss 0.3727 lr 1.18e-06 경과 1728s
+[22:19:17] epoch 3 step 7000/9855 loss 0.3700 lr 1.11e-06 경과 1771s
+[22:20:03] epoch 3 step 7200/9855 loss 0.3720 lr 1.03e-06 경과 1818s
+[22:20:49] epoch 3 step 7400/9855 loss 0.3699 lr 9.51e-07 경과 1864s
+[22:21:35] epoch 3 step 7600/9855 loss 0.3686 lr 8.74e-07 경과 1909s
+[22:22:27] epoch 3 step 7800/9855 loss 0.3694 lr 7.96e-07 경과 1961s
+[22:23:28] epoch 3 step 8000/9855 loss 0.3680 lr 7.19e-07 경과 2022s
+[22:24:24] epoch 3 step 8200/9855 loss 0.3676 lr 6.41e-07 경과 2079s
+[22:25:17] epoch 3 step 8400/9855 loss 0.3675 lr 5.64e-07 경과 2132s
+[22:26:18] epoch 3 step 8600/9855 loss 0.3671 lr 4.86e-07 경과 2193s
+[22:27:13] epoch 3 step 8800/9855 loss 0.3675 lr 4.09e-07 경과 2248s
+[22:28:07] epoch 3 step 9000/9855 loss 0.3673 lr 3.31e-07 경과 2302s
+[22:29:01] epoch 3 step 9200/9855 loss 0.3675 lr 2.54e-07 경과 2356s
+[22:29:55] epoch 3 step 9400/9855 loss 0.3675 lr 1.76e-07 경과 2410s
+[22:30:48] epoch 3 step 9600/9855 loss 0.3671 lr 9.88e-08 경과 2463s
+[22:31:39] epoch 3 step 9800/9855 loss 0.3668 lr 2.13e-08 경과 2514s
+[22:31:56] epoch 3 끝: 평균 loss 0.3665
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  3.39it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  3.39it/s]
+[22:31:56] 저장 runs\E024_posweight\p030\best_model (2531.1s)
+통화 2920건, 순간 87814개
+Loading weights:   0%|          | 0/201 [00:00<?, ?it/s]Loading weights: 100%|██████████| 201/201 [00:00<00:00, 11484.36it/s]
+{"model": "runs/E024_posweight/p030/best_model", "calls": "runs/cache/train.jsonl", "ids": "runs/cache/dev_ids.txt", "fmt": "space", "max_length": 512, "truncation_side": "right", "n_calls": 2920, "n_moments": 87814, "seconds": 160.5, "truncated_moments": 652}
+=== 학습 pos_weight 지수 0.75 → runs/E024_posweight/p075 (22:34) ===
+[22:34:59] 학습 통화 26280건, 설정 {"calls": "runs/cache/train.jsonl", "ids": "runs/cache/fit_ids.txt", "backbone": "../../mission3-calibration/mission3_symptom/runs/devsel/tapt", "out": "runs/E024_posweight/p075", "fmt": "space", "truncation_side": "right", "max_length": 512, "epochs": 3, "samples_per_call": 2, "include_full": false, "batch_size": 16, "grad_accum": 1, "lr": 5e-05, "llrd": 0.8, "pos_weight_power": 0.75, "seed": 42, "count_classes": 0, "count_weight": 0.5, "max_steps": 0, "grad_ckpt": false, "log_every": 200}
+[22:34:59] pos_weight 고열 3.15, 구토 3.59, 두통 5.24, 복통 2.47, 어지러움 2.61, 열상 4.55, 오심 4.61, 전신쇠약 3.08, 호흡곤란 4.03
+Loading weights:   0%|          | 0/197 [00:00<?, ?it/s]Loading weights: 100%|██████████| 197/197 [00:00<00:00, 5307.10it/s]
+[transformers] [1mRobertaForSequenceClassification LOAD REPORT[0m from: ../../mission3-calibration/mission3_symptom/runs/devsel/tapt
+Key                        | Status     | 
+---------------------------+------------+-
+lm_head.bias               | UNEXPECTED | 
+lm_head.layer_norm.weight  | UNEXPECTED | 
+lm_head.dense.bias         | UNEXPECTED | 
+lm_head.layer_norm.bias    | UNEXPECTED | 
+lm_head.dense.weight       | UNEXPECTED | 
+classifier.dense.bias      | MISSING    | 
+classifier.out_proj.weight | MISSING    | 
+classifier.dense.weight    | MISSING    | 
+classifier.out_proj.bias   | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+[22:37:41] epoch 1 step 200/9855 loss 0.9411 lr 6.98e-07 경과 160s
+[22:40:14] epoch 1 step 400/9855 loss 0.8560 lr 1.40e-06 경과 312s
+[22:41:57] epoch 1 step 600/9855 loss 0.8037 lr 2.09e-06 경과 416s
+[22:43:48] epoch 1 step 800/9855 loss 0.7701 lr 2.79e-06 경과 527s
+[22:45:33] epoch 1 step 1000/9855 loss 0.7488 lr 3.43e-06 경과 632s
+[22:47:36] epoch 1 step 1200/9855 loss 0.7333 lr 3.35e-06 경과 755s
+[22:49:49] epoch 1 step 1400/9855 loss 0.7220 lr 3.28e-06 경과 888s
+[22:51:47] epoch 1 step 1600/9855 loss 0.7107 lr 3.20e-06 경과 1006s
+[22:53:44] epoch 1 step 1800/9855 loss 0.7042 lr 3.12e-06 경과 1123s
+[22:55:37] epoch 1 step 2000/9855 loss 0.6975 lr 3.04e-06 경과 1236s
+[22:56:42] epoch 1 step 2200/9855 loss 0.6934 lr 2.97e-06 경과 1301s
+[22:57:39] epoch 1 step 2400/9855 loss 0.6887 lr 2.89e-06 경과 1358s
+[22:58:33] epoch 1 step 2600/9855 loss 0.6843 lr 2.81e-06 경과 1412s
+[22:59:36] epoch 1 step 2800/9855 loss 0.6799 lr 2.73e-06 경과 1475s
+[23:00:41] epoch 1 step 3000/9855 loss 0.6771 lr 2.66e-06 경과 1540s
+[23:01:50] epoch 1 step 3200/9855 loss 0.6735 lr 2.58e-06 경과 1609s
+[23:02:19] epoch 1 끝: 평균 loss 0.6725
+[23:03:01] epoch 2 step 3400/9855 loss 0.6135 lr 2.50e-06 경과 1680s
+[23:04:16] epoch 2 step 3600/9855 loss 0.6129 lr 2.42e-06 경과 1755s
+[23:05:28] epoch 2 step 3800/9855 loss 0.6169 lr 2.35e-06 경과 1827s
+[23:06:32] epoch 2 step 4000/9855 loss 0.6171 lr 2.27e-06 경과 1891s
+[23:07:41] epoch 2 step 4200/9855 loss 0.6168 lr 2.19e-06 경과 1960s
+[23:08:55] epoch 2 step 4400/9855 loss 0.6166 lr 2.11e-06 경과 2034s
+[23:10:09] epoch 2 step 4600/9855 loss 0.6143 lr 2.04e-06 경과 2108s
+[23:11:23] epoch 2 step 4800/9855 loss 0.6128 lr 1.96e-06 경과 2182s
+[23:12:23] epoch 2 step 5000/9855 loss 0.6122 lr 1.88e-06 경과 2242s
+[23:13:27] epoch 2 step 5200/9855 loss 0.6120 lr 1.80e-06 경과 2306s
+[23:14:25] epoch 2 step 5400/9855 loss 0.6097 lr 1.73e-06 경과 2364s
+[23:15:31] epoch 2 step 5600/9855 loss 0.6098 lr 1.65e-06 경과 2430s
+[23:16:34] epoch 2 step 5800/9855 loss 0.6090 lr 1.57e-06 경과 2493s
+[23:17:31] epoch 2 step 6000/9855 loss 0.6083 lr 1.49e-06 경과 2550s
+[23:18:18] epoch 2 step 6200/9855 loss 0.6069 lr 1.42e-06 경과 2597s
+[23:19:06] epoch 2 step 6400/9855 loss 0.6058 lr 1.34e-06 경과 2645s
+[23:19:47] epoch 2 끝: 평균 loss 0.6054
+[23:19:55] epoch 3 step 6600/9855 loss 0.5844 lr 1.26e-06 경과 2694s
+[23:20:43] epoch 3 step 6800/9855 loss 0.5766 lr 1.18e-06 경과 2742s
+[23:21:34] epoch 3 step 7000/9855 loss 0.5731 lr 1.11e-06 경과 2793s
+[23:22:24] epoch 3 step 7200/9855 loss 0.5755 lr 1.03e-06 경과 2843s
+[23:23:10] epoch 3 step 7400/9855 loss 0.5726 lr 9.51e-07 경과 2889s
+[23:23:58] epoch 3 step 7600/9855 loss 0.5708 lr 8.74e-07 경과 2937s
+[23:24:46] epoch 3 step 7800/9855 loss 0.5721 lr 7.96e-07 경과 2985s
+[23:25:35] epoch 3 step 8000/9855 loss 0.5699 lr 7.19e-07 경과 3034s
+[23:26:29] epoch 3 step 8200/9855 loss 0.5690 lr 6.41e-07 경과 3088s
+[23:27:19] epoch 3 step 8400/9855 loss 0.5688 lr 5.64e-07 경과 3138s
+[23:28:05] epoch 3 step 8600/9855 loss 0.5681 lr 4.86e-07 경과 3184s
+[23:28:49] epoch 3 step 8800/9855 loss 0.5686 lr 4.09e-07 경과 3228s
+[23:29:36] epoch 3 step 9000/9855 loss 0.5679 lr 3.31e-07 경과 3275s
+[23:30:30] epoch 3 step 9200/9855 loss 0.5682 lr 2.54e-07 경과 3329s
+[23:31:25] epoch 3 step 9400/9855 loss 0.5681 lr 1.76e-07 경과 3384s
+[23:32:17] epoch 3 step 9600/9855 loss 0.5674 lr 9.88e-08 경과 3436s
+[23:33:15] epoch 3 step 9800/9855 loss 0.5668 lr 2.13e-08 경과 3494s
+[23:33:33] epoch 3 끝: 평균 loss 0.5663
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  2.69it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  2.69it/s]
+[23:33:34] 저장 runs\E024_posweight\p075\best_model (3512.5s)
+통화 2920건, 순간 87814개
+Loading weights:   0%|          | 0/201 [00:00<?, ?it/s]Loading weights: 100%|██████████| 201/201 [00:00<00:00, 13175.00it/s]
+{"model": "runs/E024_posweight/p075/best_model", "calls": "runs/cache/train.jsonl", "ids": "runs/cache/dev_ids.txt", "fmt": "space", "max_length": 512, "truncation_side": "right", "n_calls": 2920, "n_moments": 87814, "seconds": 149.0, "truncated_moments": 652}
+=== 판정 (23:36) ===
+== 4-1 원 확률 >= 0.5 (빈 예측 허용), dev 2,920통화  |  4-2 참고
+  E002 단독          4-1 0.5027  빈 예측 0.151  개수 1.22  | 4-2 0.4935 (F1 0.6071)
+  3개 평균(현재)        4-1 0.5060  빈 예측 0.164  개수 1.17  | 4-2 0.4988 (F1 0.6136)
+  p030 단독          4-1 0.5004  빈 예측 0.190  개수 1.03  | 4-2 0.4909 (F1 0.6038)
+  E002→p030 교체     4-1 0.5061  빈 예측 0.176  개수 1.11  | 4-2 0.4977 (F1 0.6122)
+  p075 단독          4-1 0.4968  빈 예측 0.087  개수 1.60  | 4-2 0.4865 (F1 0.5985)
+  E002→p075 교체     4-1 0.5030  빈 예측 0.150  개수 1.26  | 4-2 0.4951 (F1 0.6091)
+  p030 단독 − E002 단독: -0.0023 [-0.0059, +0.0012]
+  E002→p030 교체 − 3개 평균(현재): +0.0001 [-0.0017, +0.0019]
+  p075 단독 − E002 단독: -0.0059 [-0.0103, -0.0015]
+  E002→p075 교체 − 3개 평균(현재): -0.0031 [-0.0052, -0.0008]
+=== 끝 (23:36) ===

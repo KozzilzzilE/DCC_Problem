@@ -1,0 +1,51 @@
+{
+  "calls": "runs/cache/train.jsonl",
+  "ids": "runs/cache/fit_ids.txt",
+  "backbone": "kakaobank/kf-deberta-base",
+  "out": "runs/E008_kfdeberta_prefix",
+  "fmt": "space",
+  "truncation_side": "right",
+  "max_length": 512,
+  "epochs": 3,
+  "samples_per_call": 2,
+  "include_full": false,
+  "batch_size": 4,
+  "grad_accum": 4,
+  "lr": 2e-05,
+  "llrd": 1.0,
+  "pos_weight_power": 0.5,
+  "seed": 42,
+  "max_steps": 0,
+  "n_calls": 26280,
+  "total_steps": 39420,
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.5387892993836121,
+      "seconds": 1890.8
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.46818343061653267,
+      "seconds": 3721.6
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.42439214534422487,
+      "seconds": 4991.1
+    }
+  ],
+  "pos_weight": [
+    2.1466705799102783,
+    2.3466062545776367,
+    3.015321969985962,
+    1.8262537717819214,
+    1.8965275287628174,
+    2.7440295219421387,
+    2.7716174125671387,
+    2.1146111488342285,
+    2.5336804389953613
+  ],
+  "training_seconds": 4992.3,
+  "peak_cuda_memory_bytes": 6116038656
+}

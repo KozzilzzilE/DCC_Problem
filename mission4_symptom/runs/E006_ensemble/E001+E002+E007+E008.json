@@ -1,0 +1,22 @@
+{
+  "m4_1": 0.5492766352082118,
+  "m4_1_thirds": {
+    "앞": 0.4119597477043008,
+    "가운데": 0.5849451475557594,
+    "뒤": 0.6462708705529456
+  },
+  "m4_2_tau0.52": {
+    "score": 0.49668411081756725,
+    "macro_f1": 0.6192008340818754,
+    "earliness": 0.8021373413587681,
+    "halt_median": 7.0
+  },
+  "m4_2_cv": 0.4969428042132794,
+  "full_call_f1": 0.657833328414505,
+  "tables": [
+    "runs/E001_m3_baseline/dev_prefix.npz",
+    "runs/E002_prefix_uniform/dev_prefix.npz",
+    "runs/E007_prefix_uniform_s43/dev_prefix.npz",
+    "runs/E008_kfdeberta_prefix/dev_prefix.npz"
+  ]
+}

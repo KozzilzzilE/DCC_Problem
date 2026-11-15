@@ -1,0 +1,3 @@
+통화 2920건, 순간 87814개
+Loading weights:   0%|          | 0/201 [00:00<?, ?it/s]Loading weights: 100%|██████████| 201/201 [00:00<00:00, 19691.11it/s]
+{"model": "runs/E014_count_aux/best_model", "calls": "runs/cache/train.jsonl", "ids": "runs/cache/dev_ids.txt", "fmt": "space", "max_length": 512, "truncation_side": "right", "n_calls": 2920, "n_moments": 87814, "seconds": 94.7, "truncated_moments": 652}

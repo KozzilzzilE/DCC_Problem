@@ -1,0 +1,8 @@
+[data] label json           : 2920건
+[data] symptom 빈 리스트     : 0건
+[data] 9개 클래스 밖만 보유  : 0건
+[data] 발화 없음             : 0건
+[data] wav 미발견 제외       : 0건
+[data] (stem 재탐색으로 해결 : 2920건)
+[data] 평가 대상             : 2920건
+[done] runs/E012_halt_policy/e2e_full/learned-4-2.csv (2920행)

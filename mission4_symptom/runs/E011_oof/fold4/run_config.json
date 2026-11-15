@@ -1,0 +1,51 @@
+{
+  "calls": "runs/cache/train.jsonl",
+  "ids": "runs/E011_oof/fold4_fit.txt",
+  "backbone": "../../mission3-calibration/mission3_symptom/runs/devsel/tapt",
+  "out": "runs/E011_oof/fold4",
+  "fmt": "space",
+  "truncation_side": "right",
+  "max_length": 512,
+  "epochs": 3,
+  "samples_per_call": 2,
+  "include_full": false,
+  "batch_size": 16,
+  "grad_accum": 1,
+  "lr": 5e-05,
+  "llrd": 0.8,
+  "pos_weight_power": 0.5,
+  "seed": 42,
+  "max_steps": 0,
+  "n_calls": 21024,
+  "total_steps": 7884,
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.5381950166252196,
+      "seconds": 440.0
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.47945607675854657,
+      "seconds": 874.9
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.4461408528290927,
+      "seconds": 1309.2
+    }
+  ],
+  "pos_weight": [
+    2.1424291133880615,
+    2.337722063064575,
+    3.017090320587158,
+    1.8261559009552002,
+    1.9092305898666382,
+    2.727633476257324,
+    2.775245428085327,
+    2.106698513031006,
+    2.523704767227173
+  ],
+  "training_seconds": 1309.4,
+  "peak_cuda_memory_bytes": 5054563328
+}

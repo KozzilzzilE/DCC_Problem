@@ -1,0 +1,27 @@
+{
+  "m4_1": 0.5521718355311624,
+  "m4_1_thirds": {
+    "앞": 0.411536508384914,
+    "가운데": 0.5861053218991652,
+    "뒤": 0.6522210458986745
+  },
+  "m4_2_tau0.52": {
+    "score": 0.4915805995468051,
+    "macro_f1": 0.6163968962477026,
+    "earliness": 0.7975066106583065,
+    "halt_median": 7.0
+  },
+  "m4_2_cv": 0.49059913134822464,
+  "full_call_f1": 0.6570640087579416,
+  "maxent_low_sum_rate": 0.019814608149042293,
+  "maxent_misfit_rate": 0.009873617693522907,
+  "mean_labels_4_1": 1.330653426560685,
+  "tables": [
+    "runs/E001_m3_baseline/dev_prefix.npz",
+    "runs/E002_prefix_uniform/dev_prefix.npz",
+    "runs/E007_prefix_uniform_s43/dev_prefix.npz",
+    "runs/E013_more_members/tl_s43.dev_prefix.npz",
+    "runs/E013_more_members/orig_s43.dev_prefix.npz",
+    "runs/E013_more_members/p0.5_s42.dev_prefix.npz"
+  ]
+}

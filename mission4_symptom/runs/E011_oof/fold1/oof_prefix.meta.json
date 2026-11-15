@@ -1,0 +1,12 @@
+{
+  "model": "runs/E011_oof/fold1/best_model",
+  "calls": "runs/cache/train.jsonl",
+  "ids": "runs/E011_oof/fold1_held.txt",
+  "fmt": "space",
+  "max_length": 512,
+  "truncation_side": "right",
+  "n_calls": 5256,
+  "n_moments": 160906,
+  "seconds": 184.7,
+  "truncated_moments": 1167
+}

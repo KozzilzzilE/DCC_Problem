@@ -1,0 +1,24 @@
+{
+  "m4_1": 0.5528699809265698,
+  "m4_1_thirds": {
+    "앞": 0.4173037957016911,
+    "가운데": 0.5874913161820812,
+    "뒤": 0.6480546549328392
+  },
+  "m4_2_tau0.52": {
+    "score": 0.4919198213097102,
+    "macro_f1": 0.6182033720530322,
+    "earliness": 0.7957249079312869,
+    "halt_median": 7.0
+  },
+  "m4_2_cv": 0.4939214575627071,
+  "full_call_f1": 0.6574040007782448,
+  "maxent_low_sum_rate": 0.016033889812558363,
+  "maxent_misfit_rate": 0.0076726342710997444,
+  "mean_labels_4_1": 1.3088231944792401,
+  "tables": [
+    "runs/E001_m3_baseline/dev_prefix.npz",
+    "runs/E021_kcelectra/dev_prefix.npz",
+    "runs/E007_prefix_uniform_s43/dev_prefix.npz"
+  ]
+}

@@ -1,0 +1,4 @@
+# 주최측 템플릿은 LF 다. 체크아웃할 때 CRLF 로 바뀌면 Predictor 밖이 전부 변경으로 보이므로 LF 로 고정한다.
+inference.py text eol=lf
+score.py text eol=lf
+*.sh text eol=lf

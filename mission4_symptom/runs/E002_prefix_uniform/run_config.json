@@ -1,0 +1,50 @@
+{
+  "calls": "runs/cache/train.jsonl",
+  "ids": "runs/cache/fit_ids.txt",
+  "backbone": "../../mission3-calibration/mission3_symptom/runs/devsel/tapt",
+  "out": "runs/E002_prefix_uniform",
+  "fmt": "space",
+  "truncation_side": "right",
+  "max_length": 512,
+  "epochs": 3,
+  "samples_per_call": 2,
+  "include_full": false,
+  "batch_size": 16,
+  "lr": 5e-05,
+  "llrd": 0.8,
+  "pos_weight_power": 0.5,
+  "seed": 42,
+  "max_steps": 0,
+  "n_calls": 26280,
+  "total_steps": 9855,
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.5312776996029748,
+      "seconds": 753.0
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.476656784904239,
+      "seconds": 1388.7
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.44721961251858344,
+      "seconds": 2019.6
+    }
+  ],
+  "pos_weight": [
+    2.1466705799102783,
+    2.3466062545776367,
+    3.015321969985962,
+    1.8262537717819214,
+    1.8965275287628174,
+    2.7440295219421387,
+    2.7716174125671387,
+    2.1146111488342285,
+    2.5336804389953613
+  ],
+  "training_seconds": 2019.8,
+  "peak_cuda_memory_bytes": 5540129792
+}
