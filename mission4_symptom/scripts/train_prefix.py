@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import sys
@@ -137,6 +138,16 @@ def main() -> int:
     scheduler = get_linear_schedule_with_warmup(optimizer, int(0.1 * updates), updates)
     scaler = torch.amp.GradScaler("cuda")
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight, dtype=torch.float32, device=device))
+    # 실제 AdamW.step이 실행될 때만 센다. AMP Skip 시에는 hook이 호출되지 않는다.
+    update_counter = {"updates": 0}
+
+    def record_update(_optimizer, _args, _kwargs):
+        update_counter["updates"] += 1
+
+    optimizer.register_step_post_hook(record_update)
+    update_attempts = 0
+    sampling_history = []
+    say(f"Loss Weighted BCE, mean(Batch×{n_sym}), pos_weight_power={args.pos_weight_power}")
 
     history = []
     step = 0
@@ -150,6 +161,12 @@ def main() -> int:
         if args.include_full:
             items += [(i, len(p)) for i, p in enumerate(prefixes)]
         order = rng.permutation(len(items))
+        ordered_items = np.asarray(items, dtype="<i8")[order]
+        epoch_started = time.time()
+        epoch_updates, epoch_attempts = update_counter["updates"], update_attempts
+        label_exposures = np.zeros(n_sym, dtype=np.int64)
+        sampling_history.append({"epoch": epoch, "drawn_samples": len(items),
+            "ordered_items_sha256": hashlib.sha256(ordered_items.tobytes()).hexdigest()})
         model.train()
         running, seen = 0.0, 0
         for b in range(steps_per_epoch):
@@ -157,6 +174,7 @@ def main() -> int:
             enc = tokenizer([prefixes[i][t - 1] for i, t in batch], truncation=True,
                             max_length=args.max_length, padding=True, return_tensors="pt").to(device)
             target = torch.tensor(labels[[i for i, _ in batch]], device=device)
+            label_exposures += labels[[i for i, _ in batch]].sum(axis=0).astype(np.int64)
             with torch.autocast("cuda", dtype=torch.float16):
                 logits = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"]).logits
             loss = loss_fn(logits.float()[:, :n_sym], target)
@@ -171,6 +189,7 @@ def main() -> int:
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 scaler.step(optimizer)
+                update_attempts += 1
                 scaler.update()
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
@@ -179,7 +198,12 @@ def main() -> int:
                     f"lr {scheduler.get_last_lr()[0]:.2e} 경과 {time.time() - t0:.0f}s")
             if args.max_steps and step >= args.max_steps:
                 break
-        history.append({"epoch": epoch, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1)})
+        actual_updates = update_counter["updates"] - epoch_updates
+        history.append({"epoch": epoch, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1),
+            "epoch_seconds": round(time.time() - epoch_started, 1), "consumed_samples": seen * args.batch_size,
+            "positive_label_exposures": label_exposures.tolist(),
+            "negative_label_exposures": (seen * args.batch_size - label_exposures).tolist(),
+            "optimizer_updates": actual_updates, "amp_skips": update_attempts - epoch_attempts - actual_updates})
         say(f"epoch {epoch} 끝: 평균 loss {running / max(seen, 1):.4f}")
         if args.max_steps and step >= args.max_steps:
             break
@@ -187,6 +211,12 @@ def main() -> int:
     model.save_pretrained(out / "best_model", safe_serialization=True)
     tokenizer.save_pretrained(out / "best_model")
     config = dict(vars(args), n_calls=len(calls), total_steps=step, history=history,
+                  symptom_classes=list(SYMPTOM_CLASSES), fit_positive_counts=pos.astype(int).tolist(),
+                  fit_negative_counts=(len(labels) - pos).astype(int).tolist(),
+                  loss_config={"name": "BCEWithLogitsLoss", "reduction": "mean", "pos_weight_applied": True},
+                  sampling_history=sampling_history, consumed_samples=sum(h["consumed_samples"] for h in history),
+                  planned_optimizer_updates=updates, optimizer_attempts=update_attempts,
+                  optimizer_updates=update_counter["updates"], amp_skips=update_attempts - update_counter["updates"],
                   pos_weight=[float(w) for w in pos_weight], training_seconds=round(time.time() - t0, 1),
                   peak_cuda_memory_bytes=int(torch.cuda.max_memory_allocated()))
     (out / "run_config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
