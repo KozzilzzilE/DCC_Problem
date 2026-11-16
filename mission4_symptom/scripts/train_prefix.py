@@ -25,6 +25,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 
+from m4.prefix_sampling import sample_epoch, summary
 from m4 import SYMPTOM_CLASSES  # noqa: E402
 from m4.data import label_matrix, load_cache, prefix_texts, read_ids  # noqa: E402
 
@@ -86,7 +87,12 @@ def main() -> int:
     ap.add_argument("--grad-ckpt", action="store_true",
                     help="gradient checkpointing. 큰 백본이 8GB 에 안 들어갈 때 활성값 메모리를 줄인다 (계산은 약 30%% 늘어남)")
     ap.add_argument("--log-every", type=int, default=200, help="이 스텝마다 진행 기록")
+    ap.add_argument("--sampling-strategy", choices=["uniform", "weighted"], default="uniform")
     args = ap.parse_args()
+    if args.sampling_strategy != "uniform" and (args.samples_per_call != 2 or args.include_full):
+        ap.error("T5 requires samples-per-call=2 and include-full disabled")
+    if args.sampling_strategy != "uniform" and Path(args.out).exists():
+        raise FileExistsError(args.out)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -139,23 +145,31 @@ def main() -> int:
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight, dtype=torch.float32, device=device))
 
     history = []
+    sampled_all = []
+    optimizer_updates = 0
     step = 0
     optimizer.zero_grad(set_to_none=True)
     t0 = time.time()
     for epoch in range(1, args.epochs + 1):
-        rng = np.random.default_rng([args.seed, epoch])
-        # (통화 번호, 앞부분 길이) 표본. 길이는 1..n 균등.
-        items = [(i, int(rng.integers(1, len(p) + 1))) for i, p in enumerate(prefixes)
-                 for _ in range(args.samples_per_call)]
+        items, rng = sample_epoch([len(p) for p in prefixes], args.seed, epoch,
+                                  args.sampling_strategy, args.samples_per_call)
+        epoch_started = time.time()
+        token_count = padded_tokens = truncated_inputs = 0
         if args.include_full:
             items += [(i, len(p)) for i, p in enumerate(prefixes)]
         order = rng.permutation(len(items))
+        sampled_all.extend(items)
         model.train()
         running, seen = 0.0, 0
         for b in range(steps_per_epoch):
             batch = [items[j] for j in order[b * args.batch_size:(b + 1) * args.batch_size]]
             enc = tokenizer([prefixes[i][t - 1] for i, t in batch], truncation=True,
                             max_length=args.max_length, padding=True, return_tensors="pt").to(device)
+            token_count += int(enc["attention_mask"].sum().item())
+            padded_tokens += int(enc["input_ids"].numel())
+            raw_lengths = tokenizer([prefixes[i][t - 1] for i, t in batch], truncation=False,
+                                    return_length=True)["length"]
+            truncated_inputs += sum(n > args.max_length for n in raw_lengths)
             target = torch.tensor(labels[[i for i, _ in batch]], device=device)
             with torch.autocast("cuda", dtype=torch.float16):
                 logits = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"]).logits
@@ -170,8 +184,10 @@ def main() -> int:
             if step % args.grad_accum == 0:
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                old_scale = scaler.get_scale()
                 scaler.step(optimizer)
                 scaler.update()
+                optimizer_updates += int(scaler.get_scale() >= old_scale)
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
             if step % args.log_every == 0:
@@ -179,14 +195,26 @@ def main() -> int:
                     f"lr {scheduler.get_last_lr()[0]:.2e} 경과 {time.time() - t0:.0f}s")
             if args.max_steps and step >= args.max_steps:
                 break
-        history.append({"epoch": epoch, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1)})
+        epoch_stats = summary(items, [len(p) for p in prefixes])
+        epoch_stats.update(input_tokens=token_count, padded_tokens=padded_tokens,
+                           truncated_inputs=truncated_inputs, epoch_seconds=time.time() - epoch_started)
+        history.append({"epoch": epoch, "sampling": epoch_stats, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1)})
         say(f"epoch {epoch} 끝: 평균 loss {running / max(seen, 1):.4f}")
         if args.max_steps and step >= args.max_steps:
             break
 
+    sampling_record = summary(sampled_all, [len(p) for p in prefixes])
+    per_call = [set() for _ in calls]
+    for i, t in sampled_all:
+        per_call[i].add(t)
+    sampling_record["per_call"] = [{"call_id": c.call_id,
+        "unique_prefixes": len(per_call[j]),
+        "seen_5_10": any(5 <= t <= 10 for t in per_call[j])}
+        for j, c in enumerate(calls)]
+    (out / "sampling.json").write_text(json.dumps(sampling_record), encoding="utf-8")
     model.save_pretrained(out / "best_model", safe_serialization=True)
     tokenizer.save_pretrained(out / "best_model")
-    config = dict(vars(args), n_calls=len(calls), total_steps=step, history=history,
+    config = dict(vars(args), optimizer_updates=optimizer_updates, n_calls=len(calls), total_steps=step, history=history,
                   pos_weight=[float(w) for w in pos_weight], training_seconds=round(time.time() - t0, 1),
                   peak_cuda_memory_bytes=int(torch.cuda.max_memory_allocated()))
     (out / "run_config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")

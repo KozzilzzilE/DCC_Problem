@@ -194,12 +194,17 @@ def verify(check_online=False):
 
 def invoke(script, args, log):
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
+    if log.exists():
+        log = log.with_name(log.stem + ".retry-" + str(time.time_ns()) + log.suffix)
     with log.open("x", encoding="utf-8") as out:
         subprocess.run([sys.executable, "-B", str(HERE / "scripts" / script), *args], cwd=HERE,
                        env=env, stdout=out, stderr=subprocess.STDOUT, check=True)
 
 
-def run(out):
+def run(out, strategy="uniform", stage="all"):
+    out = Path(out).resolve()
+    if strategy != "uniform" and not out.is_relative_to((OUTPUTS / "t5_early_sampling").resolve()):
+        raise ValueError("T5 output must be below outputs/mission4_prefix/t5_early_sampling")
     # 먼저 팀 기록과 동일한 평가 경로인지 확인한다. 불일치 시 새 학습을 시작하지 않는다.
     reference, _, _ = verify()
     cfg = read(E002 / "run_config.json")
@@ -207,8 +212,12 @@ def run(out):
         raise ValueError("E002 팀 레시피가 예상값과 다름")
     if any(digest(BACKBONE / p) != h for p, h in BACKBONE_SHA256.items()):
         raise ValueError("팀 TAPT 초기 가중치 또는 Tokenizer가 변경됨")
-    out = reserve(out)
-    save(out / "initial.json", {"recipe": RECIPE, "backbone": str(BACKBONE),
+    if stage in ("all", "train"):
+        out = reserve(out)
+    elif not (out / "initial.json").is_file():
+        raise FileNotFoundError(out / "initial.json")
+    if stage in ("all", "train"):
+        save(out / "initial.json", {"recipe": RECIPE, "sampling_strategy": strategy, "backbone": str(BACKBONE),
         "initial_weights_sha256": digest(BACKBONE / "model.safetensors"),
         "initial_tokenizer_sha256": digest(BACKBONE / "tokenizer.json"),
         "fit_ids_sha256": digest(FIT), "dev_ids_sha256": digest(DEV),
@@ -219,8 +228,19 @@ def run(out):
         if key != "include_full":
             args += ["--" + key.replace("_", "-"), str(value)]
     args += ["--grad-accum", "1", "--count-classes", "0", "--max-steps", "0"]
-    invoke("train_prefix.py", args, out / "training.log")
-    invoke("prefix_probs.py", ["--model", str(out / "training/best_model"), "--calls", str(CALLS),
+    if strategy != "uniform":
+        args += ["--sampling-strategy", strategy]
+    if stage in ("all", "train"):
+        invoke("train_prefix.py", args, out / "training.log")
+    if stage == "train":
+        return
+    cfg_local = read(out / "training/run_config.json")
+    if cfg_local.get("sampling_strategy", "uniform") != strategy:
+        raise ValueError("Training strategy mismatch")
+    if (out / "metrics.json").exists():
+        raise FileExistsError(out / "metrics.json")
+    if not (out / "dev_prefix.npz").exists():
+        invoke("prefix_probs.py", ["--model", str(out / "training/best_model"), "--calls", str(CALLS),
         "--ids", str(DEV), "--out", str(out / "dev_prefix.npz"), "--fmt", "space",
         "--max-length", "512", "--truncation-side", "right", "--token-budget", "24000"], out / "extract.log")
     write_evaluation(out / "dev_prefix.npz", out, existing=True, reference=reference)
@@ -245,6 +265,17 @@ def write_evaluation(table_path, out, existing=False, reference=None):
     np.savez_compressed(out / "halts.npz", call_ids=np.array(table.call_ids), halts=halts)
     print(json.dumps({"out": str(out), "4-1": result["mission_4_1"]["score"],
                       "4-2": result["mission_4_2"]["score"]}, ensure_ascii=False))
+
+
+def sequential_difference(report, baseline):
+    difference = {m: {k: report[m][k] - baseline[m][k]
+        for k in ("score", "seconds", "seconds_per_utterance") if k in baseline[m]}
+        for m in ("4-1", "4-2")}
+    current = report["4-1"]["metrics"]["by_third"]
+    reference = baseline["4-1"]["metrics"]["by_third"]
+    difference["4-1"]["metrics"] = {"by_third": {
+        name: current[name] - reference[name] for name in current}}
+    return difference
 
 
 def sequential(out, e002_run, device):
@@ -312,6 +343,11 @@ def sequential(out, e002_run, device):
                 "halt_mean": float(np.mean(hs)), "halt_median": float(np.median(hs)),
                 "confusion": confusion(p, table.labels)}
         np.savez_compressed(out / f"sequential_{mission}.npz", call_ids=np.array(table.call_ids), pred=p, halts=np.array(hs))
+    reference_path = OUTPUTS / "localsequential/sequential_timing.json"
+    if reference_path.is_file():
+        baseline = read(reference_path)
+        report["baseline_reference_sha256"] = digest(reference_path)
+        report["delta_from_local_sequential"] = sequential_difference(report, baseline)
     save(out / "sequential_timing.json", report)
 
 
@@ -324,6 +360,9 @@ def main():
     v.add_argument("--check-online", action="store_true", help="기존 확률로 온라인 특징/중단을 재생해 통화별 일치 검사")
     r = sub.add_parser("run", help="기존 E002 재학습→확률 추출→고정 정책 평가")
     r.add_argument("--out", type=Path, required=True)
+    r.add_argument("--sampling-strategy", choices=["uniform", "weighted"], default="uniform")
+    r.add_argument("--stage", choices=["all", "train", "batch"], default="all")
+    r.add_argument("--sequential-after", action="store_true")
     e = sub.add_parser("evaluate", help="기존 확률표에 고정 정책만 적용")
     e.add_argument("--e002-table", type=Path, required=True)
     e.add_argument("--out", type=Path, required=True)
@@ -340,7 +379,11 @@ def main():
             save(out / "metrics.json", result)
             np.savez_compressed(out / "halts.npz", call_ids=np.array(table.call_ids), halts=halts)
     elif args.command == "run":
-        run(args.out)
+        run(args.out, args.sampling_strategy, args.stage)
+        if args.sequential_after:
+            if args.stage == "train":
+                raise ValueError("Use all/batch for sequential-after")
+            sequential(Path(args.out) / "sequential", Path(args.out) / "training", "cuda")
     elif args.command == "evaluate":
         write_evaluation(args.e002_table, args.out, reference=read(args.reference) if args.reference else None)
     else:
