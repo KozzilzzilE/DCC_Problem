@@ -2,7 +2,8 @@
 
 기존 팀 학습/판정/중단 알고리즘은 수정하지 않는다. Notebook은 팀 기록 조회용으로 그대로 유지한다.
 `scripts/prefix_experiment.py`는 기존 `train_prefix.py`, `prefix_probs.py`, `m4.halting`,
-`m4.simulate`, `StreamingSymptomModel`을 연결한다. T8 전략은 아직 구현하지 않았다.
+`m4.simulate`, `StreamingSymptomModel`을 연결한다. T8 ASL 옵션과 CPU 검증은
+[T8 구현 보고서](T8_ASYMMETRIC_LOSS.md)를 참고한다. 기본 실행은 기존 Weighted BCE다.
 
 ## PowerShell 실행
 
@@ -87,7 +88,7 @@ FP16 번들/순차 연산과 배치 확률표 사이에는 수치 차이가 날 
 
 모든 출력은 프로젝트 `outputs/mission4_prefix/` 아래의 새 하위 폴더만 허용한다.
 팀 `runs/`, Notebook, 정책, 체크포인트에 쓰지 않는다. 결과는 Git 무시 대상이며 원본 전사/개별 통화 결과를 커밋하지 않는다.
-`run`은 기존 Baseline만 구현한다. T8-2/T8-4는 향후 개인 브랜치에서 정의·구현하고 동일 evaluator를 사용한다.
+`run`은 기본 Baseline을 유지하며 `--loss asl`로 T8 단일 설정을 선택한다. 동일 evaluator를 사용한다.
 학습 상태 보존/재개 방식은 기존 학습기 그대로이며 optimizer/RNG 재개 파일을 새로 제공하지 않는다.
 Notebook의 셀16은 저장 결과 조회, 셀18은 단순 기대 점수 중단 평가이므로 새 실행 결과로 오해하지 않는다.
 이번 연결에는 Notebook 변경이 필요하지 않다.

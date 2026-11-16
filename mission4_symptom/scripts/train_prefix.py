@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import sys
@@ -27,6 +28,7 @@ sys.path.insert(0, str(HERE))
 
 from m4 import SYMPTOM_CLASSES  # noqa: E402
 from m4.data import label_matrix, load_cache, prefix_texts, read_ids  # noqa: E402
+from m4.losses import ASL_CONFIG, make_loss  # noqa: E402
 
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
@@ -78,6 +80,8 @@ def main() -> int:
     ap.add_argument("--lr", type=float, default=5e-5)
     ap.add_argument("--llrd", type=float, default=0.8)
     ap.add_argument("--pos-weight-power", type=float, default=0.5)
+    ap.add_argument("--loss", choices=["weighted-bce", "asl"], default="weighted-bce",
+                    help="기본 Weighted BCE 또는 T8 고정 ASL")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--count-classes", type=int, default=0,
                     help="증상 개수 보조 출력의 칸 수 (0 = 끔). 3 이면 1개 / 2개 / 3개 이상")
@@ -136,7 +140,11 @@ def main() -> int:
     optimizer = torch.optim.AdamW(llrd_groups(model, args.lr, args.llrd, 0.01))
     scheduler = get_linear_schedule_with_warmup(optimizer, int(0.1 * updates), updates)
     scaler = torch.amp.GradScaler("cuda")
-    loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight, dtype=torch.float32, device=device))
+    loss_fn = make_loss(args.loss, torch.tensor(pos_weight, dtype=torch.float32, device=device))
+    loss_config = dict(ASL_CONFIG) if args.loss == "asl" else {"reduction": "mean", "pos_weight_applied": True}
+    say(f"Loss {args.loss}: {json.dumps(loss_config, ensure_ascii=False)}")
+    optimizer_updates, amp_skips = 0, 0
+    sampling_history = []
 
     history = []
     step = 0
@@ -150,6 +158,14 @@ def main() -> int:
         if args.include_full:
             items += [(i, len(p)) for i, p in enumerate(prefixes)]
         order = rng.permutation(len(items))
+        sampling_history.append({"epoch": epoch, "drawn_samples": len(items),
+            "planned_consumed_samples": steps_per_epoch * args.batch_size,
+            "ordered_items_sha256": hashlib.sha256(np.asarray(items, dtype="<i8")[order].tobytes()).hexdigest()})
+        epoch_started = time.time()
+        epoch_updates, epoch_skips = optimizer_updates, amp_skips
+        epoch_label_exposure = np.zeros(n_sym, dtype=np.int64)
+        epoch_tokens = torch.zeros((), dtype=torch.int64, device=device)
+        epoch_positions = 0
         model.train()
         running, seen = 0.0, 0
         for b in range(steps_per_epoch):
@@ -157,6 +173,9 @@ def main() -> int:
             enc = tokenizer([prefixes[i][t - 1] for i, t in batch], truncation=True,
                             max_length=args.max_length, padding=True, return_tensors="pt").to(device)
             target = torch.tensor(labels[[i for i, _ in batch]], device=device)
+            epoch_label_exposure += labels[[i for i, _ in batch]].sum(axis=0).astype(np.int64)
+            epoch_tokens += enc["attention_mask"].sum()
+            epoch_positions += enc["attention_mask"].numel()
             with torch.autocast("cuda", dtype=torch.float16):
                 logits = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"]).logits
             loss = loss_fn(logits.float()[:, :n_sym], target)
@@ -170,8 +189,12 @@ def main() -> int:
             if step % args.grad_accum == 0:
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                scale_before = scaler.get_scale()
                 scaler.step(optimizer)
                 scaler.update()
+                skipped = scaler.get_scale() < scale_before
+                amp_skips += int(skipped)
+                optimizer_updates += int(not skipped)
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
             if step % args.log_every == 0:
@@ -179,7 +202,11 @@ def main() -> int:
                     f"lr {scheduler.get_last_lr()[0]:.2e} 경과 {time.time() - t0:.0f}s")
             if args.max_steps and step >= args.max_steps:
                 break
-        history.append({"epoch": epoch, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1)})
+        history.append({"epoch": epoch, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1),
+            "epoch_seconds": round(time.time() - epoch_started, 1),
+            "optimizer_updates": optimizer_updates - epoch_updates, "amp_skips": amp_skips - epoch_skips,
+            "consumed_samples": seen * args.batch_size, "label_positive_exposures": epoch_label_exposure.tolist(),
+            "nonpadding_tokens": int(epoch_tokens.item()), "padding_tokens": epoch_positions - int(epoch_tokens.item())})
         say(f"epoch {epoch} 끝: 평균 loss {running / max(seen, 1):.4f}")
         if args.max_steps and step >= args.max_steps:
             break
@@ -187,6 +214,8 @@ def main() -> int:
     model.save_pretrained(out / "best_model", safe_serialization=True)
     tokenizer.save_pretrained(out / "best_model")
     config = dict(vars(args), n_calls=len(calls), total_steps=step, history=history,
+                  loss_config=loss_config, optimizer_updates=optimizer_updates, amp_skips=amp_skips,
+                  planned_optimizer_updates=updates, sampling_history=sampling_history,
                   pos_weight=[float(w) for w in pos_weight], training_seconds=round(time.time() - t0, 1),
                   peak_cuda_memory_bytes=int(torch.cuda.max_memory_allocated()))
     (out / "run_config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -46,6 +46,39 @@ class ExperimentSafetyTests(unittest.TestCase):
                     runner.run(Path("unused"))
                 invoke.assert_not_called()
 
+    def test_asl_run_forwards_loss_and_keeps_baseline_recipe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            hashes = {**{str(p): h for p, h in runner.INPUT_SHA256.items()},
+                      **{str(runner.BACKBONE / p): h for p, h in runner.BACKBONE_SHA256.items()}}
+            with patch.object(runner, "verify", return_value=({}, None, None)), \
+                 patch.object(runner, "read", return_value=runner.RECIPE), \
+                 patch.object(runner, "digest", side_effect=lambda p: hashes.get(str(p), "test")), \
+                 patch.object(runner, "reserve", return_value=out), \
+                 patch.object(runner, "save"), patch.object(runner, "invoke") as invoke, \
+                 patch.object(runner, "write_evaluation") as evaluate:
+                runner.run(out, loss="asl")
+                script, args, _ = invoke.call_args_list[0].args
+                self.assertEqual(script, "train_prefix.py")
+                self.assertEqual(args[args.index("--loss") + 1], "asl")
+                for key, value in runner.RECIPE.items():
+                    flag = "--" + key.replace("_", "-")
+                    if key == "include_full":
+                        self.assertNotIn(flag, args)
+                    else:
+                        self.assertEqual(args[args.index(flag) + 1], str(value))
+                self.assertEqual(args[args.index("--grad-accum") + 1], "1")
+                self.assertEqual(args[args.index("--count-classes") + 1], "0")
+                evaluate.assert_called_once()
+
+    def test_with_sequential_calls_existing_evaluator_after_training(self):
+        with patch.object(runner.os, "chdir"), patch.object(runner, "run") as run, \
+             patch.object(runner, "sequential") as sequential, \
+             patch("sys.argv", ["prefix_experiment", "run", "--out", "new", "--loss", "asl", "--with-sequential"]):
+            runner.main()
+            run.assert_called_once_with(Path("new"), "asl", None)
+            sequential.assert_called_once_with(Path("new/sequential"), Path("new/training"), "cuda")
+
 
 if __name__ == "__main__":
     unittest.main()
