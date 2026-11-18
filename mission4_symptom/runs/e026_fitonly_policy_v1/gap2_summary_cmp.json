@@ -1,0 +1,412 @@
+{
+  "summary": {
+    "E002": {
+      "m4_1": 0.502733,
+      "single_m4_1": 0.563053,
+      "multi_m4_1": 0.379961,
+      "multi_final_recall": 0.543747,
+      "final_step_macro_f1": 0.650203,
+      "fp_all": 39973,
+      "fp_pre_any_cue": 31989,
+      "recall_post_any_cue": 0.955045,
+      "prec_오심": 0.307417,
+      "prec_전신쇠약": 0.575376,
+      "prec_어지러움": 0.605231,
+      "qa_short_neg_fp_after": 0.0819
+    },
+    "ENS3": {
+      "m4_1": 0.506001,
+      "single_m4_1": 0.569274,
+      "multi_m4_1": 0.377218,
+      "multi_final_recall": 0.536876,
+      "final_step_macro_f1": 0.656206,
+      "fp_all": 36299,
+      "fp_pre_any_cue": 28218,
+      "recall_post_any_cue": 0.960234,
+      "prec_오심": 0.326022,
+      "prec_전신쇠약": 0.567704,
+      "prec_어지러움": 0.622704,
+      "qa_short_neg_fp_after": 0.0877
+    },
+    "SJ_2seed_avg": {
+      "m4_1": 0.526039,
+      "single_m4_1": 0.596781,
+      "multi_m4_1": 0.382054,
+      "multi_final_recall": 0.517636,
+      "final_step_macro_f1": 0.648403,
+      "fp_all": 41368,
+      "fp_pre_any_cue": 33765,
+      "recall_post_any_cue": 0.950858,
+      "prec_오심": 0.342352,
+      "prec_전신쇠약": 0.559013,
+      "prec_어지러움": 0.57362,
+      "qa_short_neg_fp_after": 0.076
+    },
+    "JM_2seed_avg": {
+      "m4_1": 0.515999,
+      "single_m4_1": 0.583247,
+      "multi_m4_1": 0.379128,
+      "multi_final_recall": 0.530005,
+      "final_step_macro_f1": 0.652642,
+      "fp_all": 39066,
+      "fp_pre_any_cue": 31407,
+      "recall_post_any_cue": 0.951526,
+      "prec_오심": 0.323907,
+      "prec_전신쇠약": 0.561518,
+      "prec_어지러움": 0.593684,
+      "qa_short_neg_fp_after": 0.0702
+    },
+    "ENS4_sj": {
+      "m4_1": 0.516301,
+      "single_m4_1": 0.585802,
+      "multi_m4_1": 0.374844,
+      "multi_final_recall": 0.521759,
+      "final_step_macro_f1": 0.652444,
+      "fp_all": 36721,
+      "fp_pre_any_cue": 28805,
+      "recall_post_any_cue": 0.954763,
+      "prec_오심": 0.345957,
+      "prec_전신쇠약": 0.562826,
+      "prec_어지러움": 0.607579,
+      "qa_short_neg_fp_after": 0.076
+    },
+    "ENS4_jm": {
+      "m4_1": 0.51224,
+      "single_m4_1": 0.578306,
+      "multi_m4_1": 0.377773,
+      "multi_final_recall": 0.534127,
+      "final_step_macro_f1": 0.656262,
+      "fp_all": 36843,
+      "fp_pre_any_cue": 28884,
+      "recall_post_any_cue": 0.956021,
+      "prec_오심": 0.333678,
+      "prec_전신쇠약": 0.562533,
+      "prec_어지러움": 0.614501,
+      "qa_short_neg_fp_after": 0.0819
+    }
+  },
+  "lex_qa": {
+    "lexical_proxy_decomposition": {
+      "E002": {
+        "total_gold_pairs": 124659,
+        "tp_all": 66808,
+        "fn_all": 57851,
+        "fp_all": 39973,
+        "gold_pre_any_cue": 85731,
+        "gold_post_any_cue": 38928,
+        "recall_pre_any_cue": 0.345616,
+        "recall_post_any_cue": 0.955045,
+        "fn_share_pre_any_cue": 0.96975,
+        "fn_share_pre_but_later_mentioned": 0.228622,
+        "fn_share_never_lex_mentioned": 0.741128,
+        "fn_share_post_any_cue_model_miss": 0.03025,
+        "fp_pre_any_cue": 31989,
+        "fp_post_any_cue": 7984,
+        "onset_n_events": 1837,
+        "onset_mean_prob_before": 0.4648,
+        "onset_mean_prob_at_cue": 0.8834,
+        "onset_mean_delta": 0.4187,
+        "onset_cross_05_up_rate": 0.601
+      },
+      "ENS3": {
+        "total_gold_pairs": 124659,
+        "tp_all": 66285,
+        "fn_all": 58374,
+        "fp_all": 36299,
+        "gold_pre_any_cue": 85731,
+        "gold_post_any_cue": 38928,
+        "recall_pre_any_cue": 0.337159,
+        "recall_post_any_cue": 0.960234,
+        "fn_share_pre_any_cue": 0.973481,
+        "fn_share_pre_but_later_mentioned": 0.230753,
+        "fn_share_never_lex_mentioned": 0.742728,
+        "fn_share_post_any_cue_model_miss": 0.026519,
+        "fp_pre_any_cue": 28218,
+        "fp_post_any_cue": 8081,
+        "onset_n_events": 1837,
+        "onset_mean_prob_before": 0.4539,
+        "onset_mean_prob_at_cue": 0.8875,
+        "onset_mean_delta": 0.4335,
+        "onset_cross_05_up_rate": 0.6151
+      },
+      "SJ_2seed_avg": {
+        "total_gold_pairs": 124659,
+        "tp_all": 67870,
+        "fn_all": 56789,
+        "fp_all": 41368,
+        "gold_pre_any_cue": 85731,
+        "gold_post_any_cue": 38928,
+        "recall_pre_any_cue": 0.359905,
+        "recall_post_any_cue": 0.950858,
+        "fn_share_pre_any_cue": 0.966314,
+        "fn_share_pre_but_later_mentioned": 0.219127,
+        "fn_share_never_lex_mentioned": 0.747187,
+        "fn_share_post_any_cue_model_miss": 0.033686,
+        "fp_pre_any_cue": 33765,
+        "fp_post_any_cue": 7603,
+        "onset_n_events": 1837,
+        "onset_mean_prob_before": 0.4899,
+        "onset_mean_prob_at_cue": 0.9051,
+        "onset_mean_delta": 0.4152,
+        "onset_cross_05_up_rate": 0.5591
+      },
+      "JM_2seed_avg": {
+        "total_gold_pairs": 124659,
+        "tp_all": 67102,
+        "fn_all": 57557,
+        "fp_all": 39066,
+        "gold_pre_any_cue": 85731,
+        "gold_post_any_cue": 38928,
+        "recall_pre_any_cue": 0.350643,
+        "recall_post_any_cue": 0.951526,
+        "fn_share_pre_any_cue": 0.967215,
+        "fn_share_pre_but_later_mentioned": 0.223379,
+        "fn_share_never_lex_mentioned": 0.743837,
+        "fn_share_post_any_cue_model_miss": 0.032785,
+        "fp_pre_any_cue": 31407,
+        "fp_post_any_cue": 7659,
+        "onset_n_events": 1837,
+        "onset_mean_prob_before": 0.4624,
+        "onset_mean_prob_at_cue": 0.9051,
+        "onset_mean_delta": 0.4427,
+        "onset_cross_05_up_rate": 0.5868
+      },
+      "ENS4_sj": {
+        "total_gold_pairs": 124659,
+        "tp_all": 66391,
+        "fn_all": 58268,
+        "fp_all": 36721,
+        "gold_pre_any_cue": 85731,
+        "gold_post_any_cue": 38928,
+        "recall_pre_any_cue": 0.34088,
+        "recall_post_any_cue": 0.954763,
+        "fn_share_pre_any_cue": 0.969778,
+        "fn_share_pre_but_later_mentioned": 0.225647,
+        "fn_share_never_lex_mentioned": 0.744131,
+        "fn_share_post_any_cue_model_miss": 0.030222,
+        "fp_pre_any_cue": 28805,
+        "fp_post_any_cue": 7916,
+        "onset_n_events": 1837,
+        "onset_mean_prob_before": 0.4692,
+        "onset_mean_prob_at_cue": 0.8973,
+        "onset_mean_delta": 0.4281,
+        "onset_cross_05_up_rate": 0.5983
+      },
+      "ENS4_jm": {
+        "total_gold_pairs": 124659,
+        "tp_all": 66570,
+        "fn_all": 58089,
+        "fp_all": 36843,
+        "gold_pre_any_cue": 85731,
+        "gold_post_any_cue": 38928,
+        "recall_pre_any_cue": 0.342397,
+        "recall_post_any_cue": 0.956021,
+        "fn_share_pre_any_cue": 0.970528,
+        "fn_share_pre_but_later_mentioned": 0.228064,
+        "fn_share_never_lex_mentioned": 0.742464,
+        "fn_share_post_any_cue_model_miss": 0.029472,
+        "fp_pre_any_cue": 28884,
+        "fp_post_any_cue": 7959,
+        "onset_n_events": 1837,
+        "onset_mean_prob_before": 0.4555,
+        "onset_mean_prob_at_cue": 0.8973,
+        "onset_mean_delta": 0.4418,
+        "onset_cross_05_up_rate": 0.6048
+      }
+    },
+    "qa_transitions": {
+      "E002": {
+        "symptom_q_short_aff": {
+          "n": 386,
+          "n_gold_pos": 272,
+          "n_gold_neg": 114,
+          "mean_p_at_q": 0.7388,
+          "mean_p_after_a": 0.7473,
+          "mean_delta": 0.0085,
+          "pos_ge05_at_q": 0.9559,
+          "pos_ge05_after_a": 0.9596,
+          "neg_ge05_at_q_fp": 0.2807,
+          "neg_ge05_after_a_fp": 0.2895
+        },
+        "symptom_q_short_neg": {
+          "n": 209,
+          "n_gold_pos": 38,
+          "n_gold_neg": 171,
+          "mean_p_at_q": 0.2582,
+          "mean_p_after_a": 0.256,
+          "mean_delta": -0.0022,
+          "pos_ge05_at_q": 0.7368,
+          "pos_ge05_after_a": 0.7368,
+          "neg_ge05_at_q_fp": 0.0819,
+          "neg_ge05_after_a_fp": 0.0819
+        },
+        "addr_q_short_aff": {
+          "n": 173,
+          "mean_jaccard_at_q": 0.5826,
+          "mean_jaccard_after_a": 0.5826,
+          "score_drop_count": 0
+        }
+      },
+      "ENS3": {
+        "symptom_q_short_aff": {
+          "n": 386,
+          "n_gold_pos": 272,
+          "n_gold_neg": 114,
+          "mean_p_at_q": 0.743,
+          "mean_p_after_a": 0.7495,
+          "mean_delta": 0.0065,
+          "pos_ge05_at_q": 0.9632,
+          "pos_ge05_after_a": 0.9632,
+          "neg_ge05_at_q_fp": 0.2807,
+          "neg_ge05_after_a_fp": 0.2807
+        },
+        "symptom_q_short_neg": {
+          "n": 209,
+          "n_gold_pos": 38,
+          "n_gold_neg": 171,
+          "mean_p_at_q": 0.2622,
+          "mean_p_after_a": 0.261,
+          "mean_delta": -0.0011,
+          "pos_ge05_at_q": 0.6842,
+          "pos_ge05_after_a": 0.7105,
+          "neg_ge05_at_q_fp": 0.0936,
+          "neg_ge05_after_a_fp": 0.0877
+        },
+        "addr_q_short_aff": {
+          "n": 173,
+          "mean_jaccard_at_q": 0.5843,
+          "mean_jaccard_after_a": 0.5862,
+          "score_drop_count": 1
+        }
+      },
+      "SJ_2seed_avg": {
+        "symptom_q_short_aff": {
+          "n": 386,
+          "n_gold_pos": 272,
+          "n_gold_neg": 114,
+          "mean_p_at_q": 0.7446,
+          "mean_p_after_a": 0.7508,
+          "mean_delta": 0.0062,
+          "pos_ge05_at_q": 0.9559,
+          "pos_ge05_after_a": 0.9596,
+          "neg_ge05_at_q_fp": 0.2632,
+          "neg_ge05_after_a_fp": 0.2632
+        },
+        "symptom_q_short_neg": {
+          "n": 209,
+          "n_gold_pos": 38,
+          "n_gold_neg": 171,
+          "mean_p_at_q": 0.2272,
+          "mean_p_after_a": 0.2229,
+          "mean_delta": -0.0043,
+          "pos_ge05_at_q": 0.7105,
+          "pos_ge05_after_a": 0.7105,
+          "neg_ge05_at_q_fp": 0.0819,
+          "neg_ge05_after_a_fp": 0.076
+        },
+        "addr_q_short_aff": {
+          "n": 173,
+          "mean_jaccard_at_q": 0.5777,
+          "mean_jaccard_after_a": 0.5777,
+          "score_drop_count": 0
+        }
+      },
+      "JM_2seed_avg": {
+        "symptom_q_short_aff": {
+          "n": 386,
+          "n_gold_pos": 272,
+          "n_gold_neg": 114,
+          "mean_p_at_q": 0.7481,
+          "mean_p_after_a": 0.7535,
+          "mean_delta": 0.0054,
+          "pos_ge05_at_q": 0.9669,
+          "pos_ge05_after_a": 0.9669,
+          "neg_ge05_at_q_fp": 0.2632,
+          "neg_ge05_after_a_fp": 0.2632
+        },
+        "symptom_q_short_neg": {
+          "n": 209,
+          "n_gold_pos": 38,
+          "n_gold_neg": 171,
+          "mean_p_at_q": 0.2318,
+          "mean_p_after_a": 0.2285,
+          "mean_delta": -0.0033,
+          "pos_ge05_at_q": 0.7105,
+          "pos_ge05_after_a": 0.7105,
+          "neg_ge05_at_q_fp": 0.076,
+          "neg_ge05_after_a_fp": 0.0702
+        },
+        "addr_q_short_aff": {
+          "n": 173,
+          "mean_jaccard_at_q": 0.5855,
+          "mean_jaccard_after_a": 0.5864,
+          "score_drop_count": 1
+        }
+      },
+      "ENS4_sj": {
+        "symptom_q_short_aff": {
+          "n": 386,
+          "n_gold_pos": 272,
+          "n_gold_neg": 114,
+          "mean_p_at_q": 0.7449,
+          "mean_p_after_a": 0.7507,
+          "mean_delta": 0.0058,
+          "pos_ge05_at_q": 0.9596,
+          "pos_ge05_after_a": 0.9596,
+          "neg_ge05_at_q_fp": 0.2719,
+          "neg_ge05_after_a_fp": 0.2807
+        },
+        "symptom_q_short_neg": {
+          "n": 209,
+          "n_gold_pos": 38,
+          "n_gold_neg": 171,
+          "mean_p_at_q": 0.2457,
+          "mean_p_after_a": 0.2432,
+          "mean_delta": -0.0025,
+          "pos_ge05_at_q": 0.6842,
+          "pos_ge05_after_a": 0.7105,
+          "neg_ge05_at_q_fp": 0.0819,
+          "neg_ge05_after_a_fp": 0.076
+        },
+        "addr_q_short_aff": {
+          "n": 173,
+          "mean_jaccard_at_q": 0.5747,
+          "mean_jaccard_after_a": 0.5747,
+          "score_drop_count": 0
+        }
+      },
+      "ENS4_jm": {
+        "symptom_q_short_aff": {
+          "n": 386,
+          "n_gold_pos": 272,
+          "n_gold_neg": 114,
+          "mean_p_at_q": 0.7466,
+          "mean_p_after_a": 0.752,
+          "mean_delta": 0.0054,
+          "pos_ge05_at_q": 0.9632,
+          "pos_ge05_after_a": 0.9632,
+          "neg_ge05_at_q_fp": 0.2807,
+          "neg_ge05_after_a_fp": 0.2807
+        },
+        "symptom_q_short_neg": {
+          "n": 209,
+          "n_gold_pos": 38,
+          "n_gold_neg": 171,
+          "mean_p_at_q": 0.248,
+          "mean_p_after_a": 0.246,
+          "mean_delta": -0.0019,
+          "pos_ge05_at_q": 0.6842,
+          "pos_ge05_after_a": 0.7105,
+          "neg_ge05_at_q_fp": 0.0877,
+          "neg_ge05_after_a_fp": 0.0819
+        },
+        "addr_q_short_aff": {
+          "n": 173,
+          "mean_jaccard_at_q": 0.5853,
+          "mean_jaccard_after_a": 0.5853,
+          "score_drop_count": 0
+        }
+      }
+    }
+  }
+}

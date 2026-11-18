@@ -1,0 +1,88 @@
+{
+  "commit": "5d7539b5444f94073d3a4cd370447c128c12743e",
+  "sources": {
+    "policy": {
+      "path": "mission4_symptom/runs/E026_learned_halt05/wide/policy.json",
+      "git_blob": "51853b6282fb03f80d74df8f81f6765353ca9f4c",
+      "sha256": "80e69bcd99f6a1321586bb39411e512147a56dc5a3aa68623fe06595554689f1"
+    },
+    "result": {
+      "path": "mission4_symptom/runs/E026_learned_halt05/wide/result.json",
+      "git_blob": "21ac064e0df90cae6f7d7979528f87b8a770657c",
+      "sha256": "a731990fa678f09ff45f488e007139e33868d15d289da09b3d14a73e34dfd2c5"
+    }
+  },
+  "checks": {
+    "policy_beta_matches_result": true,
+    "policy_tau_matches_result": true,
+    "policy_min_step": true,
+    "grid_contains_selection": true,
+    "fit_count_consistent": true,
+    "eval_count_recorded": true,
+    "product_matches": true,
+    "diff_matches": true,
+    "ci_ordered": true,
+    "ci_includes_zero": true,
+    "settings": true,
+    "feature_names_match": true
+  },
+  "policy": {
+    "beta": 128.0,
+    "tau": 0.5,
+    "min_step": 5
+  },
+  "settings": {
+    "folds": 5,
+    "seed": 0,
+    "boot": 1000,
+    "base_tau": 0.5,
+    "ref_tau": 0.5,
+    "fit_tables": [
+      "runs/E011_oof/fold0/oof_prefix.npz",
+      "runs/E011_oof/fold1/oof_prefix.npz",
+      "runs/E011_oof/fold2/oof_prefix.npz",
+      "runs/E011_oof/fold3/oof_prefix.npz",
+      "runs/E011_oof/fold4/oof_prefix.npz"
+    ],
+    "eval_tables": [
+      "runs/E001_m3_baseline/dev_prefix.npz",
+      "runs/E002_prefix_uniform/dev_prefix.npz",
+      "runs/E007_prefix_uniform_s43/dev_prefix.npz"
+    ]
+  },
+  "counts": {
+    "fit_calls": 26280,
+    "fit_rows": 670151,
+    "eval_calls": 2920
+  },
+  "products": {
+    "base": {
+      "reported": 0.4989532854214187,
+      "calculated": 0.4989532854214187,
+      "residual": 0.0
+    },
+    "tau_only": {
+      "reported": 0.4989532854214187,
+      "calculated": 0.4989532854214187,
+      "residual": 0.0
+    },
+    "learned": {
+      "reported": 0.5031464178054406,
+      "calculated": 0.5031464178054406,
+      "residual": 0.0
+    }
+  },
+  "learned_vs_base": {
+    "calculated_diff": 0.004193132384021858,
+    "diff": 0.004193132384021858,
+    "lo": -0.0008926045241750031,
+    "hi": 0.009200177964751987,
+    "p_gt0": 0.947
+  },
+  "limitations": [
+    "No locally supplied per-call arrays, fit IDs, or OOF data were independently examined.",
+    "No independent rescore, fit-only retraining, leakage verification, or policy execution was performed.",
+    "Recorded CI method and data provenance were not independently verified.",
+    "This audit checks serialized values, not competition compliance or scientific adoption."
+  ]
+}
