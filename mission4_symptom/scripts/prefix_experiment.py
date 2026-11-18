@@ -199,26 +199,39 @@ def invoke(script, args, log):
                        env=env, stdout=out, stderr=subprocess.STDOUT, check=True)
 
 
-def run(out):
+def run(out, consistency_lambda=0.0, gradient_checkpointing=False, reference_path=None):
+    if consistency_lambda not in (0.0, 1.0) or (consistency_lambda > 0 and not gradient_checkpointing):
+        raise ValueError("T9는 lambda1.0 및 명시적인 Gradient Checkpointing이 필요합니다")
     # 먼저 팀 기록과 동일한 평가 경로인지 확인한다. 불일치 시 새 학습을 시작하지 않는다.
     reference, _, _ = verify()
+    if reference_path is not None:
+        local = read(reference_path)
+        for key in ("policy_sha256", "cache_sha256", "fit_ids_sha256", "dev_ids_sha256"):
+            if local["provenance"][key] != reference["provenance"][key]:
+                raise ValueError(f"비교 기준의 고정 입력이 다릅니다: {key}")
+        reference = local
     cfg = read(E002 / "run_config.json")
     if any(cfg[k] != v for k, v in RECIPE.items()):
         raise ValueError("E002 팀 레시피가 예상값과 다름")
     if any(digest(BACKBONE / p) != h for p, h in BACKBONE_SHA256.items()):
         raise ValueError("팀 TAPT 초기 가중치 또는 Tokenizer가 변경됨")
     out = reserve(out)
-    save(out / "initial.json", {"recipe": RECIPE, "backbone": str(BACKBONE),
+    save(out / "initial.json", {"recipe": RECIPE, "consistency_lambda": consistency_lambda,
+        "gradient_checkpointing": gradient_checkpointing, "backbone": str(BACKBONE),
         "initial_weights_sha256": digest(BACKBONE / "model.safetensors"),
         "initial_tokenizer_sha256": digest(BACKBONE / "tokenizer.json"),
         "fit_ids_sha256": digest(FIT), "dev_ids_sha256": digest(DEV),
         "source_sha256": {str(p): digest(p) for p in [Path(__file__), HERE / "scripts/train_prefix.py",
-            HERE / "scripts/prefix_probs.py", HERE / "m4/halting.py", HERE / "m4/simulate.py"]}})
+            HERE / "scripts/prefix_probs.py", HERE / "m4/halting.py", HERE / "m4/simulate.py", HERE / "m4/consistency.py"]}})
     args = ["--calls", str(CALLS), "--ids", str(FIT), "--backbone", str(BACKBONE), "--out", str(out / "training")]
     for key, value in RECIPE.items():
         if key != "include_full":
             args += ["--" + key.replace("_", "-"), str(value)]
     args += ["--grad-accum", "1", "--count-classes", "0", "--max-steps", "0"]
+    if consistency_lambda > 0:
+        args += ["--consistency-lambda", str(consistency_lambda)]
+    if gradient_checkpointing:
+        args += ["--gradient-checkpointing"]
     invoke("train_prefix.py", args, out / "training.log")
     invoke("prefix_probs.py", ["--model", str(out / "training/best_model"), "--calls", str(CALLS),
         "--ids", str(DEV), "--out", str(out / "dev_prefix.npz"), "--fmt", "space",
@@ -324,6 +337,10 @@ def main():
     v.add_argument("--check-online", action="store_true", help="기존 확률로 온라인 특징/중단을 재생해 통화별 일치 검사")
     r = sub.add_parser("run", help="기존 E002 재학습→확률 추출→고정 정책 평가")
     r.add_argument("--out", type=Path, required=True)
+    r.add_argument("--consistency-lambda", type=float, choices=[0.0, 1.0], default=0.0)
+    r.add_argument("--gradient-checkpointing", action="store_true")
+    r.add_argument("--reference", type=Path)
+    r.add_argument("--with-sequential", action="store_true")
     e = sub.add_parser("evaluate", help="기존 확률표에 고정 정책만 적용")
     e.add_argument("--e002-table", type=Path, required=True)
     e.add_argument("--out", type=Path, required=True)
@@ -340,7 +357,9 @@ def main():
             save(out / "metrics.json", result)
             np.savez_compressed(out / "halts.npz", call_ids=np.array(table.call_ids), halts=halts)
     elif args.command == "run":
-        run(args.out)
+        run(args.out, args.consistency_lambda, args.gradient_checkpointing, args.reference)
+        if args.with_sequential:
+            sequential(args.out / "sequential", args.out / "training", "cuda")
     elif args.command == "evaluate":
         write_evaluation(args.e002_table, args.out, reference=read(args.reference) if args.reference else None)
     else:

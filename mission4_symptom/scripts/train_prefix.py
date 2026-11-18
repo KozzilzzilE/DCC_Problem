@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import sys
@@ -27,6 +28,7 @@ sys.path.insert(0, str(HERE))
 
 from m4 import SYMPTOM_CLASSES  # noqa: E402
 from m4.data import label_matrix, load_cache, prefix_texts, read_ids  # noqa: E402
+from m4.consistency import prefix_objective, validate_t9  # noqa: E402
 
 for _s in (sys.stdout, sys.stderr):
     if hasattr(_s, "reconfigure"):
@@ -83,10 +85,12 @@ def main() -> int:
                     help="증상 개수 보조 출력의 칸 수 (0 = 끔). 3 이면 1개 / 2개 / 3개 이상")
     ap.add_argument("--count-weight", type=float, default=0.5, help="보조 손실(교차 엔트로피)에 곱하는 값")
     ap.add_argument("--max-steps", type=int, default=0, help="점검용. 0 이면 끝까지")
-    ap.add_argument("--grad-ckpt", action="store_true",
+    ap.add_argument("--grad-ckpt", "--gradient-checkpointing", action="store_true",
                     help="gradient checkpointing. 큰 백본이 8GB 에 안 들어갈 때 활성값 메모리를 줄인다 (계산은 약 30%% 늘어남)")
     ap.add_argument("--log-every", type=int, default=200, help="이 스텝마다 진행 기록")
+    ap.add_argument("--consistency-lambda", type=float, choices=[0.0, 1.0], default=0.0)
     args = ap.parse_args()
+    validate_t9(args)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -126,7 +130,10 @@ def main() -> int:
             for k in range(args.count_classes)))
     device = torch.device("cuda")
     if args.grad_ckpt:
-        model.gradient_checkpointing_enable()
+        if args.consistency_lambda > 0:
+            model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False, "preserve_rng_state": True})
+        else:
+            model.gradient_checkpointing_enable()
     model.to(device)
 
     per_epoch = len(calls) * (args.samples_per_call + int(args.include_full))
@@ -137,6 +144,14 @@ def main() -> int:
     scheduler = get_linear_schedule_with_warmup(optimizer, int(0.1 * updates), updates)
     scaler = torch.amp.GradScaler("cuda")
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight, dtype=torch.float32, device=device))
+    update_counter = {"updates": 0}
+
+    def record_update(_optimizer, _args, _kwargs):
+        update_counter["updates"] += 1
+
+    optimizer.register_step_post_hook(record_update)
+    attempts = 0
+    sampling_history = []
 
     history = []
     step = 0
@@ -150,6 +165,11 @@ def main() -> int:
         if args.include_full:
             items += [(i, len(p)) for i, p in enumerate(prefixes)]
         order = rng.permutation(len(items))
+        sampling_history.append({"epoch": epoch, "drawn_samples": len(items),
+            "ordered_items_sha256": hashlib.sha256(np.asarray(items, dtype="<i8")[order].tobytes()).hexdigest()})
+        epoch_started = time.time()
+        start_updates, start_attempts = update_counter["updates"], attempts
+        supervised_sum, raw_sum = 0.0, 0.0
         model.train()
         running, seen = 0.0, 0
         for b in range(steps_per_epoch):
@@ -157,29 +177,41 @@ def main() -> int:
             enc = tokenizer([prefixes[i][t - 1] for i, t in batch], truncation=True,
                             max_length=args.max_length, padding=True, return_tensors="pt").to(device)
             target = torch.tensor(labels[[i for i, _ in batch]], device=device)
-            with torch.autocast("cuda", dtype=torch.float16):
-                logits = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"]).logits
-            loss = loss_fn(logits.float()[:, :n_sym], target)
+            loss, supervised, raw_consistency, logits = prefix_objective(
+                model, enc, target, loss_fn, args.consistency_lambda)
             if args.count_classes:
                 ctarget = torch.tensor(count_target[[i for i, _ in batch]], device=device)
                 loss = loss + args.count_weight * torch.nn.functional.cross_entropy(logits.float()[:, n_sym:], ctarget)
             scaler.scale(loss / args.grad_accum).backward()
             running += loss.item()
+            supervised_sum += supervised.item()
+            raw_sum += raw_consistency.item()
             seen += 1
             step += 1
             if step % args.grad_accum == 0:
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 scaler.step(optimizer)
+                attempts += 1
                 scaler.update()
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
             if step % args.log_every == 0:
                 say(f"epoch {epoch} step {step}/{total_steps} loss {running / seen:.4f} "
+                    f"supervised {supervised_sum / seen:.6f} consistency {raw_sum / seen:.6f} "
+                    f"weighted_consistency {args.consistency_lambda * raw_sum / seen:.6f} "
                     f"lr {scheduler.get_last_lr()[0]:.2e} 경과 {time.time() - t0:.0f}s")
             if args.max_steps and step >= args.max_steps:
                 break
-        history.append({"epoch": epoch, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1)})
+        actual_updates = update_counter["updates"] - start_updates
+        history.append({"epoch": epoch, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1),
+            "epoch_seconds": round(time.time() - epoch_started, 1),
+            "supervised_bce": supervised_sum / max(seen, 1), "raw_consistency": raw_sum / max(seen, 1),
+            "weighted_consistency": args.consistency_lambda * raw_sum / max(seen, 1),
+            "consistency_to_supervised_ratio": args.consistency_lambda * raw_sum / supervised_sum if supervised_sum else None,
+            "original_sample_exposures": seen * args.batch_size,
+            "stochastic_view_exposures": seen * args.batch_size * (2 if args.consistency_lambda > 0 else 1),
+            "optimizer_updates": actual_updates, "amp_skips": attempts - start_attempts - actual_updates})
         say(f"epoch {epoch} 끝: 평균 loss {running / max(seen, 1):.4f}")
         if args.max_steps and step >= args.max_steps:
             break
@@ -187,6 +219,20 @@ def main() -> int:
     model.save_pretrained(out / "best_model", safe_serialization=True)
     tokenizer.save_pretrained(out / "best_model")
     config = dict(vars(args), n_calls=len(calls), total_steps=step, history=history,
+                  consistency_enabled=args.consistency_lambda > 0,
+                  loss_config={"supervised": "mean Weighted BCE", "consistency": "mean(0.5*(sigmoid(z1)-sigmoid(z2))*(z1-z2))",
+                               "two_sided_gradient": True, "compute_dtype": "float32", "reduction": "Batch*9 mean"},
+                  gradient_checkpointing_config={"enabled": args.grad_ckpt,
+                      "use_reentrant": False if args.consistency_lambda > 0 else None,
+                      "preserve_rng_state": True if args.consistency_lambda > 0 else None},
+                  physical_batch_size=args.batch_size, effective_batch_size=args.batch_size * args.grad_accum,
+                  fit_positive_counts=pos.astype(int).tolist(), fit_negative_counts=(len(labels)-pos).astype(int).tolist(),
+                  symptom_classes=list(SYMPTOM_CLASSES), sampling_history=sampling_history,
+                  planned_optimizer_steps=updates, optimizer_attempts=attempts, optimizer_updates=update_counter["updates"],
+                  amp_skips=attempts-update_counter["updates"],
+                  original_sample_exposures=sum(h["original_sample_exposures"] for h in history),
+                  stochastic_view_exposures=sum(h["stochastic_view_exposures"] for h in history),
+                  peak_cuda_reserved_memory_bytes=int(torch.cuda.max_memory_reserved()),
                   pos_weight=[float(w) for w in pos_weight], training_seconds=round(time.time() - t0, 1),
                   peak_cuda_memory_bytes=int(torch.cuda.max_memory_allocated()))
     (out / "run_config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
