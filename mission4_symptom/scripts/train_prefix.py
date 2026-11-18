@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import sys
@@ -25,6 +26,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_
 HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 
+from m4.staged import StageRecorder, validate as validate_staged, validate_inputs, provenance
 from m4 import SYMPTOM_CLASSES  # noqa: E402
 from m4.data import label_matrix, load_cache, prefix_texts, read_ids  # noqa: E402
 
@@ -86,7 +88,10 @@ def main() -> int:
     ap.add_argument("--grad-ckpt", action="store_true",
                     help="gradient checkpointing. 큰 백본이 8GB 에 안 들어갈 때 활성값 메모리를 줄인다 (계산은 약 30%% 늘어남)")
     ap.add_argument("--log-every", type=int, default=200, help="이 스텝마다 진행 기록")
+    ap.add_argument("--freeze-backbone-epochs", type=int, choices=[0, 1], default=0)
     args = ap.parse_args()
+    validate_staged(args)
+    validate_inputs(args, HERE.parent)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -94,6 +99,8 @@ def main() -> int:
     torch.cuda.manual_seed_all(args.seed)
 
     out = Path(args.out)
+    if args.freeze_backbone_epochs and out.exists():
+        raise FileExistsError(f"T4 refuses existing training directory: {out}")
     out.mkdir(parents=True, exist_ok=True)
     log = open(out / "train_log.txt", "a", encoding="utf-8")
 
@@ -138,6 +145,14 @@ def main() -> int:
     scaler = torch.amp.GradScaler("cuda")
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight, dtype=torch.float32, device=device))
 
+    recorder = StageRecorder(model, optimizer, scheduler) if args.freeze_backbone_epochs else None
+    receipt = provenance(HERE.parent, args.backbone) if recorder else {}
+    updates_done = [0]
+    def record_step(*_):
+        updates_done[0] += 1
+    optimizer.register_step_post_hook(record_step)
+    attempts = 0
+    sampling_history = []
     history = []
     step = 0
     optimizer.zero_grad(set_to_none=True)
@@ -150,6 +165,16 @@ def main() -> int:
         if args.include_full:
             items += [(i, len(p)) for i, p in enumerate(prefixes)]
         order = rng.permutation(len(items))
+        sampling_history.append({"epoch": epoch, "drawn_samples": len(items),
+            "ordered_items_sha256": hashlib.sha256(np.asarray(items, dtype="<i8")[order].tobytes()).hexdigest()})
+        epoch_started = time.time()
+        start_updates, start_attempts = updates_done[0], attempts
+        state = recorder.enter(epoch, step) if recorder else {"stage": "full", "backbone_frozen": False}
+        if recorder:
+            state["optimizer_groups"] = [{"parameters": sum(p.numel() for p in g["params"]),
+                "lr": g["lr"], "initial_lr": g["initial_lr"], "weight_decay": g["weight_decay"]} for g in optimizer.param_groups]
+            say("stage " + json.dumps(state))
+            torch.cuda.reset_peak_memory_stats()
         model.train()
         running, seen = 0.0, 0
         for b in range(steps_per_epoch):
@@ -171,6 +196,7 @@ def main() -> int:
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 scaler.step(optimizer)
+                attempts += 1
                 scaler.update()
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
@@ -179,7 +205,19 @@ def main() -> int:
                     f"lr {scheduler.get_last_lr()[0]:.2e} 경과 {time.time() - t0:.0f}s")
             if args.max_steps and step >= args.max_steps:
                 break
-        history.append({"epoch": epoch, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1)})
+        history.append({"epoch": epoch, "train_loss": running / max(seen, 1), "seconds": round(time.time() - t0, 1),
+            "epoch_seconds": round(time.time() - epoch_started, 1), **state,
+            "original_sample_exposures": seen * args.batch_size,
+            "head_sample_exposures": seen * args.batch_size,
+            "backbone_sample_exposures": 0 if state["backbone_frozen"] else seen * args.batch_size,
+            "planned_optimizer_steps": steps_per_epoch // args.grad_accum,
+            "optimizer_attempts": attempts - start_attempts,
+            "optimizer_updates": updates_done[0] - start_updates,
+            "amp_skips": attempts - start_attempts - (updates_done[0] - start_updates),
+            "backbone_optimizer_state_parameters": sum(p in optimizer.state for p in recorder.backbone) if recorder else None,
+            "learning_rates_end": [g["lr"] for g in optimizer.param_groups],
+            "peak_cuda_allocated_bytes": int(torch.cuda.max_memory_allocated()),
+            "peak_cuda_reserved_bytes": int(torch.cuda.max_memory_reserved())})
         say(f"epoch {epoch} 끝: 평균 loss {running / max(seen, 1):.4f}")
         if args.max_steps and step >= args.max_steps:
             break
@@ -189,6 +227,19 @@ def main() -> int:
     config = dict(vars(args), n_calls=len(calls), total_steps=step, history=history,
                   pos_weight=[float(w) for w in pos_weight], training_seconds=round(time.time() - t0, 1),
                   peak_cuda_memory_bytes=int(torch.cuda.max_memory_allocated()))
+    config.update(experiment="T4_head_only_then_full" if recorder else "baseline", provenance=receipt,
+        sampling_history=sampling_history, planned_optimizer_steps=updates, optimizer_attempts=attempts,
+        optimizer_updates=updates_done[0], amp_skips=attempts-updates_done[0],
+        original_sample_exposures=sum(h["original_sample_exposures"] for h in history),
+        head_sample_exposures=sum(h["head_sample_exposures"] for h in history),
+        backbone_sample_exposures=sum(h["backbone_sample_exposures"] for h in history),
+        peak_cuda_memory_bytes=max(h["peak_cuda_allocated_bytes"] for h in history),
+        peak_cuda_reserved_memory_bytes=max(h["peak_cuda_reserved_bytes"] for h in history),
+        stages={name: {"seconds": sum(h["epoch_seconds"] for h in history if h["stage"]==name),
+            "optimizer_updates": sum(h["optimizer_updates"] for h in history if h["stage"]==name)} for name in {h["stage"] for h in history}},
+        backbone_planned_optimizer_steps=sum(h["planned_optimizer_steps"] for h in history if not h["backbone_frozen"]),
+        head_planned_optimizer_steps=updates,
+        staged_verification=recorder.finish() if recorder else None)
     (out / "run_config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
     say(f"저장 {out / 'best_model'} ({config['training_seconds']}s)")
     return 0
