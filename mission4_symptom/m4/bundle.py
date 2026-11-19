@@ -15,6 +15,7 @@ from . import SYMPTOM_CLASSES
 
 BUNDLE_FORMAT = "dcc-mission4-bundle"
 BUNDLE_VERSION = 1
+BUNDLE_SPLIT_VERSION = 2
 WEIGHTS_FILE = "model.safetensors"
 
 DEFAULT_SETTINGS: Dict[str, object] = {
@@ -23,16 +24,16 @@ DEFAULT_SETTINGS: Dict[str, object] = {
     "truncation_side": "right",
     # 학습 때 쓴 log(pos_weight). 확률 보정에 쓴다 (m4.decision.calibrate). 없으면 보정하지 않는다.
     "logit_shift": None,
-    # 4-1 결정 규칙 (m4.decision.make_rule)
-    "rule": {"type": "threshold", "threshold": 0.5, "force_top1": True, "max_labels": None},
+    # 4-1 결정 규칙 (m4.decision.make_rule) — 대회 규정: 임계값 0.5 고정, 1위 강제 없음
+    "rule": {"type": "threshold", "threshold": 0.5, "force_top1": False, "max_labels": None},
     # maxent 규칙에 쓰는 증상 조합 사전분포 {"prior": 511개, "marg": 9개} (m4.decision.label_set_prior).
     # 그 모델의 학습에 쓴 통화의 라벨로만 만든다. 다른 규칙에서는 쓰지 않으며, 예전 번들에는 이 키가 없다.
     "label_prior": None,
-    # 4-2 중단 시점의 결정 규칙. 4-2 는 전체를 모아 증상별 F1 을 내므로 4-1 규칙과 따로 둔다 (EXPERIMENT_LOG E004).
-    "halt_rule": {"type": "threshold", "threshold": 0.5, "force_top1": True},
-    # 4-2 중단 기준 (m4.streaming.should_halt). 제출 번들은 scripts/pack_bundle.py 가 expected·tau 0.52 로 덮어쓴다.
-    # 학습형 정책은 {"type": "learned", beta, tau, min_step, logit_shift, feature_names, model_str, ...} 이다 (learned_halt_setting)
-    "halt": {"type": "confidence", "tau": 0.8, "min_step": 5},
+    # 4-2 중단 시점의 결정 규칙. 4-2 도 판정 임계값 0.5 고정 · 빈 리스트 허용 규칙을 따른다.
+    "halt_rule": {"type": "threshold", "threshold": 0.5, "force_top1": False},
+    # 4-2 중단 기준 (m4.streaming.should_halt). 기본은 기대 점수 >= 0.5 및 빈 예측 조기 중단 차단.
+    # 학습형 정책은 {"type": "learned", beta, tau, min_step, require_nonempty, logit_shift, feature_names, model_str, ...}
+    "halt": {"type": "expected", "tau": 0.5, "min_step": 5, "require_nonempty": True},
 }
 
 
@@ -121,48 +122,105 @@ def learned_halt_setting(policy: Dict[str, object], bundle_shift: Optional[Seque
         if gap > tol:
             raise ValueError(f"중단 정책과 번들의 logit_shift 가 다릅니다 (최대 차 {gap:.3g}). "
                              "정책을 이 번들의 멤버와 같은 pos_weight 로 학습했는지 확인하십시오.")
-    return json.loads(json.dumps(policy))
+    out = json.loads(json.dumps(policy))
+    out["require_nonempty"] = bool(out.get("require_nonempty", False))
+    return out
 
 
-def pack_bundle(member_dirs: Sequence[Union[str, Path]], output: Union[str, Path],
-                settings: Dict[str, object], note: str = "", half: bool = True) -> Path:
-    """best_model 폴더들을 `.pt` 하나로 묶는다. half=True 면 가중치를 fp16 으로 저장해 크기를 줄인다."""
-    import torch
+def _pack_members(member_dirs: Sequence[Union[str, Path]], half: bool = True) -> List[Dict[str, object]]:
+    """best_model 폴더들을 읽어 직렬화 가능한 멤버 목록으로 만든다."""
     from safetensors.torch import load_file
 
     members = []
     for raw in member_dirs:
         path = Path(raw)
         model_dir = path / "best_model" if (path / "best_model").is_dir() else path
+        weights_path = model_dir / WEIGHTS_FILE
+        if not weights_path.is_file():
+            raise FileNotFoundError(f"모델 가중치 파일을 찾을 수 없습니다: {weights_path}")
         files = {f.name: f.read_bytes() for f in sorted(model_dir.iterdir())
                  if f.is_file() and f.name != WEIGHTS_FILE}
-        state = load_file(str(model_dir / WEIGHTS_FILE))
+        state = load_file(str(weights_path))
         if half:
             state = {k: (v.half() if v.is_floating_point() else v) for k, v in state.items()}
         members.append({"name": path.name, "files": files, "state_dict": state})
+    return members
+
+
+def _merge_settings(settings: Dict[str, object]) -> Dict[str, object]:
     merged = json.loads(json.dumps(DEFAULT_SETTINGS))
     merged.update(settings)
-    payload = {"format": BUNDLE_FORMAT, "version": BUNDLE_VERSION, "members": members,
-               "settings": merged, "note": note}
+    return merged
+
+
+def pack_bundle(member_dirs: Sequence[Union[str, Path]], output: Union[str, Path],
+                settings: Dict[str, object], note: str = "", half: bool = True) -> Path:
+    """best_model 폴더들을 `.pt` 하나로 묶는다. half=True 면 가중치를 fp16 으로 저장해 크기를 줄인다."""
+    import torch
+
+    payload = {"format": BUNDLE_FORMAT, "version": BUNDLE_VERSION, "members": _pack_members(member_dirs, half=half),
+               "settings": _merge_settings(settings), "note": note}
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, output)
     return output
 
 
-def load_bundle(path: Union[str, Path], device) -> Tuple[List[Tuple[object, object]], Dict[str, object]]:
-    """`.pt` 를 읽어 [(tokenizer, model)] 과 추론 설정을 돌려준다. 외부 다운로드는 하지 않는다."""
+def pack_mission_split_bundle(
+    mission_specs: Dict[str, Tuple[Sequence[Union[str, Path]], Dict[str, object]]],
+    output: Union[str, Path],
+    note: str = "",
+    half: bool = True,
+) -> Path:
+    """4-1 과 4-2 가 서로 다른 멤버 앙상블·설정을 쓰는 미션 분리형 번들(version 2)을 만든다."""
+    import torch
+
+    if not {"4-1", "4-2"}.issubset(mission_specs):
+        raise ValueError(f"미션 분리 번들에는 '4-1' 과 '4-2' 가 모두 필요합니다: {sorted(mission_specs)}")
+    missions = {}
+    for mission, (member_dirs, settings) in mission_specs.items():
+        if not member_dirs:
+            raise ValueError(f"미션 {mission!r} 에 멤버가 없습니다")
+        missions[mission] = {
+            "members": _pack_members(member_dirs, half=half),
+            "settings": _merge_settings(settings),
+        }
+    payload = {"format": BUNDLE_FORMAT, "version": BUNDLE_SPLIT_VERSION, "missions": missions, "note": note}
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, output)
+    return output
+
+
+def load_bundle(path: Union[str, Path], device, mission: Optional[str] = None
+                ) -> Tuple[List[Tuple[object, object]], Dict[str, object]]:
+    """`.pt` 를 읽어 [(tokenizer, model)] 과 추론 설정을 돌려준다. 외부 다운로드는 하지 않는다.
+
+    version 2(미션 분리 번들)에서는 `mission`("4-1" 또는 "4-2") 에 해당하는 멤버와 설정만 메모리에 적재한다.
+    """
     import torch
     from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 
     payload = torch.load(Path(path), map_location="cpu", weights_only=False)
     if not isinstance(payload, dict) or payload.get("format") != BUNDLE_FORMAT:
         raise ValueError(f"Mission 4 제출 번들(.pt)이 아닙니다: {path}")
-    if payload.get("version") != BUNDLE_VERSION:
-        raise ValueError(f"지원하지 않는 번들 버전입니다: {payload.get('version')}")
-    settings = payload["settings"]
+    version = payload.get("version")
+    if version == BUNDLE_VERSION:
+        raw_members = payload["members"]
+        settings = payload["settings"]
+    elif version == BUNDLE_SPLIT_VERSION:
+        missions = payload.get("missions") or {}
+        if mission not in missions:
+            raise ValueError(f"번들에서 mission={mission!r} 설정을 찾을 수 없습니다 (포함: {sorted(missions)})")
+        entry = missions[mission]
+        raw_members = entry["members"]
+        settings = entry["settings"]
+    else:
+        raise ValueError(f"지원하지 않는 번들 버전입니다: {version}")
+    del payload
+
     members = []
-    for member in payload["members"]:
+    for member in raw_members:
         with tempfile.TemporaryDirectory() as tmp:
             for name, data in member["files"].items():
                 (Path(tmp) / name).write_bytes(data)

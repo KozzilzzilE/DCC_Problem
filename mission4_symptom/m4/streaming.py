@@ -17,13 +17,14 @@ from .decision import calibrate, expected_rule, make_rule
 
 
 class StreamingSymptomModel:
-    def __init__(self, ckpt_path: str, device: str = "cpu") -> None:
+    def __init__(self, ckpt_path: str, device: str = "cpu", mission: Optional[str] = None) -> None:
         import torch
 
         self._torch = torch
+        self.mission = mission
         want_cuda = str(device).startswith("cuda") and torch.cuda.is_available()
         self.device = torch.device(device if want_cuda else "cpu")
-        self.members, self.settings = load_bundle(ckpt_path, self.device)
+        self.members, self.settings = load_bundle(ckpt_path, self.device, mission=mission)
         self._configure()
 
     def _configure(self) -> None:
@@ -32,12 +33,12 @@ class StreamingSymptomModel:
         prior = self.settings.get("label_prior")           # maxent 규칙용 (예전 번들에는 없다)
         self._rule = make_rule(self.settings["rule"], shift, prior)                                  # 4-1 결정 규칙
         self._halt_rule = make_rule(self.settings.get("halt_rule") or self.settings["rule"], shift, prior)  # 4-2 중단 시점 규칙
-        # 학습형 중단 기준이면 번들에 든 정책(LightGBM 모델 문자열 포함)을 복원한다. 다른 기준에서는 lightgbm 을 읽지 않는다.
+        # 학습형 중단 기준이면 번들에 든 정책(LightGBM 모델 문자열 포함)을 복원한다. 4-1 또는 never 에서는 lightgbm 을 읽지 않는다.
         self._policy = None
         self._halt_state = None
         self._halt_x: Optional[np.ndarray] = None
         halt = self.settings["halt"]
-        if halt["type"] == "learned":
+        if getattr(self, "mission", None) != "4-1" and halt["type"] == "learned":
             from .halting import HaltFeatureState, HaltPolicy
 
             try:
@@ -108,11 +109,18 @@ class StreamingSymptomModel:
         """4-2: 지금 중단할지. 현재와 과거 확률만 본다."""
         halt: Dict[str, object] = self.settings["halt"]
         min_step = int(halt.get("min_step", 5))
-        if halt["type"] == "confidence":
-            return self._n_seen >= min_step and float(self._probs.max()) >= float(halt["tau"])
+        if self._probs is None or halt["type"] == "never":
+            return False
         if halt["type"] == "learned":
             # 5번째 발화부터 "기대 점수 + beta * (지금 끊는 쪽의 예상 이득) >= tau" 이면 중단한다 (m4/halting.py)
+            # require_nonempty=True 면 보정 전 확률 >= 0.5 인 증상이 있을 때만 중단한다
             return self._policy.should_halt(self._halt_state, self._halt_x)
+        if halt["type"] in ("expected", "confidence") and bool(halt.get("require_nonempty", False)):
+            thresh = float((self.settings.get("halt_rule") or {}).get("threshold", 0.5))
+            if not bool((self._probs >= thresh).any()):
+                return False
+        if halt["type"] == "confidence":
+            return self._n_seen >= min_step and float(self._probs.max()) >= float(halt["tau"])
         if halt["type"] == "expected":
             # 지금 답했을 때의 기대 순간 점수(보정 확률 기준)가 tau 이상이면 중단한다
             value = expected_rule(calibrate(self._probs[None, :], self.settings.get("logit_shift")))[1][0]
@@ -127,6 +135,4 @@ class StreamingSymptomModel:
             return self._n_seen >= min_step and self._stable_run >= int(halt.get("patience", 2))
         if halt["type"] == "fixed":
             return self._n_seen >= int(halt["k"])
-        if halt["type"] == "never":
-            return False
         raise ValueError(f"알 수 없는 중단 기준: {halt['type']}")

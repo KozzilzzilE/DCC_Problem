@@ -36,11 +36,11 @@ FILES = [
     "tests/test_streaming.py",
 ]
 RENAME = {"SUBMISSION_README.md": "README.md"}
-# 판정·멈춤 기준 모두 0.5 고정 규정에 맞춘 번들(E026). 멤버는 E016 번들과 같다.
-# 4-1·멈출 때 예측은 보정 없는 확률 >= 0.5, 멈춤은 LightGBM 정책 "기대 점수 + 128·예측 이득 >= 0.5" (5번째 발화부터).
-BUNDLE_SRC = "ckpt/mission4_lgbm05.pt"
+# 방안 A 미션 분리형 번들 (fit 26,280 전용: 4-1=SJ42+SJ43, 4-2=E001+E002+E007+C128_v1_nonempty).
+# 4-1·멈출 때 예측은 보정 없는 확률 >= 0.5 (1위 강제 없음), 멈춤은 require_nonempty + expected + 128·예측 이득 >= 0.5.
+BUNDLE_SRC = "ckpt/mission4.pt"
 BUNDLE = "ckpt/mission4.pt"                 # 제출 폴더 안 이름
-BUNDLE_SHA256 = "55e675455461767991f3705868701c6113430b06d6ea6cac4b330db426667b66"
+BUNDLE_SHA256 = "f681d55a80daec5e3db4a5ad1ccafc8790c06fcc56880a6efdfc5586e5ab18e2"
 
 
 def sha256(path: Path) -> str:

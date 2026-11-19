@@ -268,3 +268,27 @@ Epoch1평균0.442019→Epoch2평균0.446236, Δ+0.004217, CI[-0.0062640571681902
   - **Mission 4-1 주 채택:** **`m4_softjaccard_v1` 2-seed (`s42 + s43`, `Dev 4-1 = 0.526039`)** 또는 기존 앙상블 결합 **`ENS4_sj` (`E001+E007+SJ42+SJ43`, `0.516301`)**.
   - **Mission 4-2 주 채택:** **`ENS3 (E001+E002+E007)` + `e026_fitonly_policy` `C128_v1_nonempty` (`β=128` 사전 고정 + 빈 예측 중단 금지 게이트, `Dev 4-2 = 0.507411`, `C0` 대비 `+0.008575`, CI `[+0.003325, +0.013903]`)**. (`β=256` `0.507855`는 격자 상한 평탄 구간이므로 탐색 참고치로 분류.)
   - **단일 확률표로 4-1·4-2 통합 운용 시 조건부 채택:** **`ENS4_jm` (`E001+E007+JM42+JM43`, `4-1 = 0.512240`, `4-2 C128_v1 = 0.503482`)** 또는 **`ENS_rep_jm42` (`4-1 = 0.509468`, `4-2 C128_v1 = 0.504324`)**.
+
+## 2026-11-19 전략 B: 4대 경량 백본 동일 TAPT 공정 비교 (`m4_backbone_tapt_v1_20261119`, 보존 검증 완료)
+
+- **배경:** 기존 백본 비교(`E002` `RoBERTa+TAPT`, `E022` `KcELECTRA+TAPT`)에서 누락됐던 ① **`No-TAPT klue/roberta-base` 대조군**, ② 1차 스모크 상위였던 **`KR-BERT-char16424`·`KoELECTRA-v3`의 `fit 26,280` 20-epoch TAPT + Prefix 재판정**을 동일 조건(`raw p >= 0.5`, Top-1 없음, `seed=42`)으로 완결했다([프로토콜](m4_backbone_tapt_20261119/PROTOCOL.md), [결과 기록](m4_backbone_tapt_20261119/EXPERIMENT_RECORD.md), 코드 [`tools/m4_backbone_tapt/`](../tools/m4_backbone_tapt/)).
+- **실행·자원 (`Colab L4`, `16:33 → 23:11 KST`):** 단위 테스트(`test_backbone_tapt.py` `2 passed`) 및 Pre-flight (`UNK < 0.03%`) 통과 후 3건 순차 실행, 총 **`12.76`유닛 소모**(`47.54 → 34.78`), 종료 후 `Active assignments: 0` 확인.
+- **공식 `Dev 2,920` (`87,814`시점, `raw p >= 0.5`, `score.py` 경고 `0`건, `5,000`회 쌍 부트스트랩):**
+  - **`E002` (`KLUE-RoBERTa-base + TAPT 20ep`, 기준선):** **`0.502733`** (`ENS3 = 0.506001`)
+  - **`roberta_notapt_s42` (`klue/roberta-base`, No-TAPT):** **`0.498685`** (`vs E002 -0.004049 [-0.008864, +0.000983]`, Prefix `1,649.7s`) → **Mission 4 순수 TAPT 기여도 `+0.004049` 입증** (`ENS_swap 0.503727`, `ENS4_add 0.504919`)
+  - **`E022` (`KcELECTRA + TAPT 20ep`, 기존 팀 기록):** `0.498099` (`vs E002 -0.004634`)
+  - **`koelectra_tapt20_s42` (`KoELECTRA-v3 + TAPT 20ep`):** **`0.495421`** (`TAPT 8,790.2s` `3.9728→1.1145`, Prefix `1,693.0s`, **`vs E002 -0.007312 [-0.012621, -0.001935]`** `p=0.0032`, `ENS_swap 0.503507` `-0.002493*`, `ENS4_add 0.504008` `-0.001993*`)
+  - **`krbert_tapt20_s42` (`KR-BERT-char16424 + TAPT 20ep`):** **`0.493317`** (`TAPT 7,927.5s` `1.4407→0.8317`, Prefix `1,703.9s`, **`vs E002 -0.009416 [-0.014867, -0.003899]`** `p=0.0002`, `ENS_swap 0.504329` `-0.001672`, `ENS4_add 0.504752` `-0.001248`)
+- **결론 및 보존:** 동일 `20-epoch TAPT` 조건에서도 `KLUE-RoBERTa-base (0.502733)`가 `KcELECTRA (0.4981)`, `KoELECTRA (0.4954)`, `KR-BERT (0.4933)`을 모두 앞섰으며, **`No-TAPT RoBERTa (0.4987)`조차 타 백본+TAPT 3종보다 높아 `KLUE-RoBERTa-base + TAPT` 유지를 최종 확정**했다. 3종 모두 TAPT·Prefix 최종 가중치·재개 상태(`training_state_last.pt`)·`dev_prefix.npz` 로컬 SHA-256 일치, `16`프리픽스 CPU 오프라인 추론 일치(`max_err <= 0.000568`), Google Drive 공유 폴더(`mission4_sunggyu_share_20261119`) 업로드 완료.
+
+## 2026-11-19 팀원 결과 통합 정합성 확인 및 제출 번들(`mission4-submission-v2`) E2E 검증 완료
+
+- **팀원 결과 정합성 감사([`team_results_audit_20261119/AUDIT_NOTES.md`](team_results_audit_20261119/AUDIT_NOTES.md)):**
+  - `ohyun0628`(`origin/docs/mission4-backbone-benchmark` `ec3760f`, `백본_벤치마크.md`): `309`통화 내부 검증 삭제·배제 확인, `3`통화 `raw 0.5` 스모크·`32,840` 누수 격리 및 6절 채점 규칙(`구규칙`/`maxent`/`raw 0.5`) 분리를 확인해 전략 B 결과와 통합했다.
+  - `okjunges`(`Mission4_Prefix_Training_Experiment_Results.zip`, SHA-256 `06cfec5e...`, `artifacts_private/runs/team_prefix_results_20261119/`): `E001`/`원본 E002`/`E007` 외장 가중치 SHA-256 3건 완전 일치를 대조하고, `T4` 순차 4-1(`0.505458`), `T8` 순차(`4-1 0.507070` / `4-2 0.432562`) 및 기준선(`localcontrol T0` 배치 `0.505984 / 0.504925`), `localcontrol T0`(`0.506006 / 0.505029`) 대 공식 `E026`(`0.503146` 배치) 차이를 검증해 [`MISSION4_FULL_PIPELINE_AND_STORYLINE_20261118.md`](MISSION4_FULL_PIPELINE_AND_STORYLINE_20261118.md) 2장 Step 4-A에 통일 순차표로 반영했다.
+- **방안 A 제출 코드 통합 및 `Dev 2,920` 2계층 E2E 검증 (`mission4-submission-v2`, 공식 `Validation` 미사용):**
+  - `mission4_symptom/`(`m4/halting.py`, `m4/bundle.py`, `m4/streaming.py`, `inference.py` `Predictor`, `scripts/pack_bundle.py`)에 `require_nonempty` 게이트·미션 분리 번들(`version=2`)·규정 기본값(`rule=threshold`, `force_top1=False`)을 통합하고 `pytest 44/44` 통과(`OMP_NUM_THREADS=1`).
+  - 검증된 `fit 26,280` 체크포인트만으로 `ckpt/mission4.pt` (`1,111,644,586`B / `1,060 MiB`, SHA-256 `f681d55a80daec5e3db4a5ad1ccafc8790c06fcc56880a6efdfc5586e5ab18e2`)를 패키징하고 2계층 검증 완료(`artifacts_private/runs/mission4_submission_v2_20261119/e2e_verification_summary.json`):
+    - 1계층(`Dev 2,920` · `87,814`시점 전체 `StreamingSymptomModel` + `Predictor` + `score.py`): **`4-1 = 0.526039`** (`87,814`행, 경고 `0`), **`4-2 = 0.507411`** (`F1=0.613217`, `E=0.827457`, 중간 빈 예측 중단 `0`건, `ENS3_C128_v1_nonempty` 대비 `2,920/2,920` 일치, 경고 `0`).
+    - 2계층(대표 `16`통화 노모킹 `python inference.py` 오프라인 CPU subprocess → `score.py`): `4-1`(`59.58s`)·`4-2`(`28.01s`) 경고 `0`건, 1계층 대비 불일치 `0`건, 차단 `6`통화 조기 빈 예측 `0`건, fp16 번들 CPU forward 최대 확률 차 `<= 0.000624`.
+  - 공식 `Validation 3,640` 1회 점검은 최종 freeze 승인 전까지 미실행 유지. Google Drive 공유 폴더(`1Tdspzl8XsoNhNzk25YyPoPamYPv-RGFZ`)에 `05_submission_bundle_option_a_20261119` 업로드 예정.

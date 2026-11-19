@@ -199,3 +199,43 @@ def test_policy_rejects_changed_feature_list():
     bad = hl.HaltPolicy(model_str="", beta=1.0, tau=0.5, feature_names=hl.FEATURE_NAMES[:-1])
     with pytest.raises(ValueError):
         bad.booster()
+
+
+def test_policy_require_nonempty_blocks_empty_mid_halts():
+    """require_nonempty=True 면 raw>=0.5 증상이 0개일 때 조기 중단을 막고, 배치·온라인 시점이 일치한다."""
+    pytest.importorskip("lightgbm")
+    # step 5..6 은 0.5 미만, step 7 은 0.5 이상인 통화 + 끝까지 0.5 미만인 통화를 직접 구성한다
+    table, calls = _make(12, n_calls=40, min_len=8, max_len=12)
+    probs = table.probs.copy()
+    a0, b0 = int(table.offsets[0]), int(table.offsets[1])
+    probs[a0:b0] = 0.2                                          # 통화 0: 전 구간 빈 예측
+    a1, b1 = int(table.offsets[1]), int(table.offsets[2])
+    probs[a1:b1] = 0.2
+    probs[a1 + 6, 0] = 0.75                                     # 통화 1: 7번째(index 6)에 첫 0.5 이상 등장
+    mod_table = sim.PrefixTable(table.call_ids, table.offsets, probs, table.labels)
+    data = hl.HaltData.build(mod_table, calls, SHIFT)
+
+    trained = hl.train_policy(
+        data, ref_tau=0.5, logit_shift=SHIFT, folds=3,
+        params={"min_data_in_leaf": 5}, rounds=20, threads=1, require_nonempty=True,
+    )
+    assert trained.require_nonempty is True
+    assert hl.HaltPolicy.from_dict(json.loads(json.dumps(trained.to_dict()))).require_nonempty is True
+
+    eager_allow = hl.HaltPolicy(trained.model_str, beta=4.0, tau=-1e9, require_nonempty=False, logit_shift=list(SHIFT))
+    eager_gate = hl.HaltPolicy(trained.model_str, beta=4.0, tau=-1e9, require_nonempty=True, logit_shift=list(SHIFT))
+    assert eager_allow.halts(data)[0] == 5 and eager_allow.halts(data)[1] == 5
+    sim_halts = eager_gate.halts(data)
+    assert sim_halts[0] == calls[0].n_utt
+    assert sim_halts[1] == 7
+
+    state = hl.HaltFeatureState(eager_gate.logit_shift)
+    for i, call in enumerate(calls[:15]):
+        state.reset()
+        got = call.n_utt
+        for t in range(call.n_utt):
+            x = state.update(call.texts[t], call.speakers[t], call.starts[t], call.ends[t], mod_table.call(i)[t])
+            if eager_gate.should_halt(state, x):
+                got = t + 1
+                break
+        assert got == sim_halts[i], (i, got, sim_halts[i])

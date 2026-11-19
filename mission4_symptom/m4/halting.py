@@ -197,6 +197,7 @@ class HaltFeatureState:
     def reset(self) -> None:
         self.step = 0
         self.value = 0.0
+        self.has_pred = False
         self._prev_cal: Optional[np.ndarray] = None
         self._prev_value = 0.0
         self._prev_pred: Optional[np.ndarray] = None
@@ -217,6 +218,7 @@ class HaltFeatureState:
         raw = np.asarray(raw_probs, dtype=np.float32)[None, :]
         cal2, value2, pred2 = moment_signals(raw, self.logit_shift)
         cal, value, pred = cal2[0], float(value2[0]), pred2[0]
+        self.has_pred = bool(pred.any())
         first = self._prev_cal is None
         prev_cal = cal if first else self._prev_cal
         prev_value = value if first else self._prev_value
@@ -424,18 +426,21 @@ def crossfit_delta(data: HaltData, delta: np.ndarray, rows: np.ndarray, folds: i
 
 
 def select_beta_tau(data: HaltData, delta_hat: np.ndarray, betas: Sequence[float] = BETAS, taus: Sequence[float] = TAUS,
-                    min_step: int = MIN_STEP) -> Dict[str, object]:
+                    min_step: int = MIN_STEP, require_nonempty: bool = False) -> Dict[str, object]:
     """(β, τ) 격자에서 data 의 4-2 점수가 가장 높은 조합을 고른다. 동점이면 먼저 나온 것(β 작은 쪽).
 
     β = 0 행은 "τ 만 고르는 기존 정책"이므로, 그 행의 최고값을 따로 돌려준다 (학습형이 τ 재선택보다 나은지 보는 기준).
+    require_nonempty=True 면 보정 전 확률 >= 0.5 인 증상이 1개 이상일 때만 조기 중단을 허용한다.
     """
     ones = np.ones((1, len(data)))
+    nonempty = data.pred.any(axis=1)
     best, tau_only = (-1.0, None), (-1.0, None)
     grid = []
     for b in betas:
         signal = data.value + b * delta_hat
         for t in taus:
-            s = float(_weighted_scores(_score_parts(data, first_halt(signal >= t, data, min_step)), ones)[0])
+            stop = (signal >= t) & nonempty if require_nonempty else (signal >= t)
+            s = float(_weighted_scores(_score_parts(data, first_halt(stop, data, min_step)), ones)[0])
             grid.append({"beta": float(b), "tau": float(t), "score": s})
             if s > best[0] + 1e-12:
                 best = (s, (float(b), float(t)))
@@ -447,12 +452,16 @@ def select_beta_tau(data: HaltData, delta_hat: np.ndarray, betas: Sequence[float
 # ----------------------------------------------------------------------------- 정책
 @dataclass
 class HaltPolicy:
-    """학습된 중단 정책. v(t) + beta·δ̂(t) ≥ tau 인 첫 순간(min_step 이후)에 중단한다."""
+    """학습된 중단 정책. v(t) + beta·δ̂(t) ≥ tau 인 첫 순간(min_step 이후)에 중단한다.
+
+    require_nonempty=True 면 보정 전 확률 ≥ 0.5 인 증상이 최소 1개 이상일 때만 조기 중단한다.
+    """
 
     model_str: str                      # LightGBM 모델 (Booster.model_to_string)
     beta: float
     tau: float
     min_step: int = MIN_STEP
+    require_nonempty: bool = False
     logit_shift: Optional[List[float]] = None
     feature_names: List[str] = field(default_factory=lambda: list(FEATURE_NAMES))
     n_fit_calls: int = 0
@@ -474,17 +483,23 @@ class HaltPolicy:
     def halts(self, data: HaltData) -> np.ndarray:
         """모의 채점용: 통화별 중단 step."""
         signal = data.value + (self.beta * self.delta_hat(data.X) if self.beta else 0.0)
-        return first_halt(signal >= self.tau, data, self.min_step)
+        stop = signal >= self.tau
+        if self.require_nonempty:
+            stop = stop & data.pred.any(axis=1)
+        return first_halt(stop, data, self.min_step)
 
     def should_halt(self, state: HaltFeatureState, features: np.ndarray) -> bool:
         """추론용: 방금 state.update 가 돌려준 features 로 지금 중단할지 정한다."""
         if state.step < self.min_step:
+            return False
+        if self.require_nonempty and not state.has_pred:
             return False
         signal = state.value + (self.beta * float(self.delta_hat(features)[0]) if self.beta else 0.0)
         return bool(signal >= self.tau)
 
     def to_dict(self) -> Dict[str, object]:
         return {"type": "learned", "beta": float(self.beta), "tau": float(self.tau), "min_step": int(self.min_step),
+                "require_nonempty": bool(self.require_nonempty),
                 "logit_shift": None if self.logit_shift is None else [float(x) for x in self.logit_shift],
                 "feature_names": list(self.feature_names), "n_fit_calls": int(self.n_fit_calls), "info": self.info,
                 "model_str": self.model_str}
@@ -492,6 +507,7 @@ class HaltPolicy:
     @classmethod
     def from_dict(cls, d: Dict[str, object]) -> "HaltPolicy":
         return cls(model_str=d["model_str"], beta=float(d["beta"]), tau=float(d["tau"]), min_step=int(d.get("min_step", MIN_STEP)),
+                   require_nonempty=bool(d.get("require_nonempty", False)),
                    logit_shift=d.get("logit_shift"), feature_names=list(d["feature_names"]), n_fit_calls=int(d.get("n_fit_calls", 0)),
                    info=dict(d.get("info") or {}))
 
@@ -505,7 +521,8 @@ class HaltPolicy:
 
 def train_policy(data: HaltData, ref_tau: float = 0.52, logit_shift: Optional[Sequence[float]] = None, folds: int = 5,
                  seed: int = 0, betas: Sequence[float] = BETAS, taus: Sequence[float] = TAUS,
-                 params: Optional[Dict[str, object]] = None, rounds: int = GBM_ROUNDS, threads: int = 4) -> HaltPolicy:
+                 params: Optional[Dict[str, object]] = None, rounds: int = GBM_ROUNDS, threads: int = 4,
+                 require_nonempty: bool = False) -> HaltPolicy:
     """학습용 통화(data)만으로 정책 전체를 만든다. 다른 통화(판정용)는 어디에도 쓰이지 않는다.
 
     1. 기준 정책(v ≥ ref_tau)을 data 에 돌려 운영점 상수와 목표 δ 를 만든다.
@@ -516,12 +533,13 @@ def train_policy(data: HaltData, ref_tau: float = 0.52, logit_shift: Optional[Se
     oof = crossfit_delta(data, delta, rows, folds, seed, params, rounds, threads)
     resid = delta[rows] - oof[rows]
     r2 = 1.0 - float((resid ** 2).sum()) / max(float(((delta[rows] - delta[rows].mean()) ** 2).sum()), 1e-12)
-    pick = select_beta_tau(data, oof, betas, taus)
+    pick = select_beta_tau(data, oof, betas, taus, require_nonempty=require_nonempty)
     booster = fit_gbm(data.X[rows], delta[rows], params, rounds, threads)
     ref = score_halts(data, first_halt(data.value >= ref_tau, data))
     info = {"target": consts, "crossfit_r2": r2, "folds": folds, "seed": seed, "gbm_params": {**GBM_PARAMS, **(params or {})},
             "gbm_rounds": rounds, "fit_score_ref_tau": ref["score"], "fit_score_tau_only": pick["tau_only_score"],
             "fit_tau_only": pick["tau_only"], "fit_score_selected": pick["score"], "grid": pick["grid"]}
     return HaltPolicy(model_str=booster.model_to_string(), beta=pick["beta"], tau=pick["tau"],
+                      require_nonempty=require_nonempty,
                       logit_shift=None if logit_shift is None else [float(x) for x in logit_shift],
                       n_fit_calls=len(data), info=info, _booster=booster)

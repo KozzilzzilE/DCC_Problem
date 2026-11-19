@@ -139,3 +139,84 @@ def test_predictor_step_passes_utterance_times():
     assert len(pushes) == 1
     passed = {ast.unparse(a) for a in pushes[0].args} | {ast.unparse(k.value) for k in pushes[0].keywords}
     assert {"utt.text", "utt.speaker", "utt.start_ms", "utt.end_ms"} <= passed
+
+
+def test_predictor_load_model_passes_mission():
+    """inference.py 의 Predictor.load_model 이 mission 을 StreamingSymptomModel 에 넘긴다 (방안 A 지원)."""
+    import ast
+
+    source = (HERE / "inference.py").read_text(encoding="utf-8")
+    cls = next(n for n in ast.walk(ast.parse(source)) if isinstance(n, ast.ClassDef) and n.name == "Predictor")
+    load_fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "load_model")
+    calls = [n for n in ast.walk(load_fn) if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "StreamingSymptomModel"]
+    assert len(calls) == 1
+    assert any(k.arg == "mission" and ast.unparse(k.value) == "self.mission" for k in calls[0].keywords)
+
+
+def test_learned_require_nonempty_streaming_parity():
+    """require_nonempty=True 정책이 스트리밍과 오프라인에서 일치하고 조기 중단 시 빈 예측을 내지 않는다."""
+    pytest.importorskip("lightgbm")
+    from m4 import simulate as sim
+
+    policy, table, calls, _ = _policy()
+    probs = table.probs.copy()
+    a0, b0 = int(table.offsets[0]), int(table.offsets[1])
+    probs[a0:b0] = 0.2                                      # 통화 0: 전 구간 빈 예측 -> 조기 중단 차단
+    if calls[1].n_utt >= 7:
+        a1, b1 = int(table.offsets[1]), int(table.offsets[2])
+        probs[a1:b1] = 0.2
+        probs[a1 + 6, 0] = 0.85                             # 통화 1: step 7 에서 첫 양성 등장
+    mod_table = sim.PrefixTable(table.call_ids, table.offsets, probs, table.labels)
+    data = hl.HaltData.build(mod_table, calls, SHIFT)
+
+    pol = hl.HaltPolicy(policy.model_str, beta=4.0, tau=-1e9, require_nonempty=True, logit_shift=[float(x) for x in SHIFT])
+    model = _model(learned_halt_setting(pol.to_dict(), [float(x) for x in SHIFT]))
+    model.settings["halt_rule"] = {"type": "threshold", "threshold": 0.5, "force_top1": False}
+    model._configure()
+
+    sim_halts = pol.halts(data)
+    assert sim_halts[0] == calls[0].n_utt
+    for i, call in enumerate(calls[:30]):
+        a = int(mod_table.offsets[i])
+        model.reset()
+        model.feed = iter(mod_table.call(i))
+        first = None
+        for t in range(call.n_utt):
+            model.push(call.texts[t], call.speakers[t], call.starts[t], call.ends[t])
+            if model.should_halt() and first is None:
+                first = t + 1
+                got_sym = model.symptoms(at_halt=True)
+                assert got_sym == [c for c, on in zip(SYMPTOM_CLASSES, data.pred[a + t]) if on]
+                assert got_sym, f"빈 예측으로 조기 중단함: call={i} step={first}"
+        assert (first or call.n_utt) == sim_halts[i]
+
+
+def test_expected_and_fallback_respect_require_nonempty(monkeypatch):
+    """require_nonempty=True 면 expected 및 lightgbm 폴백 모드에서도 0.5 미만 시 조기 중단하지 않는다."""
+    pytest.importorskip("lightgbm")
+    policy, table, calls, data = _policy()
+    setting = learned_halt_setting(dict(policy.to_dict(), require_nonempty=True), [float(x) for x in SHIFT])
+    fallback = {"type": "expected", "tau": -1.0, "min_step": 5, "require_nonempty": True}
+    # 보정 전 확률은 모두 0.2 (<0.5) 이지만 보정 기대 점수 >= -1.0 인 8발화 통화
+    low_probs = np.full((8, 9), 0.2, dtype=np.float32)
+
+    direct = _model(dict(fallback))
+    monkeypatch.setitem(sys.modules, "lightgbm", None)
+    fb_model = _model(dict(setting, fallback=fallback))
+    for m in (direct, fb_model):
+        m.reset()
+        m.feed = iter(low_probs)
+        for t in range(8):
+            m.push("말", 0, 1000 * t, 1000 * t + 500)
+            assert m.should_halt() is False
+
+    # step 6 에 0.5 이상이 나오면 즉시 중단하고, step 7 이 다시 0.2 로 내려가면 멈추지 않는다
+    hit_probs = low_probs.copy()
+    hit_probs[5, 0] = 0.6
+    fb_model.reset()
+    fb_model.feed = iter(hit_probs)
+    halts = []
+    for t in range(8):
+        fb_model.push("말", 0, 1000 * t, 1000 * t + 500)
+        halts.append(fb_model.should_halt())
+    assert halts == [False, False, False, False, False, True, False, False]

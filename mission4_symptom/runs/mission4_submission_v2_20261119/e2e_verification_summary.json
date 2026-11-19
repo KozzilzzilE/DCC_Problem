@@ -1,0 +1,91 @@
+{
+  "bundle": {
+    "path": "/Users/sunggyu/Desktop/이성규/DCC/artifacts_private/runs/mission4_submission_v2_20261119/ckpt/mission4.pt",
+    "bytes": 1111644586,
+    "sha256": "f681d55a80daec5e3db4a5ad1ccafc8790c06fcc56880a6efdfc5586e5ab18e2",
+    "version": 2,
+    "members_4_1": [
+      "m4_softjaccard_v1_s42",
+      "m4_softjaccard_v1_s43"
+    ],
+    "members_4_2": [
+      "E001",
+      "E002",
+      "E007"
+    ],
+    "halt_policy": {
+      "type": "learned",
+      "beta": 128.0,
+      "tau": 0.5,
+      "min_step": 5,
+      "require_nonempty": true,
+      "n_fit_calls": 26280
+    }
+  },
+  "layer1_full_dev2920": {
+    "n_calls": 2920,
+    "n_moments": 87814,
+    "mission_4_1": {
+      "score": 0.5260387082742352,
+      "rows": 87814,
+      "warnings": [],
+      "loaded_members": 2
+    },
+    "mission_4_2": {
+      "score": 0.5074109205309313,
+      "macro_f1": 0.6132171122891547,
+      "mean_earliness": 0.8274572094649377,
+      "per_class_f1": {
+        "고열": 0.6366559485530547,
+        "구토": 0.5274725274725274,
+        "두통": 0.5142857142857143,
+        "복통": 0.7947976878612717,
+        "어지러움": 0.6240000000000001,
+        "열상": 0.8628428927680799,
+        "오심": 0.3244094488188976,
+        "전신쇠약": 0.5780795344325897,
+        "호흡곤란": 0.6564102564102564
+      },
+      "rows": 2920,
+      "warnings": [],
+      "loaded_members": 3,
+      "mid_call_empty_halts": 0,
+      "total_empty_halts_incl_finalize": 21,
+      "mismatches_vs_ENS3_C128_v1_nonempty": 0
+    }
+  },
+  "layer2_real_cli_subset16": {
+    "n_calls": 16,
+    "composition": {
+      "blocked_by_v1_gate": 6,
+      "shortest_calls": 2,
+      "shortest_min_utts": 7,
+      "multi_symptom": 4,
+      "single_symptom": 4
+    },
+    "parity_check_calls": 4,
+    "parity_check_moments": 71,
+    "offline_env": {
+      "HF_HUB_OFFLINE": "1",
+      "TRANSFORMERS_OFFLINE": "1",
+      "device": "cpu"
+    },
+    "mission_4_1": {
+      "cli_seconds": 59.58,
+      "rows": 395,
+      "score": 0.39122826522347454,
+      "warnings": [],
+      "binary_row_diffs_vs_layer1": 0,
+      "max_prob_diff_fp16_bundle_vs_npz": 0.0006241798400878906
+    },
+    "mission_4_2": {
+      "cli_seconds": 28.01,
+      "rows": 16,
+      "score": 0.3706981051239376,
+      "warnings": [],
+      "call_diffs_vs_layer1": 0,
+      "mid_call_empty_halts": 0,
+      "max_prob_diff_fp16_bundle_vs_npz": 0.00043064355850219727
+    }
+  }
+}

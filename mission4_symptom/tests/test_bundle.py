@@ -10,7 +10,16 @@ HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 
 from m4 import SYMPTOM_CLASSES  # noqa: E402
-from m4.bundle import learned_halt_setting, member_pos_weight, shared_pos_weight, shared_prior_source  # noqa: E402
+from m4.bundle import (  # noqa: E402
+    BUNDLE_SPLIT_VERSION,
+    DEFAULT_SETTINGS,
+    learned_halt_setting,
+    load_bundle,
+    member_pos_weight,
+    pack_mission_split_bundle,
+    shared_pos_weight,
+    shared_prior_source,
+)
 
 WEIGHTS = [2.1, 2.3, 3.0, 1.8, 1.9, 2.7, 2.8, 2.1, 2.5]
 
@@ -99,3 +108,78 @@ def test_learned_halt_setting_rejects_other_policies():
     del broken["model_str"]
     with pytest.raises(ValueError, match="model_str"):
         learned_halt_setting(broken, None)
+
+
+def test_default_settings_comply_with_competition_rules():
+    assert DEFAULT_SETTINGS["rule"] == {"type": "threshold", "threshold": 0.5, "force_top1": False, "max_labels": None}
+    assert DEFAULT_SETTINGS["halt_rule"] == {"type": "threshold", "threshold": 0.5, "force_top1": False}
+    assert DEFAULT_SETTINGS["halt"]["require_nonempty"] is True
+
+
+def test_learned_halt_setting_preserves_require_nonempty():
+    shift = [0.76] * 9
+    assert learned_halt_setting(_policy_dict(shift), shift)["require_nonempty"] is False
+    flagged = dict(_policy_dict(shift), require_nonempty=True)
+    assert learned_halt_setting(flagged, shift)["require_nonempty"] is True
+
+
+def _write_tiny_member(dirpath: Path, seed: int) -> None:
+    import torch
+    from safetensors.torch import save_file
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+    from tokenizers.pre_tokenizers import Whitespace
+    from transformers import BertConfig, BertForSequenceClassification, PreTrainedTokenizerFast
+
+    dirpath.mkdir(parents=True, exist_ok=True)
+    vocab = {"[UNK]": 0, "[CLS]": 1, "[SEP]": 2, "[PAD]": 3, "고열": 4, "구토": 5}
+    tok = Tokenizer(WordLevel(vocab=vocab, unk_token="[UNK]"))
+    tok.pre_tokenizer = Whitespace()
+    fast_tok = PreTrainedTokenizerFast(
+        tokenizer_object=tok, unk_token="[UNK]", cls_token="[CLS]", sep_token="[SEP]", pad_token="[PAD]"
+    )
+    fast_tok.save_pretrained(str(dirpath))
+
+    torch.manual_seed(seed)
+    cfg = BertConfig(
+        vocab_size=len(vocab), hidden_size=16, num_hidden_layers=1, num_attention_heads=2,
+        intermediate_size=32, num_labels=len(SYMPTOM_CLASSES),
+    )
+    model = BertForSequenceClassification(cfg)
+    cfg.save_pretrained(str(dirpath))
+    save_file({k: v.contiguous() for k, v in model.state_dict().items()}, str(dirpath / "model.safetensors"))
+
+
+def test_pack_and_load_mission_split_bundle_offline(tmp_path, monkeypatch):
+    import torch
+
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+    m41 = tmp_path / "sj42"
+    m42_a = tmp_path / "e001"
+    m42_b = tmp_path / "e002"
+    _write_tiny_member(m41, 1)
+    _write_tiny_member(m42_a, 2)
+    _write_tiny_member(m42_b, 3)
+
+    bundle_path = tmp_path / "split.pt"
+    pack_mission_split_bundle(
+        {
+            "4-1": ([m41], {"rule": {"type": "threshold", "threshold": 0.5, "force_top1": False}, "halt": {"type": "never"}}),
+            "4-2": ([m42_a, m42_b], {"rule": {"type": "threshold", "threshold": 0.5, "force_top1": False},
+                                     "halt": {"type": "expected", "tau": 0.5, "min_step": 5, "require_nonempty": True}}),
+        },
+        bundle_path,
+        note="unit-test",
+    )
+    payload = torch.load(bundle_path, map_location="cpu", weights_only=False)
+    assert payload["version"] == BUNDLE_SPLIT_VERSION
+
+    mem41, set41 = load_bundle(bundle_path, torch.device("cpu"), mission="4-1")
+    mem42, set42 = load_bundle(bundle_path, torch.device("cpu"), mission="4-2")
+    assert len(mem41) == 1 and set41["halt"]["type"] == "never"
+    assert len(mem42) == 2 and set42["halt"]["require_nonempty"] is True
+    with pytest.raises(ValueError, match="mission"):
+        load_bundle(bundle_path, torch.device("cpu"), mission=None)
+    with pytest.raises(ValueError, match="mission"):
+        load_bundle(bundle_path, torch.device("cpu"), mission="4-3")

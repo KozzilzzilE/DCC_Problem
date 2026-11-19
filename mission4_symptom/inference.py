@@ -337,13 +337,15 @@ class Predictor:
     """발화조각을 하나씩 받아 환자의 증상을 예측하는 모델 래퍼.
 
     모델과 추론 설정(입력 형식, 결정 규칙, 중단 기준)은 모두 가중치 파일(.pt) 안에 있다.
-    실제 계산은 m4/streaming.py 의 StreamingSymptomModel 이 맡는다.
+    실제 계산은 m4/streaming.py 의 StreamingSymptomModel 이 맡으며, 미션 분리 번들에서는
+    `mission`("4-1" 또는 "4-2")에 해당하는 모델 멤버만 메모리에 적재한다.
 
     * 증상 분류의 입력은 utt.text 와 utt.speaker 뿐이다. 그 순간까지 받은 전사를 누적해 분류한다.
-    * 4-1 은 매 발화마다 증상 리스트를 낸다. 기대 순간 점수가 가장 커지는 개수만큼 내며, 항상 1개 이상이다.
-    * 4-2 는 5번째 발화부터, 지금 답했을 때의 기대 점수가 기준 이상이면 그 순간의 예측으로 중단한다.
-      학습형 중단 기준을 담은 번들에서는 "더 들어도 나아지지 않을지"를 함께 보며, 이 판단에만
-      그 순간까지 받은 발화의 시각(utt.start_ms, utt.end_ms)을 쓴다. 오디오와 통화 전체 길이는 쓰지 않는다.
+    * 4-1 은 매 발화마다 보정 없는 평균 확률 >= 0.5 인 증상 리스트를 낸다 (1위 강제 없음, 빈 리스트 허용).
+    * 4-2 는 5번째 발화부터, 보정 없는 평균 확률 >= 0.5 인 증상이 최소 1개 이상이면서
+      학습형 중단 기준(expected + beta * delta_hat >= tau)을 넘을 때 그 순간의 예측으로 중단한다.
+      이 판단에는 그 순간까지 받은 발화의 시각(utt.start_ms, utt.end_ms)을 함께 쓰며,
+      오디오와 통화 전체 길이는 쓰지 않는다.
     """
 
     def __init__(self, ckpt_path: str, mission: str, device: str = "cpu") -> None:
@@ -353,13 +355,13 @@ class Predictor:
         self.model = self.load_model(ckpt_path)
 
     def load_model(self, ckpt_path: str):
-        """`.pt` 번들에서 모델과 추론 설정을 읽는다. 외부 다운로드는 하지 않는다."""
+        """`.pt` 번들에서 현재 미션에 맞는 모델과 추론 설정을 읽는다. 외부 다운로드는 하지 않는다."""
         here = os.path.dirname(os.path.abspath(__file__))
         if here not in sys.path:
             sys.path.insert(0, here)
         from m4.streaming import StreamingSymptomModel
 
-        return StreamingSymptomModel(ckpt_path, device=self.device)
+        return StreamingSymptomModel(ckpt_path, device=self.device, mission=self.mission)
 
     def reset(self) -> None:
         """새 통화가 시작되면 누적 전사와 직전 확률을 모두 지운다."""
