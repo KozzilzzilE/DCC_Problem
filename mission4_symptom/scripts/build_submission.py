@@ -40,7 +40,7 @@ RENAME = {"SUBMISSION_README.md": "README.md"}
 # 4-1·멈출 때 예측은 보정 없는 확률 >= 0.5 (1위 강제 없음), 멈춤은 require_nonempty + expected + 128·예측 이득 >= 0.5.
 BUNDLE_SRC = "ckpt/mission4.pt"
 BUNDLE = "ckpt/mission4.pt"                 # 제출 폴더 안 이름
-BUNDLE_SHA256 = "f681d55a80daec5e3db4a5ad1ccafc8790c06fcc56880a6efdfc5586e5ab18e2"
+BUNDLE_SHA256 = "26c3ff2729e67916d2543f216a1c6c342d399f5b24e3ade9c7509e534d3c92b8"
 
 
 def sha256(path: Path) -> str:

@@ -183,3 +183,145 @@ def test_pack_and_load_mission_split_bundle_offline(tmp_path, monkeypatch):
         load_bundle(bundle_path, torch.device("cpu"), mission=None)
     with pytest.raises(ValueError, match="mission"):
         load_bundle(bundle_path, torch.device("cpu"), mission="4-3")
+
+
+def test_pack_members_uses_parent_name_for_best_model(tmp_path):
+    from m4.bundle import _pack_members
+
+    bm = tmp_path / "m4_softjaccard_v1_s42" / "best_model"
+    _write_tiny_member(bm, 7)
+    plain = tmp_path / "E002_prefix_uniform"
+    _write_tiny_member(plain, 8)
+    members = _pack_members([bm, plain], half=True)
+    assert [m["name"] for m in members] == ["m4_softjaccard_v1_s42", "E002_prefix_uniform"]
+
+
+def test_pack_bundle_records_halt_source_basename_only(tmp_path, monkeypatch):
+    import json
+    import types
+
+    scripts_dir = str(HERE / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import pack_bundle  # noqa: E402
+
+    pol_path = tmp_path / "private_dir" / "policy_fitonly_c128.json"
+    pol_path.parent.mkdir(parents=True)
+    shift = [0.76] * 9
+    pol_path.write_text(json.dumps(_policy_dict(shift)), encoding="utf-8")
+
+    fake_args = types.SimpleNamespace(
+        halt_policy=str(pol_path),
+        allow_empty_halt=False,
+        require_nonempty=True,
+        halt_fallback_tau=0.5,
+    )
+    halt = pack_bundle._build_halt_setting(fake_args, shift)
+    assert halt["source"] == "policy_fitonly_c128.json"
+    assert halt["require_nonempty"] is True
+
+
+def test_train_prefix_losses_and_full_only_sampling():
+    import numpy as np
+    import torch
+
+    scripts_dir = str(HERE / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import train_prefix  # noqa: E402
+
+    assert train_prefix.resolve_loss_weights("bce") == (0.0, 0.0)
+    assert train_prefix.resolve_loss_weights("softjaccard") == (0.5, 0.0)
+    assert train_prefix.resolve_loss_weights("jacc_macrof1") == (0.5, 0.2)
+    assert train_prefix.resolve_loss_weights("softjaccard", jaccard_weight=0.25) == (0.25, 0.0)
+
+    torch.manual_seed(0)
+    logits = torch.randn(4, len(SYMPTOM_CLASSES), requires_grad=True)
+    target = torch.tensor([[1, 0, 0, 0, 0, 0, 0, 0, 0],
+                           [0, 1, 1, 0, 0, 0, 0, 0, 0],
+                           [0, 0, 0, 1, 0, 0, 0, 0, 0],
+                           [0, 0, 0, 0, 1, 0, 0, 0, 1]], dtype=torch.float32)
+    pw = torch.tensor(WEIGHTS, dtype=torch.float32)
+
+    bce_ref = torch.nn.BCEWithLogitsLoss(pos_weight=pw)(logits, target)
+    l_bce = train_prefix.compute_loss(logits, target, pw, 0.0, 0.0)
+    l_sj = train_prefix.compute_loss(logits, target, pw, 0.5, 0.0)
+    l_jm = train_prefix.compute_loss(logits, target, pw, 0.5, 0.2)
+    assert torch.allclose(l_bce, bce_ref, atol=1e-6)
+    assert torch.isfinite(l_sj) and torch.isfinite(l_jm)
+    assert l_sj.item() > l_bce.item() and l_jm.item() > l_sj.item()
+    l_jm.backward()
+    assert logits.grad is not None and torch.isfinite(logits.grad).all()
+
+    prefixes = [["a", "b", "c"], ["d", "e"]]
+    rng = np.random.default_rng(42)
+    full_items = train_prefix.sample_epoch_items(prefixes, 2, rng, include_full=False, full_only=True)
+    assert full_items == [(0, 3), (0, 3), (1, 2), (1, 2)]
+    with pytest.raises(ValueError):
+        train_prefix.sample_epoch_items(prefixes, 1, rng, include_full=True, full_only=True)
+
+
+def test_train_halt_policy_forwards_require_nonempty(monkeypatch):
+    import types
+    import numpy as np
+
+    scripts_dir = str(HERE / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import train_halt_policy as thp  # noqa: E402
+    from m4 import halting as hl  # noqa: E402
+
+    captured = {}
+
+    class _FakeBooster:
+        def feature_importance(self, importance_type="gain"):
+            return np.ones(len(hl.FEATURE_NAMES), dtype=np.float64)
+
+    class _FakePolicy:
+        beta = 16.0
+        tau = 0.5
+        feature_names = hl.FEATURE_NAMES
+        info = {
+            "target": {"n_rows": 4, "delta_pos_rate": 0.5},
+            "crossfit_r2": 0.1,
+            "fit_score_ref_tau": 0.4,
+            "fit_tau_only": 0.5,
+            "fit_score_tau_only": 0.41,
+            "fit_score_selected": 0.45,
+        }
+
+        def halts(self, ev):
+            return np.zeros(len(ev), dtype=np.int64)
+
+        def booster(self):
+            return _FakeBooster()
+
+    def _fake_train_policy(fit, **kwargs):
+        captured.update(kwargs)
+        return _FakePolicy()
+
+    class _FakeHaltData:
+        def __init__(self, call_ids):
+            self.call_ids = call_ids
+        value = np.array([0.6, 0.7])
+        pred = np.array([[True] + [False] * 8, [False] * 9])
+        step = np.array([5, 5])
+        n_utt = np.array([5, 5])
+        X = np.zeros((2, len(hl.FEATURE_NAMES)))
+
+        def __len__(self):
+            return 2
+
+    monkeypatch.setattr(hl, "train_policy", _fake_train_policy)
+    monkeypatch.setattr(hl, "first_halt", lambda stop, ev: np.zeros(len(ev), dtype=np.int64))
+    monkeypatch.setattr(hl, "score_halts", lambda ev, h: {"score": 0.5, "macro_f1": 0.6, "earliness": 0.8, "halt_median": 5.0, "never_halted": 0.0})
+    monkeypatch.setattr(hl, "paired_bootstrap", lambda ev, a, b, boot: {"diff": 0.0, "lo": 0.0, "hi": 0.0, "p_gt0": 0.5})
+
+    args = types.SimpleNamespace(
+        ref_tau=0.5, folds=5, seed=0, threads=1, taus=[0.5], betas=[16.0],
+        base_tau=0.5, boot=10, require_nonempty=True,
+    )
+    row, _, _ = thp.run_once(_FakeHaltData(["f1", "f2"]), _FakeHaltData(["e1", "e2"]), args, [0.5] * 9, "test")
+    assert captured["require_nonempty"] is True
+    assert row["require_nonempty"] is True
+

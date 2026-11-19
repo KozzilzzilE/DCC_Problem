@@ -64,9 +64,9 @@ flowchart TD
 - **결과와 왜 `ENS3`가 잘 나왔는가 (`EXPERIMENT_LOG.md` `E002`, `E006`):**
   - 순수 `0.5` 기준 `E002` 단독 4-1은 `0.502733`(`E001` `0.501355` 대비 소폭 상승)에 그쳤다. 앞부분을 집중해 배우니 **초반은 올랐지만 통화 끝부분 점수가 살짝 떨어져 상쇄**되었기 때문이다(`앞 0.395→0.400`, `뒤 0.638→0.627`).
   - 반면 **"끝까지 배워 후반이 신중한 예선 모델 1개(`E001`)"** 와 **"앞부분을 배워 초반 순발력이 좋은 모델 2개(`E002, E007`)"** 를 확률 평균(`ENS3`)하자, 초반엔 `E002/E007`이 빈 예측을 메워 주고 초반 오탐은 `E001`이 눌러 주면서(`pre-cue FP` `E002 31,989 → ENS3 28,218`) **4-1 `0.506001`**, **4-2 기대점수 기준 `0.498835`** 로 두 모델 계열이 서로의 약점을 메우는 시너지가 발생했다.
-- **근거 보완 필요 ① (기록상 약한 고리):**
-  - `E001`(예선에서 학습된 모델)과 `E002`(본선에서 통화당 2개씩 3회전 학습한 모델)는 총 학습 노출 수·스케줄이 다르다([`UPDATES_REVIEW.md` 68행](mission4_streaming_baseline_20261115/UPDATES_REVIEW.md#L68)).
-  - *"입력만 Full에서 Prefix로 바꾼 순수 효과"* 를 설명할 때는 우리가 동일 학습 예산·조건에서 비교한 파일럿(`B0` 통화 전체 `0.3914` → `B1` 누적 `0.4240`, `512`통화, [`MISSION4_B0_B1_PILOT_REPORT.md`](mission4_baseline_strategy_20261108/MISSION4_B0_B1_PILOT_REPORT.md))을 함께 연결해 근거를 보강하는 것이 안전하다.
+- **근거 보완 및 통제 검증 (`Full vs Prefix` 학습량 비대칭 분리):**
+  - `E001`(예선 `5 epoch`, `max_len 384`, `lr 2e-5`)과 `E002`(본선 통화당 `2`개씩 `3 epoch` = `9,855`스텝)는 총 노출량·스케줄이 다르다([`UPDATES_REVIEW.md` 68행](mission4_streaming_baseline_20261115/UPDATES_REVIEW.md#L68)).
+  - 순수 *'입력만 Full에서 Prefix로 바꾼 효과'* 근거로 ① 동일 학습 예산 파일럿(`B0` 통화 전체 `0.3914` → `B1` 누적 `0.4240`, `512`통화, [`MISSION4_B0_B1_PILOT_REPORT.md`](mission4_baseline_strategy_20261108/MISSION4_B0_B1_PILOT_REPORT.md))을 제시하고, ② 이에 더해 `E002`와 동일한 `TAPT`(초기 SHA-256 `25424975...`)·`fit 26,280`·`lr 5e-5`·`LLRD 0.8`·`seed 42`·`6 epoch × 1/통화`(`9,858`스텝, `epoch 3` 진단 스냅샷 병행) 통제 대조 실험 `full_only_roberta_tapt_s42`([`PROTOCOL.md`](m4_logic_closure_20261120/PROTOCOL.md))를 현재 Colab L4에서 수행 중이다.
 
 ---
 
@@ -93,7 +93,10 @@ Step 2 직후 **`TAPT KLUE-RoBERTa-base + 공백 누적 전사`를 기준 분류
 | 화자 표시 (`E018`, `[대원]`/`[신고자]`) | 동일 `TAPT` | 단독 `-0.0019` (`maxent`), 교체 `-0.0010` | 말투로 이미 구분됨 → 미채택 |
 | 신고자 음성 (`E020`, `WavLM`) | 텍스트+음성 결합 | `6,000`건 `5-fold` AUC 텍스트 대비 `-0.0014` (`[-0.0034, +0.0007]`) | 전화 음질 한계 → 미채택 |
 
-- **남은 미세 보완 항목:** `KF-DeBERTa(E008)`와 `RoBERTa-large(E019)`는 TAPT 없이 비용-효율 사유로 제외됐고 공식 `raw 0.5` 점수만 미기록 상태이므로, 팀원 PC에 `.npz`가 남아 있다면 추후 CPU 재채점으로 표 수치만 통일하면 된다. (`KR-BERT`·`KoELECTRA`·`KcELECTRA`·`RoBERTa` 4대 `base` 백본은 동일 `20-epoch TAPT` + `raw 0.5` 검증 완료.)
+- **판단 기준 (통계적 유의성 vs 사전 채택 게이트 분리) 및 `E008`/`E019` 재현 진행:**
+  - 사전 등록 채택 기준([`m4_backbone_tapt_20261119/PROTOCOL.md`](m4_backbone_tapt_20261119/PROTOCOL.md))은 `E002 (0.502733)` 대비 **`> +0.002` 및 95% 신뢰구간 하한 `> 0`** 이었다.
+  - `KoELECTRA+TAPT` (`0.495421`, `-0.007312`, `95% CI [-0.0126, -0.0019]`, `p=0.0032`)와 `KR-BERT+TAPT` (`0.493317`, `-0.009416`, `95% CI [-0.0149, -0.0039]`, `p=0.0002`)는 통계적으로도 유의한 열위였고, `RoBERTa(No-TAPT)` (`0.498685`, `-0.004049`, `CI [-0.0089, +0.0010]`)와 `KcELECTRA+TAPT` (`E022 0.498099`, `-0.004634`, `CI [-0.0096, +0.0005]`)는 95% 신뢰구간 상단이 미세하게 `0`에 걸치나 점추정치가 `-0.0040~-0.0046` 열위이고 사전 채택 게이트(`> +0.002`, `CI > 0`)를 만족하지 못해 미채택했다.
+  - 한편 `KF-DeBERTa(E008)`와 `RoBERTa-large(E019)`는 TAPT 미적용 상태에서 비용-효율 사유로 제외됐고 공식 `raw p >= 0.5` 수치만 미기록 상태이므로, `m4_logic_closure_v1_20261120`(`e008_kfdeberta_repro_s42`, `e019_roberta_large_repro_s42`)으로 Colab L4 독립 재현을 현재 진행 중이다. (추후 팀원 원본 `.npz` 확보 시 표 주 수치는 팀원 원본 재채점으로 대체하고 본 L4 실행은 독립 재현 기록으로 분리 보존한다.)
 
 ---
 
@@ -137,18 +140,22 @@ Step 2 직후 **`TAPT KLUE-RoBERTa-base + 공백 누적 전사`를 기준 분류
 
 #### Step 4-B. 최종 해법 — `BCE(pos_weight^0.5)` + `SoftJaccard` 직접 결합 (`m4_softjaccard_v1`, 내 실험, 시드 42·43)
    - *생각:* 가중치를 낮추면 빈칸(`0`점)이 늘어나 망하고, 음성 억제를 풀면 `5.37`개씩 남발해서 망한다. 따라서 **기존 `BCE(pos_weight^0.5)`로 평균 예측 개수(`~1.25`개) 균형을 유지한 채, 대회 4-1 채점식인 시점별 Jaccard 점수를 미분 가능한 손실로 만들어 그대로 더하자.**
-   - *구현 로직 ([`train_precue.py:119-124`](../tools/m4_precue_bce/train_precue.py#L119-L124)):* 각 시점 $i$에서 예측 확률 $p_i = \sigma(z_i)$와 정답 $y_i$의 교집합($\sum p_{i,c} y_{i,c}$)과 합집합($\sum (p_{i,c} + y_{i,c} - p_{i,c} y_{i,c})$)으로 `1 - inter / union`을 계산해 `1.0` 비중으로 결합했다.
-   - *결과 및 작동 기전 (`SEED43_SUPPLEMENT.md`, `gap2_summary_cmp.json`):*
-     - 시드 42 **`0.526393`**, 시드 43 **`0.524933`**, **2-seed 평균 `0.526039`** (`score.py` 경고 0건)로 기존 `ENS3`(`0.506001`)을 **`+0.020038` (`+2.0%p`, `CI [+0.015980, +0.023926]`)** 차이로 압도했다.
+   - *구현 로직 ([`train_precue.py:119-124`](../tools/m4_precue_bce/train_precue.py#L119-L124)):* 각 시점 $i$에서 예측 확률 $p_i = \sigma(z_i)$와 정답 $y_i$의 교집합($\sum p_{i,c} y_{i,c}$)과 합집합($\sum (p_{i,c} + y_{i,c} - p_{i,c} y_{i,c})$)으로 `1 - inter / union`을 계산해 `0.5` 가중치(`--loss softjaccard`)로 결합했다.
+   - *동일 조건 1-멤버 교체 연결고리 (`T1..T10` vs `ENS_rep_sj42/43`, 공정 비교 다리):*
+     - 위 `T1..T10` 소거 실험은 모두 `ENS3` 안의 `E002` 1개만 새 모델로 바꿔 채점했다(`T0 0.506006`, 최고 `T8 0.507070 (+0.001064, CI [-0.0035, +0.0053])`, `T9 0.506730 (+0.000724, CI [-0.0006, +0.0021])`).
+     - 동일한 1-멤버 교체 규칙(`E001 + 후보 + E007`)에 `SoftJaccard`를 1개만 넣어도 **`ENS_rep_sj42 = 0.512504`** (`ENS3 0.506001` 대비 **`+0.006504`, `95% CI [+0.003906, +0.009139]`, `P(>0)=1.0000`**), **`ENS_rep_sj43 = 0.513561`** (`+0.007561`, `95% CI [+0.004938, +0.010186]`, `P(>0)=1.0000`)로, 어떤 `BCE` 계열 개조보다 `6~10배` 큰 확정적 도약을 보였다. 즉 `SoftJaccard`의 우위는 앙상블 방식 차이가 아니라 학습 목적함수 자체의 차이다.
+   - *최종 4-1 조합 선택 (`SJ42+SJ43` 2-seed vs 단독 / `ENS4_sj`):*
+     - 단독 점수는 **`SJ42 = 0.526393`** (`+0.023660` vs `E002`), **`SJ43 = 0.524933`** (`+0.022199` vs `E002`)이며, **2-seed 평균 `SJ42+SJ43 = 0.526039`** (`score.py` 경고 0건, vs `ENS3 0.506001`: `+0.020038`, `CI [+0.015980, +0.023926]`)을 기록했다.
+     - `E001+E007`까지 섞은 **`ENS4_sj = 0.516301`** 은 `BCE` 멤버 혼입으로 빈 예측률이 되살아나 오히려 `-0.0097` 희석되므로 제외했고, `SJ42` 단독(`0.526393`) 대신 **`SJ42+SJ43` 2-seed 평균(`0.526039`)** 을 택해 시드 분산을 낮추면서 기존 3모델(`ENS3`) 대비 4-1 추론 비용도 33% 절감했다.
      - **작동 기전 분해:** `pre-cue FP`(`33,765`건)나 다중 증상 마지막 Recall(`51.76%`)을 고친 것이 아니라, 과다 예측 없이 **초반 빈 예측률을 절반(`15.15% → 8.16~9.74%`)으로 줄이고 전체의 `67.1%`인 단일 증상 일치도를 `0.5631 → 0.5968`로 끌어올린 효과**임을 투명하게 검증했다.
 - **근거 검증 상태:** 확인 완료 (시드 42·43 가중치, 재개 상태, SHA-256, `72`시점 CPU 오프라인 추론 일치).
 
 ---
 
-### Step 5. [4-1 ↔ 4-2 연결 고리] 목적함수 상충 발견과 역할 분리 결정 (`m4_jacc_macrof1_v1`)
-- **발견:** 4-1에서 최고점을 낸 `SoftJaccard`를 4-2에 적용하면 단독 `0.4933`, 앙상블 `ENS4_sj` `0.5024`로 `ENS3`(`0.5074`)보다 낮아졌다. 이유는 4-1은 **샘플 평균 Jaccard**(고빈도·단일 증상 중시)인 반면 4-2는 **9개 증상 F1의 동등 평균인 `Macro-F1`**(가장 드문 `오심`·`두통` 재현율 민감)이기 때문이다.
-- **검증 (`m4_jacc_macrof1_v1`, 시드 42·43):** `0.5·SoftJaccard + 0.5·SmoothMacroDice`([`train_precue.py:125-130`](../tools/m4_precue_bce/train_precue.py#L125-L130))를 결합하자 실제로 `오심` 최종 F1이 회복(`0.3289 → 0.3524~0.3599`)되며 4-1(`0.5160`)과 4-2(`ENS4_jm 0.5035`)의 중간 균형점이 확인됐다.
-- **결정:** 한 모델로 두 지표를 타협하면 양쪽 다 최고점을 놓치므로, **단일 번들 안에서 4-1은 `SoftJaccard` 2-seed(`0.5260`), 4-2는 `Macro-F1`을 지키는 `ENS3`(`0.5074`)를 분리 사용**하기로 결정했다.
+### Step 5. [4-1 ↔ 4-2 연결 고리] 목적함수 상충 및 중단 정책 독립 우위 검증 (`m4_jacc_macrof1_v1`)
+- **정책 독립적 `final_step Macro-F1` 비교 (`gap2_summary_cmp.json`):** 4-2는 중단 시점의 **9개 증상 동등 평균 `Macro-F1`**(드문 `오심`·`두통` 재현율 민감) × `Earliness`가 핵심이다. 어떤 중단 정책도 쓰지 않은 통화 끝(`final_step`) 기준 `Macro-F1`만 비교해도 **`ENS3 = 0.656206`** 이 `E002 (0.650203)`, `SJ_2seed_avg (0.648403)`, `ENS4_sj (0.652444)`, `JM_2seed_avg (0.652642)`를 모두 앞선다. (유일하게 끝발화가 비슷한 `ENS4_jm = 0.656262`도 `C128_v1_nonempty` 적용 4-2 종합에서는 `0.5036`으로 `ENS3 0.5074`에 뒤처진다.) 즉 4-2에서 `ENS3`의 우위는 특정 중단 정책에 의존하지 않는 **분류기 자체의 `Macro-F1` 우위**다.
+- **절충 손실 대조 (`m4_jacc_macrof1_v1`, 시드 42·43):** `0.5·SoftJaccard + 0.2·SmoothMacroDice`([`train_precue.py:125-130`](../tools/m4_precue_bce/train_precue.py#L125-L130))를 결합하자 실제로 `오심` 최종 F1이 회복(`0.3289 → 0.3524~0.3599`)되며 4-1(`0.5160`)과 4-2(`ENS4_jm 0.5036`)의 중간 균형점이 확인됐으나 양쪽 모두 최고점을 넘지 못했다.
+- **결정:** 한 모델로 두 지표를 타협하면 양쪽 다 손해를 보므로, **단일 번들 안에서 4-1은 `SoftJaccard` 2-seed(`0.526039`), 4-2는 `Macro-F1`을 지키는 `ENS3`(`0.507411`)를 분리 탑재**하기로 결정했다.
 - **근거 검증 상태:** 확인 완료.
 
 ---
@@ -159,25 +166,25 @@ Step 2 직후 **`TAPT KLUE-RoBERTa-base + 공백 누적 전사`를 기준 분류
 - **학습형 정책(`E026`)의 아이디어와 3가지 허점:**
   - `m4/halting.py`는 5번째 마디부터 현재까지의 누적 정보 **57개 특징**(보정 확률 상위 3개, 기대 점수 `v(t)` 및 변화량, 연속 동일 예측 횟수, 발화 시간·길이, 어휘 등 — 미래 길이 0개)을 LightGBM에 넣어 *"더 들으면 기대할 점수 변화량 $\hat{\delta}(t)$"* 를 예측하고, **$v(t) + 128 \cdot \hat{\delta}(t) \ge 0.5$** 이면 멈춘다(`0.503146`).
   - 그러나 기존 `E026`은 ① `Dev`가 포함된 `29,200`통화 통계로 보정값(`logit_shift`)을 계산한 간접 누수 논란, ② **아직 `raw p >= 0.5`인 증상이 0개(빈 예측 `[]`)인데도 중간에 성급히 끊은 `27`건(총 `43`건)** 으로 인한 `Macro-F1` 하락(`0.6136 → 0.6064`), ③ 95% CI 하한 음수(`[-0.001003, +0.009525]`)라는 약점이 있었다.
-- **우리의 최종 해결 (`e002_oof_20261117` + `e026_fitonly_policy_v1_20261117`):**
-  1. **무누수 재학습:** `Dev 2,920`건을 완전히 배제한 순수 `fit 26,280`건 5겹 OOF(`801,544`시점)와 `fit_only_shift`만으로 정책을 재학습했다(동일 OOF 비교로 기존 `E026` 이득이 누수 덕분이 아니었음도 증명: `29k_shift 0.507455` vs `fit_only_shift 0.507400`).
-  2. **빈 예측 조기 중단 금지 게이트(`C128_v1_nonempty`):** 중단 조건에 **`any(raw_p >= 0.5)`** 조건을 추가해 증상을 하나도 못 찾은 상태에서의 중간 중단을 차단했다. (공식 평가셋은 모든 샘플에 최소 1개 정답이 있으므로 조기 빈칸 중단은 100% 손실이다.)
-- **결과 (`check_empty_at_halt.py`, `summary.json`):**
-  - 통화 중간 빈 예측 조기 중단 **`27건 → 0건` 완전 제거** (이 27건 중 **22건이 뒷부분 대화를 듣고 실제 증상을 찾아냄**; 남은 `21`건은 끝까지 다 들어도 `0.5`를 못 넘겨 통화 종료 시점에 자연스럽게 나온 빈칸).
-  - **`ENS3` 4-2 점수 `0.498835 → 0.507411` (`+0.008575`, 95% CI `[+0.003325, +0.013903]`, `Macro-F1 0.6132` 유지).**
+- **`E026 → C128_v0 → C128_v1_nonempty` 단계별 투명 분해 (`ENS3`, `Dev 2,920`, [`summary.json`](/Volumes/로컬%20디스크/DCC/private_experiments/e026_fitonly_policy_v1_20261117/summary.json)):**
+  - `C0 (beta=0, fit_only_shift)`: `0.498835` (`Macro-F1 0.613594`, `Earliness 0.812974`, `empty_at_halt 34`건).
+  - 기존 `E026` (`29k` 전체 shift · 구 OOF): `0.503146` (`Macro-F1 0.6064`).
+  - `fit-only OOF C128_v0` (`beta=128`, 무누수, `26,280` `fit_only_shift` + 5겹 OOF `801,544`시점): **`0.507400`** (`Macro-F1 0.612413`, `Earliness 0.828527`, `empty_at_halt 43`건 = 통화 중간 `27`건 + 끝 `16`건, `diff_vs_C0 = +0.008565`, `95% CI [+0.003310, +0.013915]`). (참고: 동일 OOF 위에서 `29k_shift`는 `0.507455`로 `fit_only_shift` 대비 차이는 `0.000055`로, 기존 이득이 누수 덕분이 아니었음도 입증됨.)
+  - **빈 예측 조기 중단 금지 게이트 추가 (`C128_v1_nonempty`, `require_nonempty=True`):** 중단 조건에 **`any(raw_p >= 0.5)`** 조건을 추가해 중간 빈 예측 조기 중단을 원천 차단했다. 그 결과 통화 중간 빈 예측 조기 중단 **`27건 → 0건` 완전 제거**(`empty_at_halt 21`건 = 중간 `0`건 + 끝 `21`건, 차단 `27`건 중 **`22`건이 뒷말을 듣고 실제 증상을 회복**해 찾음; 남은 `21`건은 끝까지 `0.5` 미만이라 종료 시 자연 출력)하며 **`0.507411` (`Macro-F1 0.613217 × Earliness 0.827457`, `diff_vs_C0 = +0.008575`, `95% CI [+0.003325, +0.013903]`)** 를 달성했다.
 - **근거 검증 상태:** 확인 완료 (`e002_oof` 5개 fold 확률표·로그·SHA-256 보관; 단, 보조 fold 가중치 `final.pt`는 관례상 원격 종료 시 미보존).
 
 ---
 
 ### Step 7. 최종 제출 아키텍처 통합 (`ckpt/mission4.pt`, E2E 검증 완료)
-- **미션 분리 단일 번들 (`version=2`, `1,111,644,586`B / `1,060 MiB`, SHA-256 `f681d55a80daec5e3db4a5ad1ccafc8790c06fcc56880a6efdfc5586e5ab18e2`):**
-  - `mission4_symptom` 제출 코드(`origin/docs` 브랜치 [`mission4-submission-v2`](../github_review/DCC_Problem/mission4_symptom/m4/bundle.py))에 ① `m4/halting.py` `require_nonempty` 게이트(`HaltPolicy`/`HaltFeatureState`), ② `m4/bundle.py` 방안 A `version=2` 미션 분리 로더 및 규정 기본값(`rule=threshold`, `force_top1=False`), ③ `m4/streaming.py` `4-1` 경량 분기 및 `expected`/폴백 게이트, ④ `inference.py` `Predictor` 미션 전달, ⑤ `scripts/pack_bundle.py` `--members-4-1`/`--members-4-2` · `--require-nonempty` · 안전 기본값을 통합했다.
+- **미션 분리 단일 번들 (`version=2`, `1,111,646,045`B / `1,060 MiB`, SHA-256 `26c3ff2729e67916d2543f216a1c6c342d399f5b24e3ade9c7509e534d3c92b8`):**
+  - `mission4_symptom` 제출 코드([`mission4-submission-v2`](../github_review/DCC_Problem/mission4_symptom/m4/bundle.py))에 ① `m4/halting.py` `require_nonempty` 게이트(`HaltPolicy`/`HaltFeatureState`), ② `m4/bundle.py` 방안 A `version=2` 미션 분리 로더 및 규정 기본값(`rule=threshold`, `force_top1=False`) · `best_model` 상위 run명 멤버 식별, ③ `m4/streaming.py` `4-1` 경량 분기 및 `expected`/폴백 게이트, ④ `inference.py` `Predictor` 미션 전달, ⑤ `scripts/pack_bundle.py`(`halt["source"]` basename 전용 저장)·`scripts/train_prefix.py`(`--loss softjaccard/jacc_macrof1`, `--full-only`)·`scripts/train_halt_policy.py`(`--require-nonempty`)·`model_train.ipynb` 재현 구성을 통합했다.
+  - 번들 메타데이터 대조: `4-1` 멤버명 `['m4_softjaccard_v1_s42', 'm4_softjaccard_v1_s43']`, `4-2` 멤버명 `['E001', 'E002', 'E007']`, `halt["source"] = 'policy_fitonly_c128_v1_nonempty.json'` (개인 로컬 절대경로 제거 완료).
 - **검증 완료 (`Dev 2,920`, 공식 `Validation 3,640` 미접근, `e2e_verification_summary.json`):**
-  1. 단위 테스트 `pytest`: `44/44 passed` (오프라인 split 번들, `force_top1=False`, `require_nonempty`, `lightgbm` 폴백, `Predictor` AST 검증 포함; macOS OpenMP 충돌 회피 `OMP_NUM_THREADS=1`).
+  1. 단위 테스트 `pytest`: **`48/48 passed in 8.89s`** (오프라인 split 번들, `force_top1=False`, `require_nonempty`, `lightgbm` 폴백, `Predictor` AST 검증, `train_prefix`/`train_halt_policy`/`pack_bundle` 메타데이터 검증 포함; `OMP_NUM_THREADS=1`).
   2. **1계층 (`Dev 2,920`통화 · `87,814`시점 전체 `StreamingSymptomModel` + `Predictor` + `score.py`):**
      - `4-1` (`SJ42+SJ43`, 2멤버 적재): **`0.526039`** (`87,814`행, `score.py` 경고 `0`건).
      - `4-2` (`E001+E002+E007 + C128_v1_nonempty`, 3멤버 적재): **`0.507411`** (`Macro-F1 0.613217 × E 0.827457`, 중간 빈 예측 조기 중단 **`0`건**, `ENS3_C128_v1_nonempty_calls.json` 대비 `2,920/2,920` 전수 일치, `score.py` 경고 `0`건).
-  3. **2계층 (대표 `16`통화 노모킹 `python inference.py` 오프라인 CLI → `score.py`):** `4-1`(`59.58s`)·`4-2`(`28.01s`) 모두 경고 `0`건, 1계층 대비 이진 예측/중단 불일치 **`0`건**, `v1` 차단 `6`통화 조기 빈 예측 `0`건, fp16 번들 CPU forward 대 사전확률표 최대 오차 `<= 0.000624`.
+  3. **2계층 (대표 `16`통화 노모킹 `python inference.py` 오프라인 CLI → `score.py`):** `4-1`(`63.2s`)·`4-2`(`29.1s`) 모두 경고 `0`건, 1계층 대비 이진 예측/중단 불일치 **`0`건**, `v1` 차단 `6`통화 조기 빈 예측 `0`건, fp16 번들 CPU forward 대 사전확률표 최대 오차 `<= 0.000624`.
 - **보류 상태:** 공식 `Validation 3,640` 1회 최종 확인은 팀 합의(freeze) 시점까지 미실행 상태로 보존한다.
 
 ---
@@ -203,7 +210,7 @@ Step 2 직후 **`TAPT KLUE-RoBERTa-base + 공백 누적 전사`를 기준 분류
 
 | 번호 | 부족한 지점 | 보완 방법 |
 |---|---|---|
-| **1** | `E001`(예선 학습) vs `E002`(본선 3회전) 간 단독 비교의 학습량 비대칭 | 동일 조건 통제 파일럿 `B0(0.3914) → B1(0.4240)` 결과를 '순수 Prefix 학습 효과' 근거로 병기하고, `ENS3`는 상호보완 앙상블로 서술한다. |
-| **2** | 4대 `base` 백본 동일 TAPT 비교 **보완 완료** *(잔여: `E008`/`E019` `raw 0.5` 확인)* | [`m4_backbone_tapt_20261119`](m4_backbone_tapt_20261119/EXPERIMENT_RECORD.md)로 `RoBERTa(No-TAPT)`·`KR-BERT+TAPT`·`KoELECTRA+TAPT` 검증을 완결했다. `E008`/`E019`만 팀원 `.npz` 확보 시 공식 `raw 0.5` 수치를 보충하면 된다. |
+| **1** | `E001`(예선 학습) vs `E002`(본선 3회전) 간 단독 비교의 학습량 비대칭 *(Colab L4 실행 중)* | `B0→B1` 파일럿 병기에 더해, `E002`와 동일 `TAPT`(SHA-256 `25424975...`)·`fit 26,280`·`9,858`스텝 통제 실험 `full_only_roberta_tapt_s42`([`PROTOCOL.md`](m4_logic_closure_20261120/PROTOCOL.md))를 Colab L4에서 진행 중이다. |
+| **2** | 4대 `base` 백본 동일 TAPT 비교 **보완 완료** *(잔여: `E008`/`E019` `raw 0.5` L4 재현 진행 중)* | [`m4_backbone_tapt_20261119`](m4_backbone_tapt_20261119/EXPERIMENT_RECORD.md)로 `RoBERTa(No-TAPT)`·`KR-BERT+TAPT`·`KoELECTRA+TAPT` 검증을 완결했다. 현재 `e008_kfdeberta_repro_s42`·`e019_roberta_large_repro_s42`를 Colab L4에서 독립 재현 중이며, 팀원 원본 `.npz` 추가 회수 시 주 수치를 원본 재채점으로 대체한다. |
 | **3** | 4-2 특징 `value`의 수식 괴리 (`top-k` 기대 Jaccard vs 실제 `raw 0.5` 출력) | 이미 `C128_v1_nonempty` 게이트로 중간 빈 예측 중단(`27→0건`)은 막았으나, 여력이 되면 CPU에서 `value`를 `raw 0.5` 기대 Jaccard로 맞춘 정책 실험까지 비교해 완전성을 높인다. |
-| **4** | `mission4_symptom` 제출 코드 통합 **보완 완료** *(잔여: `Validation 3,640` 1회 확인)* | `mission4-submission-v2`에서 P0 5건 통합(`require_nonempty`, 방안 A `version=2`, `force_top1=False`, `pack_bundle.py` 안전 기본값) 및 `pytest 44/44` · `Dev 2,920` 2계층 E2E 검증을 마쳤다. 팀 최종 freeze 승인 후 `Validation` 1회 확인만 남았다. |
+| **4** | `mission4_symptom` 제출 코드 통합 **보완 완료** *(잔여: `Validation 3,640` 1회 확인)* | `mission4-submission-v2`에서 재현 스크립트(`--loss softjaccard`, `--full-only`, `--require-nonempty`) 및 `version=2` 번들(`pytest 48/48` · `Dev 2,920` 2계층 E2E 검증, SHA-256 `26c3ff27...`)을 완결했다. 팀 최종 freeze 승인 후 `Validation` 1회 확인만 남았다. |

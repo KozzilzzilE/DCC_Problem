@@ -78,22 +78,29 @@ def run_once(fit: hl.HaltData, ev: hl.HaltData, args, shift, tag: str):
     if overlap:
         raise SystemExit(f"학습용과 판정용 통화가 {len(overlap)}건 겹칩니다. 판정용 통화는 학습·선택에 쓰면 안 됩니다.")
     t0 = time.time()
-    policy = hl.train_policy(fit, ref_tau=args.ref_tau, logit_shift=shift, folds=args.folds, seed=args.seed, threads=args.threads,
-                             taus=tuple(args.taus) if args.taus else hl.TAUS,
-                             betas=tuple(args.betas) if args.betas else hl.BETAS)
+    policy = hl.train_policy(
+        fit, ref_tau=args.ref_tau, logit_shift=shift, folds=args.folds, seed=args.seed, threads=args.threads,
+        taus=tuple(args.taus) if args.taus else hl.TAUS,
+        betas=tuple(args.betas) if args.betas else hl.BETAS,
+        require_nonempty=args.require_nonempty,
+    )
     info = policy.info
     print(f"[{tag}] 학습용 {len(fit)}통화 / 학습 행 {info['target']['n_rows']} ({time.time() - t0:.0f}초). "
           f"δ 교차 학습 R² {info['crossfit_r2']:.3f}, δ>0 비율 {info['target']['delta_pos_rate']:.3f}", flush=True)
     print(f"[{tag}] 학습용 안에서의 점수: 기준 τ={args.ref_tau:.2f} {info['fit_score_ref_tau']:.4f} / τ 만 선택(τ={info['fit_tau_only']:.2f}) "
           f"{info['fit_score_tau_only']:.4f} / 학습형(β={policy.beta:g}, τ={policy.tau:.2f}) {info['fit_score_selected']:.4f}", flush=True)
 
-    halts = {"base": hl.first_halt(ev.value >= args.base_tau, ev),                 # 기준: τ 고정
-             "tau_only": hl.first_halt(ev.value >= info["fit_tau_only"], ev),       # τ 만 학습용에서 고른 정책
+    nonempty = ev.pred.any(axis=1)
+    base_stop = (ev.value >= args.base_tau) & nonempty if args.require_nonempty else (ev.value >= args.base_tau)
+    tau_stop = (ev.value >= info["fit_tau_only"]) & nonempty if args.require_nonempty else (ev.value >= info["fit_tau_only"])
+    halts = {"base": hl.first_halt(base_stop, ev),                 # 기준: τ 고정
+             "tau_only": hl.first_halt(tau_stop, ev),             # τ 만 학습용에서 고른 정책
              "learned": policy.halts(ev)}
     scores = {k: hl.score_halts(ev, h) for k, h in halts.items()}
     gain = booster_gain(policy)
     row = {"tag": tag, "n_fit_calls": len(fit), "n_eval_calls": len(ev), "beta": policy.beta, "tau": policy.tau,
-           "tau_only": info["fit_tau_only"], "base_tau": args.base_tau, "ref_tau": args.ref_tau, "scores": scores,
+           "tau_only": info["fit_tau_only"], "base_tau": args.base_tau, "ref_tau": args.ref_tau,
+           "require_nonempty": bool(args.require_nonempty), "scores": scores,
            "learned_vs_base": hl.paired_bootstrap(ev, halts["learned"], halts["base"], args.boot),
            "learned_vs_tau_only": hl.paired_bootstrap(ev, halts["learned"], halts["tau_only"], args.boot),
            "tau_only_vs_base": hl.paired_bootstrap(ev, halts["tau_only"], halts["base"], args.boot),
@@ -142,6 +149,7 @@ def main() -> int:
     ap.add_argument("--taus", type=float, nargs="+", default=None,
                     help="고를 τ 후보 (기본: 0.40~0.80). 판정 임계값 0.5 고정 규정에서는 --taus 0.5 로 β 만 고른다")
     ap.add_argument("--rehearse-seed", type=int, default=None, help="주면 판정용 통화를 절반씩 나눠 리허설한다")
+    ap.add_argument("--require-nonempty", action="store_true", help="보정 전 확률 >= 0.5 인 증상이 1개 이상일 때만 조기 중단")
     args = ap.parse_args()
 
     if Path(args.calls).name.startswith("val"):

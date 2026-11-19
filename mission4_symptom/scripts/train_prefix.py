@@ -61,6 +61,72 @@ def llrd_groups(model, lr: float, decay: float, weight_decay: float):
     return groups
 
 
+LOSS_DEFAULTS = {
+    "bce": (0.0, 0.0),
+    "softjaccard": (0.5, 0.0),
+    "jacc_macrof1": (0.5, 0.2),
+}
+
+
+def resolve_loss_weights(
+    loss_name: str,
+    jaccard_weight: float | None = None,
+    macro_f1_weight: float | None = None,
+) -> tuple[float, float]:
+    """Resolve auxiliary Soft-Jaccard / Soft-Macro-F1 loss weights from --loss preset and overrides."""
+    if loss_name not in LOSS_DEFAULTS:
+        raise ValueError(f"Unsupported --loss={loss_name}; expected {tuple(LOSS_DEFAULTS)}")
+    def_j, def_m = LOSS_DEFAULTS[loss_name]
+    jw = float(def_j if jaccard_weight is None else jaccard_weight)
+    mw = float(def_m if macro_f1_weight is None else macro_f1_weight)
+    return jw, mw
+
+
+def compute_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    pos_weight_t: torch.Tensor,
+    jaccard_weight: float = 0.0,
+    macro_f1_weight: float = 0.0,
+) -> torch.Tensor:
+    """Weighted BCE loss with optional Soft-Jaccard and Soft-Macro-F1 auxiliary terms."""
+    logits_f = logits.float()
+    elem = torch.nn.functional.binary_cross_entropy_with_logits(logits_f, target, reduction="none")
+    w = torch.where(target > 0.5, pos_weight_t.unsqueeze(0).expand_as(target), torch.ones_like(elem))
+    loss = (elem * w).mean()
+    if jaccard_weight > 0.0 or macro_f1_weight > 0.0:
+        probs = torch.sigmoid(logits_f)
+        if jaccard_weight > 0.0:
+            inter = (probs * target).sum(dim=1)
+            union = (probs + target - probs * target).sum(dim=1).clamp_min(1e-6)
+            loss = loss + jaccard_weight * (1.0 - inter / union).mean()
+        if macro_f1_weight > 0.0:
+            tp_c = (probs * target).sum(dim=0)
+            p_c = probs.sum(dim=0)
+            y_c = target.sum(dim=0)
+            macro_dice = (2.0 * tp_c + 1.0) / (p_c + y_c + 1.0)
+            loss = loss + macro_f1_weight * (1.0 - macro_dice.mean())
+    return loss
+
+
+def sample_epoch_items(
+    prefixes,
+    samples_per_call: int,
+    rng: np.random.Generator,
+    include_full: bool = False,
+    full_only: bool = False,
+):
+    """Sample (call_idx, prefix_len) items for one training epoch."""
+    if full_only and include_full:
+        raise ValueError("--full-only and --include-full cannot be enabled together")
+    if full_only:
+        return [(i, len(p)) for i, p in enumerate(prefixes) for _ in range(samples_per_call)]
+    items = [(i, int(rng.integers(1, len(p) + 1))) for i, p in enumerate(prefixes) for _ in range(samples_per_call)]
+    if include_full:
+        items += [(i, len(p)) for i, p in enumerate(prefixes)]
+    return items
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--calls", required=True)
@@ -73,6 +139,7 @@ def main() -> int:
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--samples-per-call", type=int, default=2)
     ap.add_argument("--include-full", action="store_true", help="통화 전체도 epoch 마다 1개씩 더 넣는다")
+    ap.add_argument("--full-only", action="store_true", help="앞부분 표본 대신 통화 전체 길이만 샘플링한다")
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--grad-accum", type=int, default=1, help="이 횟수만큼 기울기를 모아 한 번 갱신 (메모리가 모자랄 때)")
     ap.add_argument("--lr", type=float, default=5e-5)
@@ -85,8 +152,17 @@ def main() -> int:
     ap.add_argument("--max-steps", type=int, default=0, help="점검용. 0 이면 끝까지")
     ap.add_argument("--grad-ckpt", action="store_true",
                     help="gradient checkpointing. 큰 백본이 8GB 에 안 들어갈 때 활성값 메모리를 줄인다 (계산은 약 30%% 늘어남)")
+    ap.add_argument("--loss", default="bce", choices=["bce", "softjaccard", "jacc_macrof1"],
+                    help="학습 손실 프리셋 (기본 bce; softjaccard는 0.5, jacc_macrof1은 0.5/0.2)")
+    ap.add_argument("--jaccard-weight", type=float, default=None, help="Soft-Jaccard 보조 손실 가중치 (기본 프리셋 따름)")
+    ap.add_argument("--macro-f1-weight", type=float, default=None, help="Soft-Macro-F1 보조 손실 가중치 (기본 프리셋 따름)")
     ap.add_argument("--log-every", type=int, default=200, help="이 스텝마다 진행 기록")
     args = ap.parse_args()
+    if args.full_only and args.include_full:
+        raise SystemExit("--full-only 와 --include-full 은 동시에 지정할 수 없습니다.")
+    args.jaccard_weight, args.macro_f1_weight = resolve_loss_weights(
+        args.loss, args.jaccard_weight, args.macro_f1_weight
+    )
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -136,7 +212,7 @@ def main() -> int:
     optimizer = torch.optim.AdamW(llrd_groups(model, args.lr, args.llrd, 0.01))
     scheduler = get_linear_schedule_with_warmup(optimizer, int(0.1 * updates), updates)
     scaler = torch.amp.GradScaler("cuda")
-    loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight, dtype=torch.float32, device=device))
+    pos_weight_t = torch.tensor(pos_weight, dtype=torch.float32, device=device)
 
     history = []
     step = 0
@@ -144,11 +220,10 @@ def main() -> int:
     t0 = time.time()
     for epoch in range(1, args.epochs + 1):
         rng = np.random.default_rng([args.seed, epoch])
-        # (통화 번호, 앞부분 길이) 표본. 길이는 1..n 균등.
-        items = [(i, int(rng.integers(1, len(p) + 1))) for i, p in enumerate(prefixes)
-                 for _ in range(args.samples_per_call)]
-        if args.include_full:
-            items += [(i, len(p)) for i, p in enumerate(prefixes)]
+        # (통화 번호, 앞부분 길이) 표본. --full-only 면 통화 전체 길이만 사용한다.
+        items = sample_epoch_items(
+            prefixes, args.samples_per_call, rng, include_full=args.include_full, full_only=args.full_only
+        )
         order = rng.permutation(len(items))
         model.train()
         running, seen = 0.0, 0
@@ -159,7 +234,10 @@ def main() -> int:
             target = torch.tensor(labels[[i for i, _ in batch]], device=device)
             with torch.autocast("cuda", dtype=torch.float16):
                 logits = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"]).logits
-            loss = loss_fn(logits.float()[:, :n_sym], target)
+            loss = compute_loss(
+                logits[:, :n_sym], target, pos_weight_t,
+                jaccard_weight=args.jaccard_weight, macro_f1_weight=args.macro_f1_weight,
+            )
             if args.count_classes:
                 ctarget = torch.tensor(count_target[[i for i, _ in batch]], device=device)
                 loss = loss + args.count_weight * torch.nn.functional.cross_entropy(logits.float()[:, n_sym:], ctarget)

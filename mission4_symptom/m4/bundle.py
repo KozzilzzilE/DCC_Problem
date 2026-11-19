@@ -143,7 +143,8 @@ def _pack_members(member_dirs: Sequence[Union[str, Path]], half: bool = True) ->
         state = load_file(str(weights_path))
         if half:
             state = {k: (v.half() if v.is_floating_point() else v) for k, v in state.items()}
-        members.append({"name": path.name, "files": files, "state_dict": state})
+        name = path.parent.name if path.name == "best_model" else path.name
+        members.append({"name": name, "files": files, "state_dict": state})
     return members
 
 

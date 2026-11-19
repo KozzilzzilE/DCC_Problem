@@ -143,13 +143,10 @@ dev 채점은 주최측 `score.py` 와 같은 식을 쓴다 (`m4/simulate.py`, �
 아래 표는 실험별 dev 점수다 (`docs/results.csv`). 실험의 명령·설정·해석은 `docs/EXPERIMENT_LOG.md` 에 있다.
 
 정한 것:
-- **학습 입력:** 통화 전체가 아니라 앞부분(길이 균등 표본)으로 학습한다 (E002). 4-1 채점이 모든 순간을 같은 무게로 평균하므로 학습 분포도 순간에 대해 균등하게 맞췄다.
-- **4-1 결정 규칙:** 대회 규정대로 판정 임계값은 0.5 로 고정한다. 3개 모델의 평균 확률(보정 없음)이 0.5 이상인 증상을 모두 내고, 없으면 빈 리스트를 낸다 (E023).
-- **4-2 중단 기준:** 멈춤 기준도 0.5 로 고정한다. 5번째 발화부터 "지금 답했을 때의 기대 점수 + β × (지금 끊는 쪽의 예상 이득) ≥ 0.5" 이면 멈춘다 (E026, β = 128).
-  멈출 때 내는 증상은 4-1 과 같은 0.5 판정이다. 예상 이득은 LightGBM 회귀가 낸다. 입력은 그 순간까지의 확률과 대화 진행(발화 수, 화자, 발화 시각) 57개뿐이고, 통화 전체 길이는 넣지 않는다.
-  정책은 학습용 통화의 교차 학습 확률표(E011, 모델이 보지 않은 통화에서 낸 확률)로 학습했고 dev 는 판정에만 썼다 (6절).
-- **모델 평균:** 앞부분 학습 모델 2개(seed 42·43)와 통화 전체 학습 모델 1개 (E006, E010).
-- **해 봤지만 채택하지 않은 것:** 다른 계열 인코더(E008), 평균 모델 추가(E013), 증상 개수 보조 출력(E014), 오심 대책(E015).
+- **학습 입력:** 통화 전체가 아니라 앞부분(길이 균등 표본)으로 학습한다 (`E002`). 4-1 채점이 모든 순간을 같은 무게로 평균하므로 학습 분포도 순간에 대해 균등하게 맞췄다.
+- **4-1 모델·결정 규칙 (Option A 분리):** `KLUE-RoBERTa-base (TAPT)` 에 `Weighted BCE(pos_weight^0.5) + Soft-Jaccard (weight 0.5)` 를 결합한 `2`개 시드(`seed 42·43`, `m4_softjaccard_v1`)를 평균하고, 대회 규정대로 판정 임계값 `0.5` 고정(`force_top1=False`)으로 예측한다.
+- **4-2 모델·중단 기준 (Option A 분리):** 4-2 는 통화 끝(중단 시점) F1 이 핵심이므로 `final_step Macro-F1` 이 더 높은 `ENS3`(`E001` 통화 전체 1종 + `E002/E007` 앞부분 2종)을 쓰고, `fit 26,280`통화 OOF 로 학습한 `LightGBM` 조기중단 정책(`C128_v1_nonempty`, `β = 128`, `τ = 0.5` 고정, `min_step = 5`, `require_nonempty = True`)으로 멈춘다.
+- **해 봤지만 채택하지 않은 것:** 다른 계열 인코더(`E008`/`DeBERTa` 등), 4멤버 확장(`ENS4`), 증상 개수 보조 출력(`E014`), `Soft-Jaccard`/`Soft-Macro-F1` 의 4-2 직접 적용(`final_step Macro-F1` 하락으로 4-1 에만 적용).
 """),
     code(r"""
 ids = {name: (HERE / "runs" / "cache" / f"{name}_ids.txt") for name in ("fit", "dev")}
@@ -251,35 +248,47 @@ for seed in SEEDS:
 pd.DataFrame(rows).set_index(["seed", "epoch"]) if rows else None
 """),
     md(r"""
-## 5. 제출 번들
+## 5. 제출 번들 (Option A 미션 분리, version=2)
 
 학습이 남긴 `best_model` 폴더들을 `.pt` 파일 하나로 묶는다 (`scripts/pack_bundle.py`, `m4/bundle.py`).
 - **멤버마다:** tokenizer·config 파일 원문과 가중치(fp16 저장)가 들어 있어 인터넷 없이 로드된다.
-- **추론 설정:** 입력 형식, 확률 보정값(log pos_weight), 4-1 판정 규칙(임계값 0.5), 4-2 중단 정책(LightGBM, 기준 0.5)이 파일 안에 들어 있다.
-- **통화 전체 학습 멤버:** 예선 Mission 3 최종 모델(`final_s42`)이다. Training 전체 29,200통화로, 같은 백본·같은 입력 형식·같은 pos_weight 로 학습했다.
+- **미션 분리 구성 (`version=2`):**
+  - **4-1:** `m4_softjaccard_v1_s42` · `m4_softjaccard_v1_s43` (2멤버, `threshold 0.5`, `force_top1=False`, `halt never`).
+  - **4-2:** `E001` (통화 전체 `fit` 모델) · `E002` · `E007` (앞부분 `fit` 2종) + `policy_fitonly_c128_v1_nonempty.json` (`β = 128`, `τ = 0.5`, `require_nonempty=True`).
+- Option B (공유 `ENS3` 단일 번들) fallback 시에도 같은 로더가 `version=1` 을 지원한다.
 
 아래 셀은 번들 파일을 직접 열어 구성과 설정을 출력한다.
 """),
     code(r"""
-if BUNDLE.is_file():
-    payload = torch.load(BUNDLE, map_location="cpu", weights_only=False)
-    settings = payload["settings"]
-    print(f"{BUNDLE.relative_to(HERE).as_posix()}: {BUNDLE.stat().st_size / 2**20:.0f} MiB, sha256 {hashlib.sha256(BUNDLE.read_bytes()).hexdigest()[:16]}…")
-    print("note:", payload.get("note", ""))
-    member_params = []
-    for member in payload["members"]:
+def _print_bundle_section(tag, members, settings):
+    params = []
+    print(f"[{tag}]")
+    for member in members:
         n = sum(int(t.numel()) for t in member["state_dict"].values())
-        member_params.append(n)
+        params.append(n)
         print(f"  멤버 {member['name']}: 파라미터 {n:,}, 파일 {sorted(member['files'])}")
-    prior = settings.get("label_prior") or {}
     for key in ("fmt", "max_length", "truncation_side", "rule", "halt_rule"):
         print(f"  {key}: {settings.get(key)}")
-    # 학습형 중단 정책에는 LightGBM 모델 전문(model_str)이 들어 있어 길이만 적는다
+    halt_raw = settings.get("halt") or {}
     halt = {k: (f"(LightGBM 모델 {len(v):,}자)" if k == "model_str" else f"({len(v)}개)" if k == "feature_names" else
                 [round(x, 3) for x in v] if k == "logit_shift" and v else v)
-            for k, v in settings["halt"].items() if k != "info"}          # info: 정책 학습 기록 (6절에서 요약)
+            for k, v in halt_raw.items() if k != "info"}
     print(f"  halt: {halt}")
     print("  logit_shift:", None if settings.get("logit_shift") is None else [round(v, 3) for v in settings["logit_shift"]])
+    return params
+
+
+if BUNDLE.is_file():
+    payload = torch.load(BUNDLE, map_location="cpu", weights_only=False)
+    print(f"{BUNDLE.relative_to(HERE).as_posix()}: {BUNDLE.stat().st_size / 2**20:.0f} MiB, "
+          f"version={payload.get('version', 1)}, sha256 {hashlib.sha256(BUNDLE.read_bytes()).hexdigest()[:16]}…")
+    print("note:", payload.get("note", ""))
+    member_params = []
+    if "missions" in payload:
+        for mkey, block in payload["missions"].items():
+            member_params.extend(_print_bundle_section(mkey, block["members"], block["settings"]))
+    else:
+        member_params.extend(_print_bundle_section("shared", payload["members"], payload["settings"]))
 else:
     member_params = []
     print("번들이 아직 없습니다:", BUNDLE)
@@ -289,10 +298,9 @@ else:
 
 `scripts/train_halt_policy.py` 가 정책을 학습하고 판정한다 (수식과 특징은 `m4/halting.py`).
 - **학습 자료:** 학습용 26,280통화의 교차 학습 확률표 (`scripts/run_oof_tables.sh`). 5겹으로 나눠, 겹마다 나머지 4겹으로 학습한 모델이 보지 않은 겹의 확률을 낸다.
-- **기준 τ 는 0.5 로 고정한다** (판정 임계값 0.5 고정 규정). 예상 이득에 곱하는 β 만 학습용 통화 안에서 통화 단위 교차 학습 예측으로 고른다 (후보 0~256). dev 는 보지 않는다.
+- **기준 τ 는 0.5 로 고정** 하고 `--require-nonempty` 게이트(보정 전 확률 `≥ 0.5` 인 증상이 1개 이상일 때만 조기 중단)를 켜며, 예상 이득에 곱하는 `β` 는 fit 26,280통화 안에서 5겹 교차 학습 예측으로 고른다 (`C128_v1_nonempty`: `β = 128`). `dev` 는 판정에만 사용한다.
 - **멈출 때 예측:** 학습 목표와 채점 모두 제출과 같은 0.5 판정(1위 강제 없음)으로 계산한다.
-- **판정:** dev 2,920통화에 그대로 적용해 기존 기준(기대 점수 ≥ 0.50)과 통화 단위 짝 부트스트랩으로 비교한다.
-- **확률 보정값:** 최종 모델과 같은 값(Training 전체 라벨의 pos_weight)으로 특징을 만든다. 번들을 묶을 때 정책과 번들의 값이 다르면 멈춘다.
+- **판정:** dev 2,920통화에 그대로 적용해 `ENS3` 기준 `0.5074` (`Macro-F1 0.6132 × 조기판단력 0.8275`), 중간 빈 예측 조기 중단 `0`건을 확인했다.
 
 아래 셀은 제출 번들에 넣은 정책의 학습 기록(`result.json`)을 출력한다.
 """),
@@ -317,22 +325,33 @@ else:
 ## 7. dev 평가 결과 요약
 
 수치는 모두 Training 내부 dev 2,920통화 기준이고, **학습용 26,280통화로 학습한 같은 레시피의 모델**로 잰 것이다.
-최종 모델은 dev 통화까지 학습에 넣었으므로 dev 로 다시 재지 않는다 (재면 실제보다 높게 나온다).
-
-- **4-1:** 순간마다 맞힌 수 ÷ (정답 ∪ 예측 수) → 통화 안에서 평균 → 통화 평균.
-- **4-1, 4-2 모두 제출 규칙(판정 임계값 0.5, 1위 강제 없음)으로 잰다.** 아래 표의 4-2 는 기존 기준(기대 점수 ≥ 0.50)의 값이고, 제출에 쓴 학습형 정책의 값은 6절에 있다.
+Option A (`version=2`) 제출은 미션별 최선 모델을 분리 탑재한다:
+- **4-1 제출 (`m4_softjaccard_v1_s42` + `s43`, 2멤버):** `Dev 2,920 = 0.526039` (`raw p >= 0.5`, `force_top1=False`), `score.py` 경고 `0`건.
+- **4-2 제출 (`ENS3: E001+E002+E007` + `C128_v1_nonempty`, 3멤버):** `Dev 2,920 = 0.507411` (`Macro-F1 0.613217 × E 0.827457`), 중간 빈 예측 조기 중단 `0`건.
 """),
     code(r"""
 from m4 import simulate as sim
 from m4.decision import calibrate, expected_rule
 
-DEV = {"E001": "runs/E001_m3_baseline", "E002": "runs/E002_prefix_uniform", "E007": "runs/E007_prefix_uniform_s43"}
+DEV = {
+    "E001": "runs/E001_m3_baseline",
+    "E002": "runs/E002_prefix_uniform",
+    "E007": "runs/E007_prefix_uniform_s43",
+    "SJ42": "runs/m4_softjaccard_v1_s42",
+    "SJ43": "runs/m4_softjaccard_v1_s43",
+}
 tables = {k: sim.PrefixTable.load(HERE / v / "dev_prefix.npz") for k, v in DEV.items() if (HERE / v / "dev_prefix.npz").is_file()}
 rows = []
-if tables:
+if {"E001", "E002", "E007"}.issubset(tables):
     shift = np.log(load_json(HERE / DEV["E002"] / "run_config.json")["pos_weight"])
-    for label, names in [("앞부분 학습 seed 42 (E002)", ["E002"]), ("앞부분 학습 seed 43 (E007)", ["E007"]),
-                         ("3개 평균 (E001+E002+E007)", ["E001", "E002", "E007"])]:
+    combos = [
+        ("앞부분 학습 seed 42 (E002)", ["E002"]),
+        ("앞부분 학습 seed 43 (E007)", ["E007"]),
+        ("4-2 채택 앙상블 (ENS3: E001+E002+E007)", ["E001", "E002", "E007"]),
+    ]
+    if {"SJ42", "SJ43"}.issubset(tables):
+        combos.append(("4-1 채택 앙상블 (SJ42+SJ43)", ["SJ42", "SJ43"]))
+    for label, names in combos:
         t = tables[names[0]]
         probs = np.mean([tables[k].probs for k in names], axis=0)
         pred = probs >= 0.5                                      # 제출 규칙: 0.5 고정, 넘는 것이 없으면 빈 예측
@@ -341,14 +360,14 @@ if tables:
         value = expected_rule(calibrate(probs, shift))[1]          # 기대 점수 (보정 확률)
         halts = []
         for a, b in zip(t.offsets[:-1], t.offsets[1:]):
-            hit = np.flatnonzero(value[a:b] >= 0.5)
-            hit = hit[hit >= 4]                                  # 5번째 발화부터
+            hit = np.flatnonzero((value[a:b] >= 0.5) & pred[a:b].any(axis=1))
+            hit = hit[hit >= 4]                                  # 5번째 발화부터 (require_nonempty)
             halts.append(int(hit[0]) + 1 if len(hit) else int(b - a))
         halts = np.array(halts)
         f1 = sim.macro_f1(pred[t.offsets[:-1] + halts - 1], t.labels)["macro_f1"]
         e = float(sim.earliness(halts, t.n_utt).mean())
         rows.append({"모델": label, "4-1": round(float(per_call.mean()), 4), "빈 예측 순간": f"{(~pred.any(1)).mean():.1%}",
-                     "4-2 (기대 점수 ≥ 0.5)": round(f1 * e, 4), "Macro-F1": round(f1, 4), "조기판단력": round(e, 4),
+                     "4-2 (기대 점수 ≥ 0.5, nonempty)": round(f1 * e, 4), "Macro-F1": round(f1, 4), "조기판단력": round(e, 4),
                      "중단 발화(중앙값)": float(np.median(halts))})
 pd.DataFrame(rows).set_index("모델") if rows else print("dev 확률표(runs/E00*/dev_prefix.npz)가 없습니다")
 """),
@@ -358,10 +377,10 @@ pd.DataFrame(rows).set_index("모델") if rows else print("dev 확률표(runs/E0
     code(r"""
 train_minutes = [load_json(p)["training_seconds"] / 60 for p in (FINAL / f"prefix_s{s}" / "run_config.json" for s in SEEDS) if p.is_file()]
 pd.DataFrame({"값": [
-    f"{sum(member_params):,} (KLUE-RoBERTa-base × {len(member_params)})" if member_params else "(번들 없음)",
-    ", ".join(f"{m:.1f}분" for m in train_minutes) if train_minutes else "(학습 전)",
+    f"{sum(member_params):,} (KLUE-RoBERTa-base × {len(member_params)} 멤버 — 4-1 2개, 4-2 3개)" if member_params else "(번들 없음)",
+    ", ".join(f"{m:.1f}분" for m in train_minutes) if train_minutes else "(최종 번들은 26,280통화 fit-only Option A 사용)",
     f"{torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}, Python {platform.python_version()}, torch {torch.__version__}",
-]}, index=["번들 파라미터 수", "앞부분 학습 모델 학습 시간 (seed 별)", "학습 환경"])
+]}, index=["번들 파라미터 수", "학습 시간 / 레시피 비고", "학습 환경"])
 """),
 ]
 

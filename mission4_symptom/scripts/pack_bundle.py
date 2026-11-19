@@ -112,7 +112,7 @@ def _build_halt_setting(args: argparse.Namespace, logit_shift: Optional[List[flo
             halt = learned_halt_setting(raw_policy, logit_shift)
         except ValueError as err:
             raise SystemExit(f"{args.halt_policy}: {err}")
-        halt["source"] = str(args.halt_policy)             # 어느 파일에서 왔는지 (추론에는 쓰지 않는 기록)
+        halt["source"] = Path(args.halt_policy).name         # 어느 파일에서 왔는지 (추론에는 쓰지 않는 기록)
         # 채점 환경에 lightgbm 이 없을 때 쓸 대체 기준 (m4/streaming.py 가 경고를 내고 이쪽으로 내려간다)
         halt["fallback"] = {"type": "expected", "tau": args.halt_fallback_tau, "min_step": 5,
                             "require_nonempty": req_nonempty}

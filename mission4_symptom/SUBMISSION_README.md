@@ -15,7 +15,7 @@ python inference.py --mission 4-2 --audio_dir {wav folder} --label_dir {json fol
 
 - 설치: `pip install -r requirements.txt` (설치 방법과 검증 환경은 파일 머리말에 적었다).
 - 번들 안에 tokenizer·config·가중치·결정 규칙·멈춤 정책이 모두 들어 있어 추론 때 인터넷 접속이 없다.
-- 실측 시간 (RTX 5060 8GB, cuda, Validation 3,640통화): 4-1 1,333초, 4-2 461초.
+- 실측 시간 참고: 이전 단일 3멤버 `E026` 번들의 `Validation 3,640`통화 기준 RTX 5060 8GB 실측은 4-1 `1,333초`, 4-2 `461초`였다. 현재 **방안 A (`version 2`)** 번들은 4-1에 `2`개(더 경량)·4-2에 `3`개(`E026`과 동일 비용) 모델을 쓰며, 방안 A 자체의 `Validation 3,640` 1회 실행은 팀 최종 freeze 합의 후 별도 수행한다.
 - 4-2 멈춤 정책은 LightGBM 모델이다. lightgbm 이 설치돼 있지 않으면 번들에 든 대체 기준(기대 점수 ≥ 0.5)으로 내려가며 경고를 출력한다.
 
 ## 파일
@@ -23,9 +23,9 @@ python inference.py --mission 4-2 --audio_dir {wav folder} --label_dir {json fol
 | 경로 | 내용 |
 |---|---|
 | `inference.py` | 공식 템플릿. `Predictor` 만 작성했다 (`m4/streaming.py` 를 부른다) |
-| `ckpt/mission4.pt` | 제출 가중치 번들 (`version 2` 미션 분리형, 1,111,644,586 B / 1,060 MiB, sha256 `f681d55a80daec5e3db4a5ad1ccafc8790c06fcc56880a6efdfc5586e5ab18e2`) |
+| `ckpt/mission4.pt` | 제출 가중치 번들 (`version 2` 미션 분리형, 1,111,646,045 B / 1,060 MiB, sha256 `26c3ff2729e67916d2543f216a1c6c342d399f5b24e3ade9c7509e534d3c92b8`) |
 | `m4/` | 모델 코드. `streaming.py` 추론 상태, `bundle.py` 번들 형식, `decision.py` 4-1 결정 규칙, `halting.py` 4-2 멈춤 정책, `data.py` 입력 형식, `simulate.py` 채점식 |
-| `model_train.ipynb` | 학습 기록 노트북 (실행 출력 포함: 데이터 캐시, 레시피, TAPT 기록, 최종 학습 로그, 번들 구성, 멈춤 정책 학습) |
+| `model_train.ipynb` | 학습·검증 정리 노트북 (`build_notebook.py --no-exec` 로 방안 A `version 2` 구성 및 `fit 26,280` 설계 반영) |
 | `scripts/` | 학습 코드. 실행 순서는 아래 "다시 학습하기" |
 | `tests/` | 채점식 일치, 번들, 결정 규칙, 중단 정책, 스트리밍 경로 테스트 (`pytest`) |
 | `score.py` | 주최측 채점 스크립트 (자체 채점용, 수정 없음) |
@@ -60,15 +60,32 @@ Training 내부 비학습 `Dev 2,920`통화 (`87,814`시점, 공식 `score.py` �
 
 - 공식 `Validation 3,640`통화 최종 1회 검증은 팀 최종 freeze 합의 후 별도 실행 예정(참고: 이전 단일 `E026` 번들의 Validation 1회 기록은 `4-1 0.4867`, `4-2 0.5070`).
 
-## 다시 학습하기
+## 다시 학습하기 (방안 A 재현 명령)
 
 ```bash
+# 1. Training 캐시 및 fit/dev 분할 + 119 전사 TAPT
 python scripts/build_cache.py ...            # Training 라벨 json → runs/cache/train.jsonl
-python scripts/tapt_mlm.py ...               # TAPT (또는 run_final_training.sh 의 TAPT_MODE=full)
-bash scripts/run_oof_tables.sh               # 5겹 교차 학습 확률표 (멈춤 정책 학습 자료)
-python scripts/train_halt_policy.py ... --taus 0.5   # 4-2 멈춤 정책 (기준 0.5 고정, β 만 선택)
-bash scripts/run_final_training.sh           # Training 전체로 앞부분 학습 모델 2개
-python scripts/pack_bundle.py ...            # 번들 → ckpt/mission4.pt
+python scripts/tapt_mlm.py ...               # TAPT (fit 26,280 전사 20 epoch)
+
+# 2. 4-1 전용 SoftJaccard 2-seed 학습 (KLUE-RoBERTa-base TAPT)
+python scripts/train_prefix.py --calls runs/cache/train.jsonl --ids runs/cache/fit_ids.txt \
+  --backbone <tapt_dir> --loss softjaccard --seed 42 --out runs/m4_softjaccard_v1_s42
+python scripts/train_prefix.py --calls runs/cache/train.jsonl --ids runs/cache/fit_ids.txt \
+  --backbone <tapt_dir> --loss softjaccard --seed 43 --out runs/m4_softjaccard_v1_s43
+
+# 3. 4-2 전용 ENS3(E001+E002+E007) 및 무누수 OOF 중단 정책 학습
+bash scripts/run_oof_tables.sh               # fit 26,280 5겹 교차 학습 확률표
+python scripts/train_halt_policy.py ... --taus 0.5 --require-nonempty --out runs/c128_v1_nonempty
+
+# 4. 방안 A (version 2) 미션 분리 번들 패킹
+python scripts/pack_bundle.py \
+  --members-4-1 runs/m4_softjaccard_v1_s42/best_model runs/m4_softjaccard_v1_s43/best_model \
+  --members-4-2 runs/E001_m3_baseline/best_model runs/E002_prefix_uniform/best_model runs/E007_prefix_uniform_s43/best_model \
+  --halt-policy runs/c128_v1_nonempty/policy.json --require-nonempty --rule threshold --no-force-top1 \
+  --out ckpt/mission4.pt
+
+# (선택) 방안 B 단일 공유 번들 fallback:
+# python scripts/pack_bundle.py --members runs/E001_m3_baseline/best_model runs/E002_prefix_uniform/best_model runs/E007_prefix_uniform_s43/best_model --halt-policy runs/c128_v1_nonempty/policy.json --require-nonempty --rule threshold --no-force-top1 --out ckpt/mission4_ens3.pt
 ```
 
-각 명령의 실제 인자와 실행 로그는 `model_train.ipynb` 에 있다.
+세부 배경과 설정은 `model_train.ipynb` 및 `docs/mission4/` 에 정리되어 있다.
