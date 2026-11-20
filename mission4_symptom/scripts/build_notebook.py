@@ -1,17 +1,12 @@
 """Mission 4 제출용 학습 기록 노트북(model_train.ipynb)을 만들고 실행한다.
 
-학습은 명령줄에서 `bash scripts/run_final_training.sh` 로 돌린다 (단계별 이어하기, 로그는 runs/final/logs/).
-노트북은 그 기록을 순서대로 읽어 셀 출력으로 남긴다. 예선 Mission 3 의 model_train.ipynb 와 같은 방식이다.
-  1) 데이터 준비: 원본 Training 라벨 JSON 으로 캐시를 다시 만들어, 학습에 쓴 캐시와 같은지 확인한다.
-  2) dev 로 정한 레시피와 그 근거 수치를 보여 준다.
-  3) 최종 학습(Training 전체)의 로그 전문과 설정 기록을 출력한다.
-  4) 제출 번들(.pt)의 구성과 추론 설정을 출력한다.
-  5) 4-2 중단 정책의 학습·판정 기록을 출력한다.
-  6) dev 평가 결과를 요약한다.
-노트북은 Validation 폴더를 읽지 않는다.
+학습은 명령줄에서 `bash scripts/run_final_training.sh` (방안 A, fit 26,280통화 기준) 로 돌린다.
+노트북은 데이터 일치 검증, 레시피 근거, TAPT·분류기 학습 기록, 제출 번들(version=2) 점검,
+4-2 무누수 중단 정책(C128_v1_nonempty), Dev 2,920 2계층 E2E 검증 결과를 셀 출력으로 남긴다.
+노트북은 Validation 폴더를 절대 읽지 않는다.
 
-    python scripts/build_notebook.py --no-exec   # 생성만 (학습 전: 출력이 빈 노트북)
-    python scripts/build_notebook.py             # 생성 + 실행 (학습이 끝난 뒤: 로그가 셀 출력으로 들어간다)
+    python scripts/build_notebook.py --no-exec   # 생성만 (출력 없음)
+    python scripts/build_notebook.py             # 생성 + 실행 (검증·로그 출력 수록)
 
 환경 변수 M4_RUN_TRAINING=1 을 주고 실행하면 4절 셀이 학습 스크립트를 직접 돌린다 (끝난 단계는 건너뛴다).
 """
@@ -37,227 +32,253 @@ def code(text: str):
 
 CELLS = [
     md(r"""
-# Mission 4 — 환자 증상 조기예측: 최종 제출 모델 학습 기록
+# Mission 4 — 환자 증상 조기예측: 최종 제출 모델 학습·검증 기록 (방안 A)
 
-**과제**: 119 신고 통화의 발화가 하나씩 들어올 때마다 증상 9종을 예측한다 (4-1: 매 순간 예측, 4-2: 스스로 멈추고 예측).
+**과제**: 119 신고 통화의 발화가 하나씩 들어올 때마다 증상 9종을 예측한다 (`4-1`: 매 순간 예측, `4-2`: 스스로 멈추고 예측).
 
-**최종 모델**
-1. KLUE-RoBERTa-base 를 Training 통화 전사로 TAPT(MLM) 한 백본에서 시작한다 (예선 Mission 3 에서 만든 백본).
-2. **통화 앞부분으로 학습한다.** 통화마다 epoch 당 앞부분 2개를 뽑고, 길이는 1..n 발화에서 균등하게 뽑는다. 라벨은 통화 전체의 증상이다.
-3. 그 밖의 설정은 예선 최종 레시피와 같다: 3 epoch, 배치 16, lr 5e-5, 층별 학습률 감쇠(LLRD) 0.8, pos_weight=(음성/양성)^0.5, 최대 512토큰, 발화 공백 결합.
-4. seed 가 다른 앞부분 학습 모델과, 통화 전체로 학습한 예선 최종 모델의 확률을 평균한다. 구성은 5절에서 번들 파일을 읽어 출력한다.
-
-**규정 준수**
-- **데이터:** 학습에는 Training 폴더만 썼다. 이 노트북과 학습 스크립트는 Validation 폴더를 읽지 않는다.
-- **값 고르기:** 레시피·결정 규칙·중단 기준은 모두 Training 내부 dev(10%, 2,920통화, 예선과 같은 분할)로 정했다.
-- **입력:** 그 순간까지 받은 발화의 전사만 쓴다. 통화 전체 길이, 뒤 발화, 라벨 JSON 의 다른 필드는 쓰지 않는다.
-- **모델:** 공개 사전학습 모델(klue/roberta-base)만 썼고, 외부 데이터와 상용 API 는 쓰지 않았다.
+**최종 채택 모델 (방안 A, `version=2` 미션 분리 번들)**
+1. **공통 백본·분할:** `klue/roberta-base` 를 Training 내부 학습 분할 `fit 26,280`통화 전사로 추가 사전학습(TAPT, MLM `20 epoch`)한 백본을 출발점으로 쓴다 (`dev 2,920`통화는 판정·비교 전용, `Validation 3,640`은 미사용).
+2. **4-1 증상 분류 (`SoftJaccard` 2-seed 앙상블: `s42 + s43`):** 통화 앞부분 균등 표본(`1..n`, epoch당 `2`개, `3 epoch`, `lr=5e-5`, `LLRD=0.8`, `pos_weight=(음성/양성)^0.5`, `max_length=512`)에 `Weighted BCE + 1.0 * Soft-Jaccard` 손실을 직접 결합해 초반 빈 예측을 줄이고 `4-1` 순간 Jaccard 식에 정렬했다.
+3. **4-2 증상 분류 및 중단 (`ENS3: E001+E002+E007` + `C128_v1_nonempty`):** 통화 끝 `Macro-F1` 이 가장 높은 통화 전체 학습 모델 `E001` 과 앞부분 학습 모델 `E002`·`E007` 의 평균 확률(`>= 0.5` 고정)을 쓰고, `fit 26,280` 5겹 교차 학습(OOF)으로만 학습한 `LightGBM` 조기중단 정책(`β=128`, `τ=0.5`, `min_step=5`, `require_nonempty=True`)을 결합했다.
+4. **대회 규정 준수:** 판정·중단 임계값은 모두 `0.5` 고정(`force_top1=False`)이며, 추론 입력에는 그 순간까지 받은 발화의 `text`·`speaker`·`start_ms`·`end_ms` 만 쓴다.
 
 **이 노트북의 구조**
-- 학습은 명령줄에서 `bash scripts/run_final_training.sh` 로 돌렸다. 한 번에 1시간 이상 걸리는 학습이라, 끊겨도 단계별로 이어서 돌 수 있고 로그가 파일로 남는 방식을 택했다.
-- 각 셀은 그 스크립트가 남긴 로그와 설정 기록(`runs/final/`)을 읽어 출력한다. 4절에 학습 로그 전문이 들어 있다.
-- 제출 폴더에는 `runs/` 가 없으므로 저장된 셀 출력으로 확인한다.
+- 통합 재현 스크립트 `bash scripts/run_final_training.sh` 와 개별 실험 로그·설정·번들·Dev E2E 요약을 읽어 실행 출력을 남긴다.
+- 출력에는 개인 로컬 절대경로·통화 ID·전사 원문을 남기지 않는다.
 """),
     code(r"""
 import hashlib, json, os, platform, subprocess, sys, tempfile, time, warnings
 from pathlib import Path
 
-warnings.filterwarnings("ignore", message=".*IProgress.*")     # 진행 막대 위젯이 없다는 안내는 학습과 무관하다
+warnings.filterwarnings("ignore", message=".*IProgress.*")
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import torch, transformers
 
-HERE = Path.cwd()                         # mission4_symptom/
-sys.path.insert(0, str(HERE))
+HERE = Path.cwd() if (Path.cwd() / "m4").is_dir() else Path.cwd().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
 from m4 import SYMPTOM_CLASSES
-from m4.data import build_cache, label_matrix, load_cache
+from m4.data import build_cache, label_matrix, load_cache, read_ids
 
-FINAL = HERE / os.environ.get("FINAL_ROOT", "runs/final")      # 최종 학습 출력 (scripts/run_final_training.sh)
-CACHE = HERE / "runs" / "cache" / "train.jsonl"                # Training 라벨 캐시
-BUNDLE = HERE / os.environ.get("M4_BUNDLE", "ckpt/mission4.pt")  # 제출 번들
-SEEDS = [int(s) for s in os.environ.get("SEEDS", "42 43").split()]
+def resolve_input(name: str) -> Path:
+    env_dir = os.environ.get("M4_INPUT_DIR")
+    if env_dir and (Path(env_dir) / name).is_file():
+        return Path(env_dir) / name
+    return HERE / "runs" / "cache" / name
 
-def find_data_root(start: Path) -> Path:
-    # 위 폴더로 올라가며 data/train/label 을 찾는다 (빈 자리표시 폴더는 건너뛴다)
-    for parent in [start, *start.parents]:
-        label_dir = parent / "data" / "train" / "label"
-        if label_dir.is_dir() and next(label_dir.glob("*.json"), None) is not None:
-            return parent / "data"
-    raise FileNotFoundError("data/train/label 폴더를 찾지 못했습니다. DCC_DATA_ROOT 를 지정하세요.")
+def find_train_label_dir() -> Path | None:
+    if os.environ.get("DCC_TRAIN_LABEL_DIR"):
+        p = Path(os.environ["DCC_TRAIN_LABEL_DIR"])
+        if p.is_dir():
+            return p
+    for parent in [HERE, *HERE.parents]:
+        cand = parent / "data" / "train" / "label"
+        if cand.is_dir() and next(cand.glob("*.json"), None) is not None:
+            return cand
+    return None
 
-def load_json(path):
+def load_json(path: Path) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
-def show_text(path, missing="(아직 없음 — 학습 전)"):
-    # 로그 파일 전문을 그대로 출력한다
-    path = Path(path)
-    print(f"----- {path.relative_to(HERE).as_posix()} -----")
-    print(path.read_text(encoding="utf-8", errors="replace").rstrip() if path.is_file() else missing)
+def safe_label(path: Path) -> str:
+    p = Path(path)
+    try:
+        return p.resolve().relative_to(HERE.resolve()).as_posix()
+    except ValueError:
+        return f"<외부 보관>/{p.parent.name}/{p.name}" if p.parent.name else f"<외부 보관>/{p.name}"
 
-DATA_ROOT = Path(os.environ["DCC_DATA_ROOT"]) if os.environ.get("DCC_DATA_ROOT") else find_data_root(HERE)
-print("Python", platform.python_version(), "| torch", torch.__version__, "| transformers", transformers.__version__)
-print("GPU:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "없음", "| OS:", platform.platform())
-print("Training 라벨 폴더:", DATA_ROOT / "train" / "label")
+TRAIN_LABEL_DIR = find_train_label_dir()
+CACHE = resolve_input("train.jsonl")
+FIT_IDS_PATH = resolve_input("fit_ids.txt")
+DEV_IDS_PATH = resolve_input("dev_ids.txt")
+BUNDLE = Path(os.environ.get("M4_BUNDLE") or (HERE / "ckpt" / "mission4.pt"))
+TAPT_CONFIG = Path(os.environ.get("M4_TAPT_CONFIG") or (HERE / "../../mission3-calibration/mission3_symptom/runs/devsel/tapt/tapt_config.json"))
+SJ42_DIR = Path(os.environ.get("M4_SJ42_DIR") or (HERE / "runs" / "m4_softjaccard_v1_s42"))
+SJ43_DIR = Path(os.environ.get("M4_SJ43_DIR") or (HERE / "runs" / "m4_softjaccard_v1_s43"))
+E002_DIR = HERE / "runs" / "E002_prefix_uniform"
+E007_DIR = HERE / "runs" / "E007_prefix_uniform_s43"
+FINAL = HERE / os.environ.get("FINAL_ROOT", "runs/final_option_a")
+
+print("Python", platform.python_version(), "| torch", torch.__version__, "| transformers", transformers.__version__, "| lightgbm", lgb.__version__)
+print("Device:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU", "| OS:", platform.system(), platform.machine())
+print("작업 폴더:", HERE.name, "| 번들 존재:", BUNDLE.is_file(), "| Training 라벨 준비:", TRAIN_LABEL_DIR is not None)
 """),
     md(r"""
-## 1. 데이터 준비 — Training 라벨 JSON 을 통화 캐시로
+## 1. 데이터 준비 — Training 라벨 JSON 과 `fit 26,280` / `dev 2,920` 분할 검증
 
 `m4.data.read_call` 이 라벨 JSON 하나를 통화 하나로 읽는다.
-- **발화 순서:** `startAt`, `endAt` 으로 정렬한다. 대회 추론 템플릿(`inference.py` 의 `load_samples`)과 같은 순서다.
-- **입력으로 남기는 것:** 발화의 전사·화자·시각뿐이다. 학습 입력에는 전사만 쓴다 (`m4.data.prefix_texts`, 발화를 공백으로 잇는다).
-- **라벨:** `symptom` 에서 9종만 0/1 로 남긴다. 9종이 하나도 없는 통화는 뺀다 (템플릿과 같은 제외 규칙).
+- **발화 순서:** `startAt`, `endAt` 기준 오름차순 정렬(추론 템플릿 `inference.py` 와 동일).
+- **입력으로 남기는 것:** 발화의 `text`·`speaker`·`startAt`·`endAt` 만 사용한다 (`Validation` 폴더는 전혀 읽지 않음).
+- **라벨 필터:** 9종 증상 필터 후 빈 통화는 제외한다 (`29,200`건 유지).
 
-3만 개 JSON 을 매번 여는 시간을 줄이려고 JSONL 한 파일로 모아 둔다. 명령줄로는 `python scripts/build_cache.py ...` 다.
-아래 셀은 원본 Training JSON 으로 캐시를 다시 만들어, 학습에 실제로 쓴 캐시와 줄 단위로 같은지 확인한다.
+아래 셀은 원본 Training 라벨 JSON 에서 캐시를 다시 만들어 학습에 쓴 `train.jsonl` 과 줄 단위로 일치하는지 검증하고, `fit 26,280` 기준 양성 비율·`pos_weight` 를 확인한다.
 """),
     code(r"""
-t0 = time.perf_counter()
-with tempfile.TemporaryDirectory() as tmp:
-    rebuilt = Path(tmp) / "train.jsonl"
-    n_rebuilt = build_cache(DATA_ROOT / "train" / "label", rebuilt)       # Training 폴더만 읽는다
-    if not CACHE.is_file():                                               # 캐시가 없으면 지금 만든 것을 쓴다
-        CACHE.parent.mkdir(parents=True, exist_ok=True)
-        CACHE.write_bytes(rebuilt.read_bytes())
-    same = rebuilt.read_text(encoding="utf-8").splitlines() == CACHE.read_text(encoding="utf-8").splitlines()
-print(f"원본 JSON 에서 다시 만든 통화 {n_rebuilt:,}건 ({time.perf_counter() - t0:.1f}초) / 학습에 쓴 캐시와 같은가: {same}")
-print("캐시 sha256:", hashlib.sha256(CACHE.read_bytes()).hexdigest()[:16], "…")
+if TRAIN_LABEL_DIR is not None and CACHE.is_file():
+    t0 = time.perf_counter()
+    with tempfile.TemporaryDirectory() as tmp:
+        rebuilt = Path(tmp) / "train.jsonl"
+        n_rebuilt = build_cache(TRAIN_LABEL_DIR, rebuilt)
+        same = rebuilt.read_text(encoding="utf-8").splitlines() == CACHE.read_text(encoding="utf-8").splitlines()
+    assert same and n_rebuilt == 29200, f"Training 캐시 불일치: n={n_rebuilt}, same={same}"
+    print(f"원본 Training JSON 재구축 통화 {n_rebuilt:,}건 ({time.perf_counter() - t0:.1f}초) / 학습 캐시 줄 단위 일치: {same}")
+    print("train.jsonl sha256:", hashlib.sha256(CACHE.read_bytes()).hexdigest()[:16], "…")
+else:
+    print("원본 라벨 JSON 또는 train.jsonl 이 현재 환경에 없어 캐시 검증을 건너뜁니다.")
 
-calls = load_cache(CACHE)
-labels = label_matrix(calls)
-n_utt = np.array([c.n_utt for c in calls])
-print(f"Training 통화 {len(calls):,}건, 발화 수 중앙값 {int(np.median(n_utt))} (10% {int(np.percentile(n_utt, 10))}, 90% {int(np.percentile(n_utt, 90))}, 최대 {n_utt.max()})")
-count = labels.sum(axis=1)
-print("통화당 증상 수:", {int(k): f"{(count == k).mean():.1%}" for k in sorted(set(count.tolist()))})
-pd.DataFrame({"양성 통화": labels.sum(axis=0), "비율": labels.mean(axis=0).round(3),
-              "pos_weight=(음성/양성)^0.5": (((len(labels) - labels.sum(axis=0)) / labels.sum(axis=0)) ** 0.5).round(3)},
-             index=SYMPTOM_CLASSES)
+if CACHE.is_file() and FIT_IDS_PATH.is_file() and DEV_IDS_PATH.is_file():
+    calls = load_cache(CACHE)
+    fit_ids = read_ids(FIT_IDS_PATH)
+    dev_ids = read_ids(DEV_IDS_PATH)
+    assert len(calls) == 29200 and len(fit_ids) == 26280 and len(dev_ids) == 2920
+    assert len(set(fit_ids) & set(dev_ids)) == 0
+    fit_calls = [c for c in calls if c.call_id in set(fit_ids)]
+    labels_all = label_matrix(calls)
+    labels_fit = label_matrix(fit_calls)
+    n_utt = np.array([c.n_utt for c in calls])
+    print(f"분할 확인: Training 전체 {len(calls):,}건 = fit {len(fit_calls):,}건 + dev {len(dev_ids):,}건 (중복 0건)")
+    print(f"발화 수 분포: 중앙값 {int(np.median(n_utt))}, 10% {int(np.percentile(n_utt, 10))}, 90% {int(np.percentile(n_utt, 90))}, 최대 {int(n_utt.max())}")
+    count = labels_all.sum(axis=1)
+    print("통화당 증상 수 비율:", {int(k): f"{(count == k).mean():.1%}" for k in sorted(set(count.tolist()))})
+    pw_fit = ((len(labels_fit) - labels_fit.sum(axis=0)) / labels_fit.sum(axis=0)) ** 0.5
+    display(pd.DataFrame({
+        "fit 양성 통화": labels_fit.sum(axis=0),
+        "fit 양성 비율": labels_fit.mean(axis=0).round(4),
+        "pos_weight=(음성/양성)^0.5": pw_fit.round(4),
+    }, index=SYMPTOM_CLASSES))
 """),
     md(r"""
 ## 2. 레시피 정하기 — Training 내부 dev
 
 Training 을 통화 단위로 90/10 으로 나눴다 (예선 Mission 3 과 같은 분할, seed 1234).
-- **학습용 26,280통화:** 후보 모델을 학습한다.
-- **dev 2,920통화:** 학습 입력 방식, 결정 규칙, 중단 기준, 평균할 모델을 정한다.
+- **학습용 26,280통화 (`fit`):** 후보 모델·TAPT·5겹 OOF 중단 정책을 학습한다.
+- **내부 검증 2,920통화 (`dev`):** 학습 입력 방식, 손실 함수, 중단 기준, 앙상블 조합을 공정 비교한다.
 
-dev 채점은 주최측 `score.py` 와 같은 식을 쓴다 (`m4/simulate.py`, 값 일치 테스트 `tests/`).
-아래 표는 실험별 dev 점수다 (`docs/results.csv`). 실험의 명령·설정·해석은 `docs/EXPERIMENT_LOG.md` 에 있다.
+dev 채점은 주최측 `score.py` 와 동일한 식을 쓰며(`m4/simulate.py`, 단위 테스트로 값 일치 검증), 아래 표는 `docs/results.csv` 와 `E002` 기본 레시피 기록이다.
 
 정한 것:
-- **학습 입력:** 통화 전체가 아니라 앞부분(길이 균등 표본)으로 학습한다 (`E002`). 4-1 채점이 모든 순간을 같은 무게로 평균하므로 학습 분포도 순간에 대해 균등하게 맞췄다.
-- **4-1 모델·결정 규칙 (Option A 분리):** `KLUE-RoBERTa-base (TAPT)` 에 `Weighted BCE(pos_weight^0.5) + Soft-Jaccard (weight 0.5)` 를 결합한 `2`개 시드(`seed 42·43`, `m4_softjaccard_v1`)를 평균하고, 대회 규정대로 판정 임계값 `0.5` 고정(`force_top1=False`)으로 예측한다.
-- **4-2 모델·중단 기준 (Option A 분리):** 4-2 는 통화 끝(중단 시점) F1 이 핵심이므로 `final_step Macro-F1` 이 더 높은 `ENS3`(`E001` 통화 전체 1종 + `E002/E007` 앞부분 2종)을 쓰고, `fit 26,280`통화 OOF 로 학습한 `LightGBM` 조기중단 정책(`C128_v1_nonempty`, `β = 128`, `τ = 0.5` 고정, `min_step = 5`, `require_nonempty = True`)으로 멈춘다.
-- **해 봤지만 채택하지 않은 것:** 다른 계열 인코더(`E008`/`DeBERTa` 등), 4멤버 확장(`ENS4`), 증상 개수 보조 출력(`E014`), `Soft-Jaccard`/`Soft-Macro-F1` 의 4-2 직접 적용(`final_step Macro-F1` 하락으로 4-1 에만 적용).
+- **학습 입력:** 통화 전체가 아니라 앞부분(길이 균등 표본)으로 학습한다 (`E002`). `4-1` 채점이 모든 순간을 같은 무게로 평균하므로 학습 분포도 순간에 대해 균등하게 맞췄다.
+- **4-1 모델·결정 규칙 (Option A 분리):** `KLUE-RoBERTa-base (TAPT)` 에 `Weighted BCE(pos_weight^0.5) + Soft-Jaccard (jaccard_weight = 1.0)` 를 결합한 `2`개 시드(`seed 42·43`, `m4_softjaccard_v1`)를 평균하고, 대회 규정대로 판정 임계값 `0.5` 고정(`force_top1=False`)으로 예측한다.
+- **4-2 모델·중단 기준 (Option A 분리):** `4-2` 는 통화 끝(중단 시점) F1 이 핵심이므로 `final_step Macro-F1` 이 더 높은 `ENS3`(`E001` 통화 전체 1종 + `E002/E007` 앞부분 2종)을 쓰고, `fit 26,280`통화 OOF 로 학습한 `LightGBM` 조기중단 정책(`C128_v1_nonempty`, `β = 128`, `τ = 0.5` 고정, `min_step = 5`, `require_nonempty = True`)으로 멈춘다.
+- **해 봤지만 채택하지 않은 것:** 다른 계열 인코더(`E008 KF-DeBERTa`, `E019 RoBERTa-large`, `E021/E022 KcELECTRA`), `Full-only` 단독 학습(`raw 0.5` 1발화 폭주 취약), 4멤버 확장(`ENS4`), 증상 개수 보조 출력(`E014`), `Soft-Jaccard`/`Soft-Macro-F1` 의 `4-2` 직접 적용(`final_step Macro-F1` 하락).
 """),
     code(r"""
-ids = {name: (HERE / "runs" / "cache" / f"{name}_ids.txt") for name in ("fit", "dev")}
-if all(p.is_file() for p in ids.values()):
-    print({name: sum(1 for line in open(p, encoding="utf-8") if line.strip()) for name, p in ids.items()}, "(학습용 / dev 통화 수)")
-
 results = pd.read_csv(HERE / "docs" / "results.csv")
+print(f"실험 기록 수: {len(results)}행 (docs/results.csv)")
 display(results[["exp_id", "what", "m4_1_score", "m4_1_rule", "m4_2_score", "m4_2_policy", "m4_2_macro_f1", "m4_2_earliness"]].fillna(""))
 
-# dev 선택 단계의 앞부분 학습 모델(E002, 학습용 26,280통화)의 설정. 최종 학습은 이 값을 그대로 쓴다.
 RECIPE_KEYS = ["fmt", "truncation_side", "max_length", "epochs", "samples_per_call", "include_full", "batch_size",
                "lr", "llrd", "pos_weight_power"]
-e002 = HERE / "runs" / "E002_prefix_uniform" / "run_config.json"
-if e002.is_file():
-    cfg = load_json(e002)
-    print("E002 레시피:", {k: cfg[k] for k in RECIPE_KEYS})
-    print(f"E002 학습: 통화 {cfg['n_calls']:,}건, {cfg['total_steps']:,} 스텝, {cfg['training_seconds'] / 60:.1f}분")
+e002_cfg_path = E002_DIR / "run_config.json"
+if e002_cfg_path.is_file():
+    cfg = load_json(e002_cfg_path)
+    print("E002 기본 레시피:", {k: cfg[k] for k in RECIPE_KEYS})
+    print(f"E002 학습 요약: 통화 {cfg['n_calls']:,}건, {cfg['total_steps']:,} 스텝, {cfg['training_seconds'] / 60:.1f}분")
 """),
     md(r"""
-## 3. TAPT 백본
+## 3. TAPT 백본 (`fit 26,280` 전사 20 epoch MLM)
 
-KLUE-RoBERTa-base 를 119 통화 전사로 MLM 추가 사전학습한 가중치다. 예선 Mission 3 의 `tapt_mlm.py` 로 만들었다.
-- **데이터:** Training 통화 전사만 쓴다. 라벨은 쓰지 않고 Validation 은 읽지 않는다.
-- **설정:** 20 epoch, 15% 마스킹, lr 5e-5, warmup 6%, 선형 감쇠, 최대 512토큰.
-
-아래 셀은 최종 학습이 실제로 쓴 백본의 기록(`tapt_config.json`)을 출력한다.
+`klue/roberta-base` 를 119 구급 통화 전사(`fit 26,280`건, 라벨·`dev`·`Validation` 미사용)로 Masked LM 추가 사전학습한 백본이다.
+- **설정:** `20 epoch`, `mlm_probability = 0.15`, `lr = 5e-5`, `warmup_ratio = 0.06`, 선형 감쇠, `max_length = 512`.
+- 아래 셀은 실제 사용한 TAPT 백본의 `tapt_config.json` 과 epoch별 MLM 손실 추이를 출력한다.
 """),
     code(r"""
-def backbone_dir():
-    # 최종 학습 기록에 적힌 백본 경로. 학습 전이면 기본 경로(예선 dev 선택 단계의 TAPT)를 본다.
-    cfg_path = FINAL / f"prefix_s{SEEDS[0]}" / "run_config.json"
-    raw = load_json(cfg_path)["backbone"] if cfg_path.is_file() else "../../mission3-calibration/mission3_symptom/runs/devsel/tapt"
-    return (HERE / raw).resolve()
-
-tapt_path = backbone_dir() / "tapt_config.json"
-if tapt_path.is_file():
-    tapt = load_json(tapt_path)
-    print("백본:", backbone_dir())
-    print(f"본문 {tapt['num_texts']:,}건, {tapt['epochs']} epoch, 학습 시간 {tapt['training_seconds'] / 60:.1f}분")
+if TAPT_CONFIG.is_file():
+    tapt = load_json(TAPT_CONFIG)
+    print("TAPT 기록:", safe_label(TAPT_CONFIG))
+    print(f"기반 모델: {tapt['model_name_or_path']} | 본문: {tapt['num_texts']:,}건 | {tapt['epochs']} epoch | 소요: {tapt['training_seconds'] / 60:.1f}분")
     print("데이터 출처:", tapt["source"])
-    display(pd.DataFrame(tapt["history"]).set_index("epoch").round(4).T)
+    hist_df = pd.DataFrame(tapt["history"]).set_index("epoch").round(4).T
+    display(hist_df)
+    print(f"MLM loss 변화: epoch 1 ({tapt['history'][0]['mlm_loss']:.4f}) -> epoch 20 ({tapt['history'][-1]['mlm_loss']:.4f})")
 else:
-    print("TAPT 기록을 찾지 못했습니다:", tapt_path)
+    print("TAPT 기록을 찾지 못했습니다.")
 """),
     md(r"""
-## 4. 최종 학습 — Training 전체 29,200통화
+## 4. 방안 A 모델 학습 기록 (`fit 26,280`통화)
 
-2절에서 정한 레시피 그대로, 학습 통화만 Training 전체로 늘려 다시 학습한다 (`scripts/run_final_training.sh` → `scripts/train_prefix.py`).
-- **통화 목록 없음:** `--ids` 를 주지 않으면 캐시 전체로 학습한다. dev 통화도 학습에 들어가므로, 이 모델들은 dev 로 다시 채점하지 않는다.
-- **스텝 수:** 29,200통화 × 2개 ÷ 배치 16 = 3,650 스텝/epoch, 3 epoch = 10,950 스텝. warmup 은 처음 10%, 그 뒤 선형 감쇠다.
-- **저장:** 3 epoch 를 끝낸 가중치를 저장한다. 평가 점수를 보고 고르지 않는다.
-- **pos_weight:** Training 전체 라벨로 계산한다 (1절 표와 같은 값).
-
-아래 첫 셀은 학습 명령이다. 환경 변수 `M4_RUN_TRAINING=1` 이면 이 셀이 학습을 직접 돌리고(끝난 단계는 건너뜀), 아니면 명령만 보여 준다.
-그다음 셀이 학습 로그 전문을 출력한다.
+제출 번들(`ckpt/mission4.pt`, `version=2`)에 탑재된 `fit 26,280` 기반 모델들의 학습 로그와 설정을 검증한다 (`bash scripts/run_final_training.sh` 로 전체 재현 가능).
+- **4-1 멤버 (2종):** `m4_softjaccard_v1_s42`, `m4_softjaccard_v1_s43` (`Weighted BCE + 1.0 * Soft-Jaccard`, `fit 26,280`, `9,855` 스텝).
+- **4-2 멤버 (3종):** `E001` (통화 전체 `fit` 모델) + `E002` (앞부분 `seed 42`) + `E007` (앞부분 `seed 43`).
 """),
     code(r"""
 TRAIN_CMD = ["bash", "scripts/run_final_training.sh"]
-print("학습 명령 (mission4_symptom 폴더에서):", " ".join(TRAIN_CMD))
+print("방안 A 통합 재현 명령 (mission4_symptom 폴더):", " ".join(TRAIN_CMD))
 if os.environ.get("M4_RUN_TRAINING") == "1":
-    # 스크립트 출력(단계 진행과 학습 로그)을 줄 단위로 그대로 셀에 남긴다
     proc = subprocess.Popen(TRAIN_CMD, cwd=HERE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, encoding="utf-8", errors="replace")
     for line in proc.stdout:
-        if "Loading weights" not in line and "Writing model shards" not in line:     # 진행 막대는 뺀다
-            print(line.rstrip())
+        print(line.rstrip())
     if proc.wait() != 0:
-        raise RuntimeError(f"학습 스크립트가 실패했습니다 (종료 코드 {proc.returncode})")
+        raise RuntimeError(f"학습 스크립트 실패 (exit {proc.returncode})")
 else:
-    print("이 실행에서는 학습을 돌리지 않았습니다. 아래 셀은 이미 끝난 학습의 로그를 읽습니다.")
+    print("이번 실행에서는 GPU 재학습을 수행하지 않고, 완료된 학습 설정·로그를 검증해 출력합니다.")
 """),
     code(r"""
-# 단계 진행 기록, 그리고 seed 별 학습 로그 전문 (200 스텝마다 평균 loss·학습률·경과 시간)
-show_text(FINAL / "logs" / "queue.log")
-for seed in SEEDS:
-    print()
-    show_text(FINAL / f"prefix_s{seed}" / "train_log.txt")
+def print_compact_log(tag: str, log_path: Path) -> None:
+    print(f"----- {tag} ({safe_label(log_path)}) -----")
+    lines = [l.rstrip() for l in log_path.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+    if len(lines) <= 18:
+        chosen = lines
+    else:
+        chosen = lines[:6] + ["... (중간 스텝 생략) ..."] + lines[-8:]
+    for line in chosen:
+        print(line)
+
+for tag, run_dir in [("SJ42 (4-1)", SJ42_DIR), ("SJ43 (4-1)", SJ43_DIR), ("E002 (4-2)", E002_DIR), ("E007 (4-2)", E007_DIR)]:
+    lp = run_dir / "train_log.txt"
+    if lp.is_file():
+        print_compact_log(tag, lp)
+        print()
+    else:
+        print(f"{tag}: train_log.txt 없음")
 """),
     code(r"""
-# 학습 설정 기록으로 확인: Training 전체로, 정한 레시피로, 정한 스텝 수만큼 학습했는가
+TRAINED_MEMBERS = [
+    ("SJ42", "4-1 (BCE+SoftJaccard 1.0)", SJ42_DIR),
+    ("SJ43", "4-1 (BCE+SoftJaccard 1.0)", SJ43_DIR),
+    ("E002", "4-2 (BCE prefix s42)", E002_DIR),
+    ("E007", "4-2 (BCE prefix s43)", E007_DIR),
+]
 rows = []
-for seed in SEEDS:
-    path = FINAL / f"prefix_s{seed}" / "run_config.json"
-    if not path.is_file():
-        print(f"prefix_s{seed}: 아직 없음 — 학습 전")
+for name, role, rdir in TRAINED_MEMBERS:
+    cfg_p = rdir / "run_config.json"
+    if not cfg_p.is_file():
+        print(f"{name}: run_config.json 없음")
         continue
-    cfg = load_json(path)
-    assert cfg["ids"] is None and cfg["n_calls"] == len(calls), "Training 전체로 학습한 모델이 아닙니다"
-    assert "val" not in Path(cfg["calls"]).name.lower(), "Validation 캐시로 학습했습니다"
-    assert cfg["total_steps"] == len(calls) * cfg["samples_per_call"] // cfg["batch_size"] * cfg["epochs"], "스텝 수가 다릅니다"
-    if e002.is_file():
-        assert {k: cfg[k] for k in RECIPE_KEYS} == {k: load_json(e002)[k] for k in RECIPE_KEYS}, "dev 로 정한 레시피와 다릅니다"
+    cfg = load_json(cfg_p)
+    ids_name = Path(str(cfg.get("ids") or "")).name
+    assert ids_name == "fit_ids.txt" and cfg["n_calls"] == 26280, f"{name} 분할 오류"
+    assert "val" not in str(cfg.get("calls", "")).lower(), f"{name} Validation 참조 발견"
+    assert int(cfg["total_steps"]) == 9855, f"{name} 스텝 수 불일치: {cfg['total_steps']}"
+    jw = float(cfg.get("jaccard_weight", 0.0))
+    expect_jw = 1.0 if name.startswith("SJ") else 0.0
+    assert abs(jw - expect_jw) < 1e-6, f"{name} jaccard_weight={jw}"
     for h in cfg["history"]:
-        rows.append({"seed": seed, "epoch": h["epoch"], "train_loss": round(h["train_loss"], 4),
-                     "누적 시간(분)": round(h["seconds"] / 60, 1), "학습 통화": cfg["n_calls"], "전체 스텝": cfg["total_steps"],
-                     "GPU 최대(GiB)": round(cfg["peak_cuda_memory_bytes"] / 2**30, 2)})
-    print(f"prefix_s{seed}: 백본 {cfg['backbone']}")
+        rows.append({
+            "모델": name,
+            "역할": role,
+            "seed": cfg["seed"],
+            "epoch": h["epoch"],
+            "train_loss": round(float(h["train_loss"]), 4),
+            "누적 시간(분)": round(float(h["seconds"]) / 60.0, 1),
+            "학습 통화": cfg["n_calls"],
+            "전체 스텝": cfg["total_steps"],
+            "GPU 최대(GiB)": round(float(cfg["peak_cuda_memory_bytes"]) / 2**30, 2),
+        })
+    print(f"{name} 검증 통과: calls={cfg['n_calls']:,}, steps={cfg['total_steps']:,}, jaccard_weight={jw}, elapsed={cfg['training_seconds']/60:.1f}분")
     print("  pos_weight:", {c: round(w, 3) for c, w in zip(SYMPTOM_CLASSES, cfg["pos_weight"])})
-pd.DataFrame(rows).set_index(["seed", "epoch"]) if rows else None
+
+display(pd.DataFrame(rows).set_index(["모델", "epoch"])) if rows else None
 """),
     md(r"""
-## 5. 제출 번들 (Option A 미션 분리, version=2)
+## 5. 제출 번들 (`ckpt/mission4.pt`, Option A `version=2`) 점검
 
-학습이 남긴 `best_model` 폴더들을 `.pt` 파일 하나로 묶는다 (`scripts/pack_bundle.py`, `m4/bundle.py`).
-- **멤버마다:** tokenizer·config 파일 원문과 가중치(fp16 저장)가 들어 있어 인터넷 없이 로드된다.
-- **미션 분리 구성 (`version=2`):**
-  - **4-1:** `m4_softjaccard_v1_s42` · `m4_softjaccard_v1_s43` (2멤버, `threshold 0.5`, `force_top1=False`, `halt never`).
-  - **4-2:** `E001` (통화 전체 `fit` 모델) · `E002` · `E007` (앞부분 `fit` 2종) + `policy_fitonly_c128_v1_nonempty.json` (`β = 128`, `τ = 0.5`, `require_nonempty=True`).
-- Option B (공유 `ENS3` 단일 번들) fallback 시에도 같은 로더가 `version=1` 을 지원한다.
-
-아래 셀은 번들 파일을 직접 열어 구성과 설정을 출력한다.
+`scripts/pack_bundle.py` 와 `m4/bundle.py` 로 묶인 단일 제출 가중치 번들을 열어 구성·무결성·규정 준수 메타데이터를 확인한다.
+- **미션 분리 탑재:** `4-1` 실행 시 `SoftJaccard 2멤버` 만 적재하고, `4-2` 실행 시 `ENS3 3멤버 + C128_v1_nonempty` 정책만 적재한다.
+- 번들 안에 `tokenizer`, `config`, `fp16` 가중치, 결정 규칙, 중단 정책이 모두 포함돼 오프라인 환경에서 외부 다운로드 없이 추론한다.
 """),
     code(r"""
 def _print_bundle_section(tag, members, settings):
@@ -266,7 +287,7 @@ def _print_bundle_section(tag, members, settings):
     for member in members:
         n = sum(int(t.numel()) for t in member["state_dict"].values())
         params.append(n)
-        print(f"  멤버 {member['name']}: 파라미터 {n:,}, 파일 {sorted(member['files'])}")
+        print(f"  멤버 {member['name']}: 파라미터 {n:,}, 내장 파일 {sorted(member['files'])}")
     for key in ("fmt", "max_length", "truncation_side", "rule", "halt_rule"):
         print(f"  {key}: {settings.get(key)}")
     halt_raw = settings.get("halt") or {}
@@ -277,110 +298,146 @@ def _print_bundle_section(tag, members, settings):
     print("  logit_shift:", None if settings.get("logit_shift") is None else [round(v, 3) for v in settings["logit_shift"]])
     return params
 
-
 if BUNDLE.is_file():
+    bundle_sha = hashlib.sha256(BUNDLE.read_bytes()).hexdigest()
+    assert bundle_sha == "26c3ff2729e67916d2543f216a1c6c342d399f5b24e3ade9c7509e534d3c92b8", f"번들 해시 불일치: {bundle_sha}"
     payload = torch.load(BUNDLE, map_location="cpu", weights_only=False)
-    print(f"{BUNDLE.relative_to(HERE).as_posix()}: {BUNDLE.stat().st_size / 2**20:.0f} MiB, "
-          f"version={payload.get('version', 1)}, sha256 {hashlib.sha256(BUNDLE.read_bytes()).hexdigest()[:16]}…")
+    print(f"번들: {safe_label(BUNDLE)} | {BUNDLE.stat().st_size:,} B ({BUNDLE.stat().st_size / 2**20:.1f} MiB) | version={payload.get('version', 1)}")
+    print(f"sha256: {bundle_sha}")
     print("note:", payload.get("note", ""))
     member_params = []
-    if "missions" in payload:
-        for mkey, block in payload["missions"].items():
-            member_params.extend(_print_bundle_section(mkey, block["members"], block["settings"]))
-    else:
-        member_params.extend(_print_bundle_section("shared", payload["members"], payload["settings"]))
+    for mkey, block in payload["missions"].items():
+        member_params.extend(_print_bundle_section(mkey, block["members"], block["settings"]))
+    print(f"전체 번들 파라미터 합계: {sum(member_params):,} ({len(member_params)}개 멤버)")
 else:
     member_params = []
-    print("번들이 아직 없습니다:", BUNDLE)
+    print("번들이 없습니다:", safe_label(BUNDLE))
 """),
     md(r"""
-## 6. 4-2 중단 정책 학습
+## 6. 4-2 무누수 학습형 중단 정책 (`C128_v1_nonempty`)
 
-`scripts/train_halt_policy.py` 가 정책을 학습하고 판정한다 (수식과 특징은 `m4/halting.py`).
-- **학습 자료:** 학습용 26,280통화의 교차 학습 확률표 (`scripts/run_oof_tables.sh`). 5겹으로 나눠, 겹마다 나머지 4겹으로 학습한 모델이 보지 않은 겹의 확률을 낸다.
-- **기준 τ 는 0.5 로 고정** 하고 `--require-nonempty` 게이트(보정 전 확률 `≥ 0.5` 인 증상이 1개 이상일 때만 조기 중단)를 켜며, 예상 이득에 곱하는 `β` 는 fit 26,280통화 안에서 5겹 교차 학습 예측으로 고른다 (`C128_v1_nonempty`: `β = 128`). `dev` 는 판정에만 사용한다.
-- **멈출 때 예측:** 학습 목표와 채점 모두 제출과 같은 0.5 판정(1위 강제 없음)으로 계산한다.
-- **판정:** dev 2,920통화에 그대로 적용해 `ENS3` 기준 `0.5074` (`Macro-F1 0.6132 × 조기판단력 0.8275`), 중간 빈 예측 조기 중단 `0`건을 확인했다.
-
-아래 셀은 제출 번들에 넣은 정책의 학습 기록(`result.json`)을 출력한다.
+`scripts/train_halt_policy.py` 와 `m4/halting.py` 를 사용해, **`dev 2,920` 과 `Validation 3,640` 을 제외한 순수 `fit 26,280` 5겹 OOF 확률표(`e002_oof`)만** 으로 중단 정책을 학습했다.
+- **중단 기준:** `5`번째 발화부터 ① 현재 보정 전 평균 확률 `>= 0.5` 인 증상이 최소 `1`개 이상(`require_nonempty=True`) 이고 ② `기대 점수 + 128 × δ̂ ≥ 0.5` (`τ = 0.5` 고정)일 때 멈춘다.
+- **특징 (`57`개):** 그 순간까지 누적된 `text`, `speaker`, `start_ms`, `end_ms` 와 보정 확률만 사용(미래 길이 미사용, `200`통화 인과성/온라인 일치 검증 완료).
 """),
     code(r"""
-POLICY = HERE / os.environ.get("M4_POLICY", "runs/E026_learned_halt05/wide")
-if (POLICY / "result.json").is_file():
-    res = load_json(POLICY / "result.json")
-    run = res["runs"][0]
-    print("학습용 확률표:", [Path(p).as_posix() for p in res["args"]["fit_tables"]])
-    print("판정용 확률표:", [Path(p).as_posix() for p in res["args"]["eval_tables"]])
-    print(f"특징 {res['n_features']}개, 고른 값 beta {run['beta']:g} / tau {run['tau']:.2f}, 판정 통화 {run['n_eval_calls']:,}건")
-    names = {"base": f"기존 기준 (기대 점수 ≥ {run['base_tau']:.2f})", "tau_only": "τ 만 다시 고름", "learned": "학습형 정책 (제출)"}
-    display(pd.DataFrame({names[k]: {"4-2": round(v["score"], 4), "Macro-F1": round(v["macro_f1"], 4), "조기판단력": round(v["earliness"], 4),
-                                     "중단 발화(중앙값)": v["halt_median"], "끝까지 들은 비율": round(v["never_halted"], 3)}
-                          for k, v in run["scores"].items()}).T)
-    d = run["learned_vs_base"]
-    print(f"학습형 − 기존 기준: {d['diff']:+.4f}, 95% 구간 [{d['lo']:+.4f}, {d['hi']:+.4f}]")
+fitonly_summary_p = HERE / "runs" / "e026_fitonly_policy_v1" / "summary.json"
+if fitonly_summary_p.is_file():
+    pol_res = load_json(fitonly_summary_p)
+    caus = pol_res["causality_and_online_parity"]
+    print(f"정책 학습 범위: fit {pol_res['n_fit']:,}통화 OOF ({Path(pol_res['oof_source']).name}) | 판정 전용 dev {pol_res['n_eval']:,}통화")
+    print(f"OOF δ 회귀 R²: {pol_res['crossfit_r2']:.4f} | 인과성·온라인 일치 검증({caus['checked_calls']}통화): future_invariance={caus['future_invariance_ok']}, parity={caus['online_batch_parity_ok']}")
+    ens3 = pol_res["targets"]["ENS3"]
+    policy_names = {
+        "C0_beta0": "기준 정책 (β=0, τ=0.5, nonempty)",
+        "C128_v0": "학습형 v0 (β=128, τ=0.5, empty 허용)",
+        "C128_v1_nonempty": "최종 채택 C128_v1_nonempty (β=128, τ=0.5, require_nonempty)",
+    }
+    pol_rows = {}
+    for k, label in policy_names.items():
+        v = ens3[k]
+        pol_rows[label] = {
+            "4-2 점수": round(v["score"], 6),
+            "Macro-F1": round(v["macro_f1"], 4),
+            "조기판단력": round(v["earliness"], 4),
+            "중단 발화(중앙값)": v["halt_median"],
+            "끝까지 들은 비율": round(v["never_halted"], 4),
+            "중단 빈 예측 건수": v["empty_at_halt"],
+        }
+    display(pd.DataFrame(pol_rows).T)
+    d_c0 = ens3["C128_v1_nonempty"]["diff_vs_C0"]
+    print(f"C128_v1_nonempty - 기준(C0): {d_c0['diff']:+.6f} (95% CI [{d_c0['lo']:+.6f}, {d_c0['hi']:+.6f}], P(>0)={d_c0['p_gt0']:.4f})")
 else:
-    print("정책 학습 기록이 없습니다:", POLICY)
+    print("정책 요약 파일이 없습니다.")
 """),
     md(r"""
-## 7. dev 평가 결과 요약
+## 7. Dev 2,920 평가 및 2계층 E2E 오프라인 검증 결과
 
-수치는 모두 Training 내부 dev 2,920통화 기준이고, **학습용 26,280통화로 학습한 같은 레시피의 모델**로 잰 것이다.
-Option A (`version=2`) 제출은 미션별 최선 모델을 분리 탑재한다:
-- **4-1 제출 (`m4_softjaccard_v1_s42` + `s43`, 2멤버):** `Dev 2,920 = 0.526039` (`raw p >= 0.5`, `force_top1=False`), `score.py` 경고 `0`건.
-- **4-2 제출 (`ENS3: E001+E002+E007` + `C128_v1_nonempty`, 3멤버):** `Dev 2,920 = 0.507411` (`Macro-F1 0.613217 × E 0.827457`), 중간 빈 예측 조기 중단 `0`건.
+Training 내부 비학습 `dev 2,920`통화(`87,814`시점)에서 개별·앙상블 `.npz` 확률표를 직접 채점하고, 실제 제출 번들 `ckpt/mission4.pt` 를 `inference.py` + 공식 `score.py` 로 전수·E2E 검증한 결과를 요약한다.
 """),
     code(r"""
 from m4 import simulate as sim
 from m4.decision import calibrate, expected_rule
 
-DEV = {
-    "E001": "runs/E001_m3_baseline",
-    "E002": "runs/E002_prefix_uniform",
-    "E007": "runs/E007_prefix_uniform_s43",
-    "SJ42": "runs/m4_softjaccard_v1_s42",
-    "SJ43": "runs/m4_softjaccard_v1_s43",
+NPZ_SOURCES = {
+    "E001": resolve_input("e001_dev_prefix.npz"),
+    "E002": resolve_input("e002_dev_prefix.npz"),
+    "E007": resolve_input("e007_dev_prefix.npz"),
+    "SJ42": SJ42_DIR / "dev_prefix.npz",
+    "SJ43": SJ43_DIR / "dev_prefix.npz",
 }
-tables = {k: sim.PrefixTable.load(HERE / v / "dev_prefix.npz") for k, v in DEV.items() if (HERE / v / "dev_prefix.npz").is_file()}
-rows = []
-if {"E001", "E002", "E007"}.issubset(tables):
-    shift = np.log(load_json(HERE / DEV["E002"] / "run_config.json")["pos_weight"])
+tables = {k: sim.PrefixTable.load(p) for k, p in NPZ_SOURCES.items() if p.is_file()}
+if {"E001", "E002", "E007", "SJ42", "SJ43"}.issubset(tables):
+    base_t = tables["E002"]
+    for k, tbl in tables.items():
+        assert tbl.call_ids == base_t.call_ids and np.array_equal(tbl.offsets, base_t.offsets), f"{k} 정렬 불일치"
+    shift = np.log(load_json(E002_DIR / "run_config.json")["pos_weight"])
     combos = [
-        ("앞부분 학습 seed 42 (E002)", ["E002"]),
-        ("앞부분 학습 seed 43 (E007)", ["E007"]),
-        ("4-2 채택 앙상블 (ENS3: E001+E002+E007)", ["E001", "E002", "E007"]),
+        ("E001 (통화 전체 BCE)", ["E001"]),
+        ("E002 (앞부분 BCE s42)", ["E002"]),
+        ("E007 (앞부분 BCE s43)", ["E007"]),
+        ("ENS3 (4-2 채택: E001+E002+E007)", ["E001", "E002", "E007"]),
+        ("SJ42 (앞부분 SoftJaccard s42)", ["SJ42"]),
+        ("SJ43 (앞부분 SoftJaccard s43)", ["SJ43"]),
+        ("SJ42+SJ43 (4-1 채택 2앙상블)", ["SJ42", "SJ43"]),
     ]
-    if {"SJ42", "SJ43"}.issubset(tables):
-        combos.append(("4-1 채택 앙상블 (SJ42+SJ43)", ["SJ42", "SJ43"]))
+    eval_rows = []
     for label, names in combos:
-        t = tables[names[0]]
         probs = np.mean([tables[k].probs for k in names], axis=0)
-        pred = probs >= 0.5                                      # 제출 규칙: 0.5 고정, 넘는 것이 없으면 빈 예측
-        gold = np.repeat(t.labels, t.n_utt, axis=0)
-        per_call = np.add.reduceat(sim.moment_scores(pred, gold), t.offsets[:-1]) / t.n_utt
-        value = expected_rule(calibrate(probs, shift))[1]          # 기대 점수 (보정 확률)
+        pred = probs >= 0.5
+        gold = np.repeat(base_t.labels, base_t.n_utt, axis=0)
+        per_call = np.add.reduceat(sim.moment_scores(pred, gold), base_t.offsets[:-1]) / base_t.n_utt
+        value = expected_rule(calibrate(probs, shift))[1]
         halts = []
-        for a, b in zip(t.offsets[:-1], t.offsets[1:]):
+        for a, b in zip(base_t.offsets[:-1], base_t.offsets[1:]):
             hit = np.flatnonzero((value[a:b] >= 0.5) & pred[a:b].any(axis=1))
-            hit = hit[hit >= 4]                                  # 5번째 발화부터 (require_nonempty)
+            hit = hit[hit >= 4]
             halts.append(int(hit[0]) + 1 if len(hit) else int(b - a))
         halts = np.array(halts)
-        f1 = sim.macro_f1(pred[t.offsets[:-1] + halts - 1], t.labels)["macro_f1"]
-        e = float(sim.earliness(halts, t.n_utt).mean())
-        rows.append({"모델": label, "4-1": round(float(per_call.mean()), 4), "빈 예측 순간": f"{(~pred.any(1)).mean():.1%}",
-                     "4-2 (기대 점수 ≥ 0.5, nonempty)": round(f1 * e, 4), "Macro-F1": round(f1, 4), "조기판단력": round(e, 4),
-                     "중단 발화(중앙값)": float(np.median(halts))})
-pd.DataFrame(rows).set_index("모델") if rows else print("dev 확률표(runs/E00*/dev_prefix.npz)가 없습니다")
+        f1 = sim.macro_f1(pred[base_t.offsets[:-1] + halts - 1], base_t.labels)["macro_f1"]
+        e = float(sim.earliness(halts, base_t.n_utt).mean())
+        eval_rows.append({
+            "구성": label,
+            "4-1 (raw>=0.5)": round(float(per_call.mean()), 6),
+            "빈 예측 순간 비율": f"{(~pred.any(1)).mean():.2%}",
+            "4-2 (기준 expected>=0.5, nonempty)": round(f1 * e, 6),
+            "Macro-F1": round(f1, 4),
+            "조기판단력": round(e, 4),
+        })
+    print("1) .npz 확률표 기반 Dev 2,920통화(87,814시점) 직접 채점 결과:")
+    display(pd.DataFrame(eval_rows).set_index("구성"))
+
+e2e_path = HERE / "runs" / "mission4_submission_v2_20261119" / "e2e_verification_summary.json"
+if e2e_path.is_file():
+    e2e = load_json(e2e_path)
+    l1 = e2e["layer1_full_dev2920"]
+    l2 = e2e["layer2_real_cli_subset16"]
+    print("\n2) 실제 번들(ckpt/mission4.pt, version=2) 2계층 E2E 오프라인 검증 요약:")
+    print(f"  - Layer 1 (Dev 2,920 전수, {l1['n_moments']:,}시점): 4-1={l1['mission_4_1']['score']:.6f} (적재 {l1['mission_4_1']['loaded_members']}멤버, 경고 {len(l1['mission_4_1']['warnings'])}건)")
+    print(f"  - Layer 1 (Dev 2,920 전수, C128_v1_nonempty):   4-2={l1['mission_4_2']['score']:.6f} = Macro-F1 {l1['mission_4_2']['macro_f1']:.4f} x E {l1['mission_4_2']['mean_earliness']:.4f} (적재 {l1['mission_4_2']['loaded_members']}멤버, 중간 빈 중단 {l1['mission_4_2']['mid_call_empty_halts']}건, 불일치 {l1['mission_4_2']['mismatches_vs_ENS3_C128_v1_nonempty']}건)")
+    print(f"  - Layer 2 (16통화 노모킹 오프라인 CLI CPU):       4-1 {l2['mission_4_1']['cli_seconds']:.2f}s (이진 차이 {l2['mission_4_1']['binary_row_diffs_vs_layer1']}건, max_prob_diff={l2['mission_4_1']['max_prob_diff_fp16_bundle_vs_npz']:.6f})")
+    print(f"  - Layer 2 (16통화 노모킹 오프라인 CLI CPU):       4-2 {l2['mission_4_2']['cli_seconds']:.2f}s (중단 차이 {l2['mission_4_2']['call_diffs_vs_layer1']}건, max_prob_diff={l2['mission_4_2']['max_prob_diff_fp16_bundle_vs_npz']:.6f})")
+    f1_df = pd.DataFrame.from_dict(l1["mission_4_2"]["per_class_f1"], orient="index", columns=["4-2 중단 시점 F1"]).round(4)
+    display(f1_df.T)
 """),
     md(r"""
 ## 8. 계산 효율
 """),
     code(r"""
-train_minutes = [load_json(p)["training_seconds"] / 60 for p in (FINAL / f"prefix_s{s}" / "run_config.json" for s in SEEDS) if p.is_file()]
-pd.DataFrame({"값": [
-    f"{sum(member_params):,} (KLUE-RoBERTa-base × {len(member_params)} 멤버 — 4-1 2개, 4-2 3개)" if member_params else "(번들 없음)",
-    ", ".join(f"{m:.1f}분" for m in train_minutes) if train_minutes else "(최종 번들은 26,280통화 fit-only Option A 사용)",
-    f"{torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}, Python {platform.python_version()}, torch {torch.__version__}",
-]}, index=["번들 파라미터 수", "학습 시간 / 레시피 비고", "학습 환경"])
+sj42_m = load_json(SJ42_DIR / "run_config.json")["training_seconds"] / 60 if (SJ42_DIR / "run_config.json").is_file() else None
+sj43_m = load_json(SJ43_DIR / "run_config.json")["training_seconds"] / 60 if (SJ43_DIR / "run_config.json").is_file() else None
+e002_m = load_json(E002_DIR / "run_config.json")["training_seconds"] / 60 if (E002_DIR / "run_config.json").is_file() else None
+e007_m = load_json(E007_DIR / "run_config.json")["training_seconds"] / 60 if (E007_DIR / "run_config.json").is_file() else None
+e2e_cli = load_json(HERE / "runs" / "mission4_submission_v2_20261119" / "e2e_verification_summary.json")["layer2_real_cli_subset16"]
+
+summary_rows = {
+    "총 번들 파라미터 / 런타임 적재": f"{sum(member_params):,} (KLUE-RoBERTa-base x 5, 실행 시 4-1 2멤버 / 4-2 3멤버 분리 적재)" if member_params else "확인 필요",
+    "번들 파일 크기 (fp16)": f"{BUNDLE.stat().st_size / 2**20:.1f} MiB ({BUNDLE.stat().st_size:,} B)" if BUNDLE.is_file() else "없음",
+    "4-1 학습 시간 (L4 AMP, 9,855스텝)": f"SJ42 {sj42_m:.1f}분, SJ43 {sj43_m:.1f}분 (각 fit 26,280)" if sj42_m and sj43_m else "기록 확인",
+    "4-2 앞부분 학습 시간 (9,855스텝)": f"E002 {e002_m:.1f}분, E007 {e007_m:.1f}분 (fit 26,280)" if e002_m and e007_m else "기록 확인",
+    "오프라인 CLI 실측 (CPU 16통화)": f"4-1 {e2e_cli['mission_4_1']['cli_seconds']:.2f}초 / 4-2 {e2e_cli['mission_4_2']['cli_seconds']:.2f}초 (HF_HUB_OFFLINE=1)",
+}
+display(pd.DataFrame({"값": list(summary_rows.values())}, index=list(summary_rows.keys())))
 """),
 ]
 
@@ -402,7 +459,6 @@ def main() -> None:
     if not args.no_exec:
         from nbclient import NotebookClient
 
-        # 셀 안에서 학습을 돌릴 때(M4_RUN_TRAINING=1)는 시간 제한을 두지 않는다
         timeout = None if os.environ.get("M4_RUN_TRAINING") == "1" else 1800
         NotebookClient(nb, timeout=timeout, kernel_name="python3", resources={"metadata": {"path": str(HERE)}}).execute()
     out = Path(args.out)

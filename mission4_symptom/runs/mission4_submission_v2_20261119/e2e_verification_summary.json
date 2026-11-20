@@ -1,8 +1,8 @@
 {
   "bundle": {
-    "path": "/Users/sunggyu/Desktop/이성규/DCC/artifacts_private/runs/mission4_submission_v2_20261119/ckpt/mission4.pt",
-    "bytes": 1111644586,
-    "sha256": "f681d55a80daec5e3db4a5ad1ccafc8790c06fcc56880a6efdfc5586e5ab18e2",
+    "path": "ckpt/mission4.pt",
+    "bytes": 1111646045,
+    "sha256": "26c3ff2729e67916d2543f216a1c6c342d399f5b24e3ade9c7509e534d3c92b8",
     "version": 2,
     "members_4_1": [
       "m4_softjaccard_v1_s42",
@@ -71,7 +71,7 @@
       "device": "cpu"
     },
     "mission_4_1": {
-      "cli_seconds": 59.58,
+      "cli_seconds": 63.19,
       "rows": 395,
       "score": 0.39122826522347454,
       "warnings": [],
@@ -79,7 +79,7 @@
       "max_prob_diff_fp16_bundle_vs_npz": 0.0006241798400878906
     },
     "mission_4_2": {
-      "cli_seconds": 28.01,
+      "cli_seconds": 29.14,
       "rows": 16,
       "score": 0.3706981051239376,
       "warnings": [],

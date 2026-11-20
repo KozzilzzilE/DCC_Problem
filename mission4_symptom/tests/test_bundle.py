@@ -231,8 +231,8 @@ def test_train_prefix_losses_and_full_only_sampling():
     import train_prefix  # noqa: E402
 
     assert train_prefix.resolve_loss_weights("bce") == (0.0, 0.0)
-    assert train_prefix.resolve_loss_weights("softjaccard") == (0.5, 0.0)
-    assert train_prefix.resolve_loss_weights("jacc_macrof1") == (0.5, 0.2)
+    assert train_prefix.resolve_loss_weights("softjaccard") == (1.0, 0.0)
+    assert train_prefix.resolve_loss_weights("jacc_macrof1") == (0.5, 0.5)
     assert train_prefix.resolve_loss_weights("softjaccard", jaccard_weight=0.25) == (0.25, 0.0)
 
     torch.manual_seed(0)
@@ -245,11 +245,12 @@ def test_train_prefix_losses_and_full_only_sampling():
 
     bce_ref = torch.nn.BCEWithLogitsLoss(pos_weight=pw)(logits, target)
     l_bce = train_prefix.compute_loss(logits, target, pw, 0.0, 0.0)
-    l_sj = train_prefix.compute_loss(logits, target, pw, 0.5, 0.0)
-    l_jm = train_prefix.compute_loss(logits, target, pw, 0.5, 0.2)
+    l_sj_half = train_prefix.compute_loss(logits, target, pw, 0.5, 0.0)
+    l_sj = train_prefix.compute_loss(logits, target, pw, 1.0, 0.0)
+    l_jm = train_prefix.compute_loss(logits, target, pw, 0.5, 0.5)
     assert torch.allclose(l_bce, bce_ref, atol=1e-6)
     assert torch.isfinite(l_sj) and torch.isfinite(l_jm)
-    assert l_sj.item() > l_bce.item() and l_jm.item() > l_sj.item()
+    assert l_sj.item() > l_sj_half.item() > l_bce.item() and l_jm.item() > l_sj_half.item()
     l_jm.backward()
     assert logits.grad is not None and torch.isfinite(logits.grad).all()
 

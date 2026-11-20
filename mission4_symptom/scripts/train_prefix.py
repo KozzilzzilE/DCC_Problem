@@ -63,8 +63,8 @@ def llrd_groups(model, lr: float, decay: float, weight_decay: float):
 
 LOSS_DEFAULTS = {
     "bce": (0.0, 0.0),
-    "softjaccard": (0.5, 0.0),
-    "jacc_macrof1": (0.5, 0.2),
+    "softjaccard": (1.0, 0.0),
+    "jacc_macrof1": (0.5, 0.5),
 }
 
 
@@ -153,7 +153,7 @@ def main() -> int:
     ap.add_argument("--grad-ckpt", action="store_true",
                     help="gradient checkpointing. 큰 백본이 8GB 에 안 들어갈 때 활성값 메모리를 줄인다 (계산은 약 30%% 늘어남)")
     ap.add_argument("--loss", default="bce", choices=["bce", "softjaccard", "jacc_macrof1"],
-                    help="학습 손실 프리셋 (기본 bce; softjaccard는 0.5, jacc_macrof1은 0.5/0.2)")
+                    help="학습 손실 프리셋 (기본 bce; softjaccard는 1.0, jacc_macrof1은 0.5/0.5)")
     ap.add_argument("--jaccard-weight", type=float, default=None, help="Soft-Jaccard 보조 손실 가중치 (기본 프리셋 따름)")
     ap.add_argument("--macro-f1-weight", type=float, default=None, help="Soft-Macro-F1 보조 손실 가중치 (기본 프리셋 따름)")
     ap.add_argument("--log-every", type=int, default=200, help="이 스텝마다 진행 기록")

@@ -25,7 +25,7 @@ python inference.py --mission 4-2 --audio_dir {wav folder} --label_dir {json fol
 | `inference.py` | 공식 템플릿. `Predictor` 만 작성했다 (`m4/streaming.py` 를 부른다) |
 | `ckpt/mission4.pt` | 제출 가중치 번들 (`version 2` 미션 분리형, 1,111,646,045 B / 1,060 MiB, sha256 `26c3ff2729e67916d2543f216a1c6c342d399f5b24e3ade9c7509e534d3c92b8`) |
 | `m4/` | 모델 코드. `streaming.py` 추론 상태, `bundle.py` 번들 형식, `decision.py` 4-1 결정 규칙, `halting.py` 4-2 멈춤 정책, `data.py` 입력 형식, `simulate.py` 채점식 |
-| `model_train.ipynb` | 학습·검증 정리 노트북 (`build_notebook.py --no-exec` 로 방안 A `version 2` 구성 및 `fit 26,280` 설계 반영) |
+| `model_train.ipynb` | 학습·검증 정리 노트북 (`build_notebook.py` 로 방안 A `version=2`, `fit 26,280` 구성·번들 점검·`Dev 2,920` 검증 실행 출력 수록) |
 | `scripts/` | 학습 코드. 실행 순서는 아래 "다시 학습하기" |
 | `tests/` | 채점식 일치, 번들, 결정 규칙, 중단 정책, 스트리밍 경로 테스트 (`pytest`) |
 | `score.py` | 주최측 채점 스크립트 (자체 채점용, 수정 없음) |
@@ -35,7 +35,7 @@ python inference.py --mission 4-2 --audio_dir {wav folder} --label_dir {json fol
 단일 제출 파일 `ckpt/mission4.pt`(`version 2` 미션 분리 번들) 안에 `4-1` 전용 모델과 `4-2` 전용 모델·정책이 분리 수록돼 있으며, 실행 시 `--mission` 에 해당하는 멤버만 메모리에 적재한다. 모두 `klue/roberta-base` 를 AI-Hub Training 서울 구급 전사로 추가 사전학습(TAPT, MLM 20 epoch)한 백본에서 출발했다(`fit 26,280`통화 학습).
 
 1. **4-1 증상 분류 (`SoftJaccard` 2-seed 앙상블: seed 42 + 43).**
-   - 학습: 앞부분(1..n 균등 샘플링) 학습에 `BCE(pos_weight^0.5) + SoftJaccard` 손실을 직접 결합해(시드 42·43) 초반 빈 예측을 줄이고 순간 Jaccard 채점식에 정렬했다.
+   - 학습: 앞부분(1..n 균등 샘플링) 학습에 `BCE(pos_weight^0.5) + SoftJaccard(jaccard_weight=1.0)` 손실을 직접 결합해(시드 42·43) 초반 빈 예측을 줄이고 순간 Jaccard 채점식에 정렬했다.
    - 판정: 대회 규정대로 판정 임계값은 `0.5` 로 고정한다(`force_top1=False`). 2개 모델의 평균 확률(보정 없음)이 `0.5` 이상인 증상을 모두 내며, 없으면 빈 리스트를 낸다.
 2. **4-2 증상 분류 및 멈춤 (`ENS3`: E001 + E002 + E007 3모델 평균 + 무누수 학습형 멈춤 정책 `C128_v1_nonempty`).**
    - 분류기: `Macro-F1` 을 유지하는 예선 전체 통화 학습 모델 1개(`E001`) + 앞부분 균등 학습 모델 2개(`E002`, `E007`)의 보정 없는 평균 확률이 `0.5` 이상인 증상을 낸다(1위 강제 없음).
@@ -61,6 +61,8 @@ Training 내부 비학습 `Dev 2,920`통화 (`87,814`시점, 공식 `score.py` �
 - 공식 `Validation 3,640`통화 최종 1회 검증은 팀 최종 freeze 합의 후 별도 실행 예정(참고: 이전 단일 `E026` 번들의 Validation 1회 기록은 `4-1 0.4867`, `4-2 0.5070`).
 
 ## 다시 학습하기 (방안 A 재현 명령)
+
+통합 실행 스크립트: `bash scripts/run_final_training.sh` (단계별 완료 표시 `.done` 및 `fit 26,280` 전용 검증 포함). 개별 단계 명령은 아래와 같다.
 
 ```bash
 # 1. Training 캐시 및 fit/dev 분할 + 119 전사 TAPT
