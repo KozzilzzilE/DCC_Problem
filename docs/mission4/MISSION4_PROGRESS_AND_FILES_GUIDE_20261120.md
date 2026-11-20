@@ -51,8 +51,17 @@
 ### ① 최우선 요청 대상이었던 파일 — *L4 독립 재현으로 공백 해소 완료 (원본 보유 시 선택 교체)*
 | 원래 요청 대상 파일 (팀원 PC 기준) | 왜 필요했는가 | 현재 상태 (`2026-11-20`) |
 |---|---|---|
-| `runs/E008_kfdeberta_prefix/dev_prefix.npz` | 기존 로그에 구규칙(`top1=True`, `0.5354`)만 남아 있고 규정 준수 **`raw p >= 0.5`**·`95% CI`가 없었음 | **`m4_logic_closure` L4 독립 재현으로 해소 완료** (`raw 0.5 = 0.494825`, `-0.007908`, `95% CI [-0.013549, -0.002146]`). 팀원 PC에 원본이 남아 있으면 발표 주 수치 교체용으로만 선택 전달 |
-| `runs/E019_large_gc/dev_prefix.npz` | 기존 로그에 **`maxent` (`0.5451`)** 만 남아 있고 규정 준수 **`raw p >= 0.5`**·`ENS_swap`·`4-2 C128` 수치가 없었음 | **`m4_logic_closure` L4 독립 재현으로 해소 완료** (`diag_maxent 0.5439`, **`raw 0.5 = 0.498232`**). 팀원 PC에 원본이 남아 있으면 발표 주 수치 교체용으로만 선택 전달 |
+| `runs/E008_kfdeberta_prefix/dev_prefix.npz` | 기존 로그에 구규칙(`top1=True`, `0.5354`)만 남아 있고 규정 준수 **`raw p >= 0.5`**·`95% CI`가 없었음 | **`m4_logic_closure` L4 독립 재현으로 해소 완료** (`raw 0.5 = 0.494825`, `-0.007908`, `95% CI [-0.013549, -0.002146]`). L4 재현 `dev_prefix.npz`는 Drive `06_logic_closure_full_e008_e019_20261120/e008_kfdeberta_repro_s42_light.zip`에 업로드 및 문서 반영 완료 |
+| `runs/E019_large_gc/dev_prefix.npz` | 기존 로그에 **`maxent` (`0.5451`)** 만 남아 있고 규정 준수 **`raw p >= 0.5`**·`ENS_swap`·`4-2 C128` 수치가 없었음 | **`m4_logic_closure` L4 독립 재현으로 해소 완료** (`diag_maxent 0.5439`, **`raw 0.5 = 0.498232`**). L4 재현 `dev_prefix.npz`는 Drive `06_logic_closure_full_e008_e019_20261120/e019_roberta_large_repro_s42_light.zip`에 업로드 및 문서 반영 완료 |
+
+#### ▶ `E008` / `E019` `.npz` 실물 확인 및 적용 방법
+1. **Google Drive 검색 결과 (팀원 원본 없음 확인):** 팀 공유 루트 폴더 및 기존 공유 ZIP 5종(`mission4_baseline_share.zip`, `mission4_share2_E001_E007_bundle.zip`, `mission4_symptom.zip`, `Mission4_Prefix_Training_Experiment_Results.zip`, `KcELECTRA/`)에는 팀원 원본 `E008`/`E019` `.npz`가 없습니다.
+2. **현재 상태 (L4 재현본 이미 적용 완료):**
+   - `.npz` 파일은 용량·저장소 정책(`.gitignore: runs/**/*.npz`)상 GitHub에는 올리지 않고 **Google Drive `06_logic_closure_full_e008_e019_20261120/`** 안에 `e008_kfdeberta_repro_s42_light.zip`, `e019_roberta_large_repro_s42_light.zip` 형태로 업로드했습니다.
+   - GitHub `origin/mission4-submission-v2` 문서(`MISSION4_FULL_PIPELINE_AND_STORYLINE_20261118.md`, `MISSION4_EXPERIMENT_LEDGER.md`, `m4_logic_closure_20261120/EXPERIMENT_RECORD.md`, `verification_summary.json`)에는 위 L4 재현 `.npz` 기반 공식 `raw 0.5` 수치와 신뢰구간이 **이미 반영**되어 있으므로, **원본을 찾지 못해도 그대로 사용하면 됩니다.**
+3. **만약 팀원 PC에 원본 `E008`/`E019` `.npz`가 남아 있다면 어떻게 적용하는가:**
+   - 제출 번들(`ckpt/mission4.pt`) 재패킹이나 재학습은 **필요 없습니다** (두 모델 모두 비채택 유지).
+   - 확보된 원본 `dev_prefix.npz`를 `Dev 2,920` (`raw p >= 0.5`, Top-1 없음) + `5,000`회 `E002` 대비 쌍 부트스트랩 및 `ENS_swap_E2` / `4-2 C128_v1_nonempty` 기준으로 재채점(`score.py` / `scripts/eval_table.py`)한 뒤, 스토리라인·원장 표의 주 수치만 팀원 원본 결과로 교체하고 L4 재현 수치는 독립 재현 참고치로 병기하면 됩니다.
 
 ### ② 선택 보완용 (핵심 채택·논리 결론에 영향 없음)
 | 파일 (팀원 PC 기준) | 남아 있으면 얻을 수 있는 보완 정보 | 필수 여부 |
