@@ -63,6 +63,11 @@ class Mission2InferenceEngine:
         else:
             self.device = device
 
+        # Full FP32 on GPU: with TF32 convolutions (PyTorch default) cuDNN picks different
+        # algorithms per batch size, and probabilities near 0.5 can flip between runs.
+        torch.backends.cudnn.allow_tf32 = False
+        torch.backends.cuda.matmul.allow_tf32 = False
+
         ckpt_path = Path(ckpt_path).resolve()
         self.models: Dict[str, nn.Module] = {}
 
@@ -178,55 +183,64 @@ class Mission2InferenceEngine:
 
     @torch.no_grad()
     def predict_clip(self, clip_audio: np.ndarray, sr: int = SAMPLE_RATE) -> float:
+        return float(self.predict_clips([clip_audio], sr=sr)[0])
+
+    @torch.no_grad()
+    def predict_clips(self, clips: List[np.ndarray], sr: int = SAMPLE_RATE, batch_size: int = 64) -> np.ndarray:
+        """Return the ensemble probability for each clip.
+
+        Mel features are computed per clip exactly as before; only the model forward
+        passes are batched (one call per model per chunk) to avoid per-utterance GPU syncs.
+        """
         import librosa
         from m2.audio_features import normalize_clip
 
-        if sr != SAMPLE_RATE:
-            clip_audio = librosa.resample(clip_audio, orig_sr=sr, target_sr=SAMPLE_RATE)
-            sr = SAMPLE_RATE
-
-        clip_audio = normalize_clip(clip_audio, TARGET_LENGTH, "center")
-
-        probs = []
-
-        # 1. Models using 80-Mel (ReDimNet, ECAPA-TDNN)
-        if "redimnet" in self.models or "ecapa_tdnn" in self.models:
-            mel_80 = self._extract_normalized_mel(
-                clip_audio, sr=SAMPLE_RATE, n_mels=80, n_fft=512, hop_length=160
-            )
-            t_80 = torch.from_numpy(mel_80).unsqueeze(0).to(self.device)
-
-            if "redimnet" in self.models:
-                p_r = torch.sigmoid(self.models["redimnet"](t_80)).squeeze().item()
-                if not np.isfinite(p_r):
-                    raise RuntimeError(f"[Critical Error] ReDimNet2-B2 produced non-finite probability: {p_r}")
-                probs.append(p_r)
-
-            if "ecapa_tdnn" in self.models:
-                p_e = torch.sigmoid(self.models["ecapa_tdnn"](t_80)).squeeze().item()
-                if not np.isfinite(p_e):
-                    raise RuntimeError(f"[Critical Error] ECAPA-TDNN produced non-finite probability: {p_e}")
-                probs.append(p_e)
-
-        # 2. Models using 128-Mel (AudioResNet-50)
-        if "resnet50" in self.models:
-            mel_128 = self._extract_normalized_mel(
-                clip_audio, sr=SAMPLE_RATE, n_mels=128, n_fft=2048, hop_length=512
-            )
-            t_128 = torch.from_numpy(mel_128).unsqueeze(0).unsqueeze(0).to(self.device)
-            p_res = torch.sigmoid(self.models["resnet50"](t_128)).squeeze().item()
-            if not np.isfinite(p_res):
-                raise RuntimeError(f"[Critical Error] AudioResNet-50 produced non-finite probability: {p_res}")
-            probs.append(p_res)
-
-        if not probs:
+        if not self.models:
             raise RuntimeError("[Error] No active models in inference engine to compute probability.")
+        if batch_size < 1:
+            raise ValueError(f"[Error] batch_size must be >= 1, got {batch_size}")
 
-        mean_p = float(np.mean(probs))
-        if not np.isfinite(mean_p):
-            raise RuntimeError(f"[Critical Error] Final ensemble probability is non-finite: {mean_p}")
+        use_80 = "redimnet" in self.models or "ecapa_tdnn" in self.models
+        use_128 = "resnet50" in self.models
+        out = np.empty(len(clips), dtype=np.float64)
 
-        return mean_p
+        for start in range(0, len(clips), batch_size):
+            chunk = clips[start:start + batch_size]
+            mels_80, mels_128 = [], []
+            for clip_audio in chunk:
+                if sr != SAMPLE_RATE:
+                    clip_audio = librosa.resample(clip_audio, orig_sr=sr, target_sr=SAMPLE_RATE)
+                clip_audio = normalize_clip(clip_audio, TARGET_LENGTH, "center")
+                if use_80:
+                    mels_80.append(self._extract_normalized_mel(
+                        clip_audio, sr=SAMPLE_RATE, n_mels=80, n_fft=512, hop_length=160))
+                if use_128:
+                    mels_128.append(self._extract_normalized_mel(
+                        clip_audio, sr=SAMPLE_RATE, n_mels=128, n_fft=2048, hop_length=512))
+
+            # Same model order as the original per-clip loop: ReDimNet, ECAPA-TDNN, ResNet-50
+            probs = []
+            if use_80:
+                t_80 = torch.from_numpy(np.stack(mels_80)).to(self.device)
+                for key, label in (("redimnet", "ReDimNet2-B2"), ("ecapa_tdnn", "ECAPA-TDNN")):
+                    if key in self.models:
+                        p = torch.sigmoid(self.models[key](t_80)).reshape(-1).cpu().numpy().astype(np.float64)
+                        if not np.all(np.isfinite(p)):
+                            raise RuntimeError(f"[Critical Error] {label} produced non-finite probability")
+                        probs.append(p)
+            if use_128:
+                t_128 = torch.from_numpy(np.stack(mels_128)).unsqueeze(1).to(self.device)
+                p = torch.sigmoid(self.models["resnet50"](t_128)).reshape(-1).cpu().numpy().astype(np.float64)
+                if not np.all(np.isfinite(p)):
+                    raise RuntimeError("[Critical Error] AudioResNet-50 produced non-finite probability")
+                probs.append(p)
+
+            mean_p = np.mean(np.stack(probs, axis=0), axis=0)
+            if not np.all(np.isfinite(mean_p)):
+                raise RuntimeError("[Critical Error] Final ensemble probability is non-finite")
+            out[start:start + len(chunk)] = mean_p
+
+        return out
 
     @staticmethod
     def _extract_normalized_mel(
@@ -242,6 +256,7 @@ def predict_directory(
     ckpt_path: Path,
     output_path: Optional[Path] = None,
     ensemble_mode: str = "auto",
+    batch_size: int = 64,
 ) -> pd.DataFrame:
     import librosa
     from m2.audio_features import load_and_resample_call, extract_utterance_clip
@@ -315,24 +330,19 @@ def predict_directory(
                 missing_audio_utts += 1
             continue
 
+        clips, spans = [], []
         for utt in dialog_list:
             start_value = utt.get("startAt", utt.get("start_time", 0))
             end_value = utt.get("endAt", utt.get("end_time", 0))
-            start_ms, end_ms = int(start_value), int(end_value)
+            spans.append((int(start_value), int(end_value)))
+            clips.append(extract_utterance_clip(full_audio, float(start_value), float(end_value), crop_mode="center"))
 
-            clip = extract_utterance_clip(full_audio, float(start_value), float(end_value), crop_mode="center")
+        try:
+            call_probs = engine.predict_clips(clips, sr=sr, batch_size=batch_size)
+        except Exception as e:
+            raise RuntimeError(f"[Critical Error in {wav_name}]: {e}") from e
 
-            try:
-                prob_1 = engine.predict_clip(clip, sr=sr)
-            except Exception as e:
-                raise RuntimeError(
-                    f"[Critical Error in {wav_name} ({start_ms}-{end_ms} ms)]: {e}"
-                ) from e
-
-            if not np.isfinite(prob_1):
-                raise RuntimeError(
-                    f"[Critical Error in {wav_name} ({start_ms}-{end_ms} ms)]: Non-finite probability ({prob_1})"
-                )
+        for utt, (start_ms, end_ms), prob_1 in zip(dialog_list, spans, call_probs):
             final_pred = 1 if prob_1 >= DECISION_THRESHOLD else 0
 
             if "speaker" in utt:
